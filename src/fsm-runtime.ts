@@ -51,12 +51,22 @@ export class FSMRuntime extends EventEmitter {
   private persistence: PersistenceManager | null;
   private componentDef: Component;
 
+  // Performance: Hash-based indexes for efficient property matching (XComponent pattern)
+  private machineIndex: Map<string, Set<string>>; // machineName → Set<instanceId>
+  private stateIndex: Map<string, Set<string>>; // "machineName:state" → Set<instanceId>
+  private propertyIndex: Map<string, Set<string>>; // "machineName:propName:propValue" → Set<instanceId>
+
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
     this.instances = new Map();
     this.machines = new Map();
     this.timeouts = new Map();
     this.componentDef = component;
+
+    // Initialize indexes
+    this.machineIndex = new Map();
+    this.stateIndex = new Map();
+    this.propertyIndex = new Map();
 
     // Setup persistence (optional)
     if (persistenceConfig && (persistenceConfig.eventSourcing || persistenceConfig.snapshots)) {
@@ -114,6 +124,10 @@ export class FSMRuntime extends EventEmitter {
     };
 
     this.instances.set(instanceId, instance);
+
+    // Add to indexes for fast lookups
+    this.addToIndex(instance);
+
     this.emit('instance_created', instance);
 
     // Setup timeout transitions if any from initial state
@@ -169,6 +183,9 @@ export class FSMRuntime extends EventEmitter {
       instance.currentState = transition.to;
       instance.updatedAt = Date.now();
 
+      // Update indexes
+      this.updateIndexOnStateChange(instance, previousState, transition.to);
+
       // Persist event (event sourcing)
       let eventId = '';
       if (this.persistence) {
@@ -205,6 +222,10 @@ export class FSMRuntime extends EventEmitter {
       const targetState = machine.states.find(s => s.name === transition.to);
       if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
         instance.status = targetState.type === StateType.FINAL ? 'completed' : 'error';
+
+        // Remove from indexes before disposing
+        this.removeFromIndex(instance);
+
         this.emit('instance_disposed', instance);
         this.instances.delete(instanceId);
         return;
@@ -227,6 +248,10 @@ export class FSMRuntime extends EventEmitter {
       }
     } catch (error: any) {
       instance.status = 'error';
+
+      // Remove from indexes before deleting
+      this.removeFromIndex(instance);
+
       this.emit('instance_error', { instanceId, error: error.message });
       this.instances.delete(instanceId);
     }
@@ -339,10 +364,47 @@ export class FSMRuntime extends EventEmitter {
     event: FSMEvent,
     matchingRules: MatchingRule[]
   ): FSMInstance[] {
-    // Get all instances of the target machine in the specified state
-    const candidates = Array.from(this.instances.values()).filter(
-      i => i.machineName === machineName && i.currentState === currentState && i.status === 'active'
-    );
+    // Performance optimization: Use hash-based index for O(1) lookup
+    // Instead of iterating all instances, use state index
+
+    // Try to use property index for direct lookup (fastest path)
+    // If we have a single matching rule with === operator, we can use the property index
+    if (matchingRules.length === 1 && (!matchingRules[0].operator || matchingRules[0].operator === '===')) {
+      const rule = matchingRules[0];
+      const eventValue = this.getNestedProperty(event.payload, rule.eventProperty);
+
+      if (eventValue !== undefined) {
+        // Check if property is top-level (no dots) for direct index lookup
+        if (!rule.instanceProperty.includes('.')) {
+          const propKey = `${machineName}:${rule.instanceProperty}:${String(eventValue)}`;
+          const candidateIds = this.propertyIndex.get(propKey);
+
+          if (candidateIds) {
+            // Filter by state and status
+            return Array.from(candidateIds)
+              .map(id => this.instances.get(id)!)
+              .filter(instance =>
+                instance &&
+                instance.currentState === currentState &&
+                instance.status === 'active'
+              );
+          }
+        }
+      }
+    }
+
+    // Fallback: Use state index (still faster than iterating all instances)
+    const stateKey = `${machineName}:${currentState}`;
+    const candidateIds = this.stateIndex.get(stateKey);
+
+    if (!candidateIds || candidateIds.size === 0) {
+      return [];
+    }
+
+    // Get instances and filter by matching rules
+    const candidates = Array.from(candidateIds)
+      .map(id => this.instances.get(id)!)
+      .filter(instance => instance && instance.status === 'active');
 
     // Filter by matching rules
     return candidates.filter(instance => {
@@ -654,6 +716,85 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
+   * Add instance to indexes (for O(1) lookup)
+   * Performance optimization: XComponent hash-based matching
+   */
+  private addToIndex(instance: FSMInstance): void {
+    const { id, machineName, currentState, publicMember, context } = instance;
+
+    // Machine index
+    if (!this.machineIndex.has(machineName)) {
+      this.machineIndex.set(machineName, new Set());
+    }
+    this.machineIndex.get(machineName)!.add(id);
+
+    // State index
+    const stateKey = `${machineName}:${currentState}`;
+    if (!this.stateIndex.has(stateKey)) {
+      this.stateIndex.set(stateKey, new Set());
+    }
+    this.stateIndex.get(stateKey)!.add(id);
+
+    // Property index (for commonly matched properties)
+    const instanceData = publicMember || context;
+    if (instanceData) {
+      // Index all top-level properties for fast matching
+      for (const [propName, propValue] of Object.entries(instanceData)) {
+        if (propValue !== null && propValue !== undefined) {
+          const propKey = `${machineName}:${propName}:${String(propValue)}`;
+          if (!this.propertyIndex.has(propKey)) {
+            this.propertyIndex.set(propKey, new Set());
+          }
+          this.propertyIndex.get(propKey)!.add(id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove instance from indexes
+   */
+  private removeFromIndex(instance: FSMInstance): void {
+    const { id, machineName, currentState, publicMember, context } = instance;
+
+    // Machine index
+    this.machineIndex.get(machineName)?.delete(id);
+
+    // State index
+    const stateKey = `${machineName}:${currentState}`;
+    this.stateIndex.get(stateKey)?.delete(id);
+
+    // Property index
+    const instanceData = publicMember || context;
+    if (instanceData) {
+      for (const [propName, propValue] of Object.entries(instanceData)) {
+        if (propValue !== null && propValue !== undefined) {
+          const propKey = `${machineName}:${propName}:${String(propValue)}`;
+          this.propertyIndex.get(propKey)?.delete(id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Update state index when state changes
+   */
+  private updateIndexOnStateChange(instance: FSMInstance, oldState: string, newState: string): void {
+    const { id, machineName } = instance;
+
+    // Remove from old state index
+    const oldStateKey = `${machineName}:${oldState}`;
+    this.stateIndex.get(oldStateKey)?.delete(id);
+
+    // Add to new state index
+    const newStateKey = `${machineName}:${newState}`;
+    if (!this.stateIndex.has(newStateKey)) {
+      this.stateIndex.set(newStateKey, new Set());
+    }
+    this.stateIndex.get(newStateKey)!.add(id);
+  }
+
+  /**
    * Process a single cascading rule
    *
    * Applies payload templating and broadcasts event to target instances
@@ -683,21 +824,26 @@ export class FSMRuntime extends EventEmitter {
       processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
     } else {
       // No matching rules - send to ALL instances in target state
-      const targetInstances = Array.from(this.instances.values()).filter(
-        i => i.machineName === rule.targetMachine && i.currentState === rule.targetState && i.status === 'active'
-      );
+      // Performance: Use state index instead of iterating all instances
+      const stateKey = `${rule.targetMachine}:${rule.targetState}`;
+      const candidateIds = this.stateIndex.get(stateKey);
 
-      for (const instance of targetInstances) {
-        try {
-          await this.sendEvent(instance.id, event);
-          processedCount++;
-        } catch (error: any) {
-          // Continue processing other instances even if one fails
-          this.emit('cascade_error', {
-            sourceInstanceId: sourceInstance.id,
-            targetInstanceId: instance.id,
-            error: error.message,
-          });
+      if (candidateIds) {
+        for (const instanceId of candidateIds) {
+          const instance = this.instances.get(instanceId);
+          if (!instance || instance.status !== 'active') continue;
+
+          try {
+            await this.sendEvent(instance.id, event);
+            processedCount++;
+          } catch (error: any) {
+            // Continue processing other instances even if one fails
+            this.emit('cascade_error', {
+              sourceInstanceId: sourceInstance.id,
+              targetInstanceId: instance.id,
+              error: error.message,
+            });
+          }
         }
       }
     }

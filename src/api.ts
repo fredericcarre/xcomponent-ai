@@ -272,7 +272,7 @@ export class APIServer {
       }
     });
 
-    // Trace event causality
+    // Trace event causality (single component)
     this.app.get('/api/:component/causality/:eventId', async (req: Request, res: Response) => {
       try {
         const componentName = req.params.component as string;
@@ -285,6 +285,40 @@ export class APIServer {
 
         const causality = await runtime.traceEventCausality(eventId);
         return res.json({ success: true, data: { causality } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Cross-component traceability: trace event across all components
+    this.app.get('/api/cross-component/causality/:eventId', async (req: Request, res: Response) => {
+      try {
+        const eventId = req.params.eventId as string;
+
+        const causality = await this.registry.traceEventAcrossComponents(eventId);
+        return res.json({ success: true, data: { causality, count: causality.length } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Cross-component traceability: get all events across all components
+    this.app.get('/api/cross-component/events', async (req: Request, res: Response) => {
+      try {
+        const events = await this.registry.getAllPersistedEvents();
+        return res.json({ success: true, data: { events, count: events.length } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Cross-component traceability: get instance history across components
+    this.app.get('/api/cross-component/instance/:instanceId/history', async (req: Request, res: Response) => {
+      try {
+        const instanceId = req.params.instanceId as string;
+
+        const history = await this.registry.getInstanceHistory(instanceId);
+        return res.json({ success: true, data: { history, count: history.length } });
       } catch (error: any) {
         return res.status(500).json({ success: false, error: error.message });
       }

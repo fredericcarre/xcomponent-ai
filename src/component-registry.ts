@@ -312,6 +312,104 @@ export class ComponentRegistry extends EventEmitter {
   }
 
   /**
+   * Trace event causality across all components
+   *
+   * Follows event chains across component boundaries to show
+   * complete system-wide workflows
+   *
+   * @param eventId Starting event ID
+   * @returns Array of persisted events showing full causality chain
+   */
+  async traceEventAcrossComponents(eventId: string): Promise<import('./types').PersistedEvent[]> {
+    const allEvents: import('./types').PersistedEvent[] = [];
+    const eventMap = new Map<string, import('./types').PersistedEvent>();
+
+    // Collect all events from all components
+    for (const [, runtime] of this.runtimes) {
+      try {
+        const events = await runtime.getAllPersistedEvents();
+        events.forEach(event => {
+          eventMap.set(event.id, event);
+          allEvents.push(event);
+        });
+      } catch (error) {
+        // Component may not have persistence enabled, skip
+        continue;
+      }
+    }
+
+    // Build causality chain
+    const result: import('./types').PersistedEvent[] = [];
+    const visited = new Set<string>();
+
+    const trace = (id: string) => {
+      if (visited.has(id)) return;
+      visited.add(id);
+
+      const event = eventMap.get(id);
+      if (!event) return;
+
+      result.push(event);
+
+      // Trace caused events recursively
+      if (event.caused && event.caused.length > 0) {
+        for (const causedId of event.caused) {
+          trace(causedId);
+        }
+      }
+    };
+
+    trace(eventId);
+    return result;
+  }
+
+  /**
+   * Get all persisted events across all components
+   *
+   * Useful for system-wide analysis, debugging, and monitoring
+   *
+   * @returns Array of all persisted events from all components
+   */
+  async getAllPersistedEvents(): Promise<import('./types').PersistedEvent[]> {
+    const eventMap = new Map<string, import('./types').PersistedEvent>();
+
+    for (const [, runtime] of this.runtimes) {
+      try {
+        const events = await runtime.getAllPersistedEvents();
+        // Deduplicate by event ID (in case components share event store)
+        events.forEach(event => eventMap.set(event.id, event));
+      } catch (error) {
+        // Component may not have persistence enabled, skip
+        continue;
+      }
+    }
+
+    // Convert to array and sort by timestamp
+    return Array.from(eventMap.values()).sort((a, b) => a.persistedAt - b.persistedAt);
+  }
+
+  /**
+   * Get persisted events for a specific instance across components
+   *
+   * @param instanceId Instance ID to query
+   * @returns Array of persisted events for the instance
+   */
+  async getInstanceHistory(instanceId: string): Promise<import('./types').PersistedEvent[]> {
+    for (const [, runtime] of this.runtimes) {
+      try {
+        const instance = runtime.getInstance(instanceId);
+        if (instance) {
+          return await runtime.getInstanceHistory(instanceId);
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    return [];
+  }
+
+  /**
    * Forward runtime events to registry
    */
   private forwardRuntimeEvents(componentName: string, runtime: FSMRuntime): void {

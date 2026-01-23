@@ -237,6 +237,7 @@ export class FSMRuntime extends EventEmitter {
         eventId = await this.persistence.persistEvent(
           instanceId,
           instance.machineName,
+          this.componentDef.name,
           event,
           previousState,
           transition.to
@@ -255,6 +256,7 @@ export class FSMRuntime extends EventEmitter {
         previousState,
         newState: transition.to,
         event,
+        eventId,
         timestamp: Date.now(),
       });
 
@@ -1272,6 +1274,17 @@ export class FSMRuntime extends EventEmitter {
     }
 
     return await this.persistence.getInstanceEvents(instanceId);
+  }
+
+  /**
+   * Get all persisted events for this component
+   */
+  async getAllPersistedEvents(): Promise<import('./types').PersistedEvent[]> {
+    if (!this.persistence) {
+      return [];
+    }
+
+    return await this.persistence.getAllEvents();
   }
 
   /**

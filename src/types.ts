@@ -340,6 +340,8 @@ export interface PersistedEvent {
   instanceId: string;
   /** Machine name */
   machineName: string;
+  /** Component name where this event occurred */
+  componentName: string;
   /** The FSM event */
   event: FSMEvent;
   /** State before transition */
@@ -352,6 +354,10 @@ export interface PersistedEvent {
   causedBy?: string[];
   /** Causality: IDs of events caused by this event */
   caused?: string[];
+  /** Cross-component: Source component name (if event originated from another component) */
+  sourceComponentName?: string;
+  /** Cross-component: Target component name (if event was sent to another component) */
+  targetComponentName?: string;
 }
 
 /**

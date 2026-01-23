@@ -56,6 +56,19 @@ export interface Guard {
 }
 
 /**
+ * Property matching rule for instance routing
+ * Enables XComponent-style event routing: ExecutionInput.OrderId = Order.Id
+ */
+export interface MatchingRule {
+  /** Property path in event payload (e.g., "OrderId", "customer.id") */
+  eventProperty: string;
+  /** Property path in instance context (e.g., "Id", "customer.id") */
+  instanceProperty: string;
+  /** Optional comparison operator (default: '===') */
+  operator?: '===' | '!==' | '>' | '<' | '>=' | '<=';
+}
+
+/**
  * State definition
  */
 export interface State {
@@ -91,6 +104,21 @@ export interface Transition {
   targetMachine?: string;
   /** Triggered method name */
   triggeredMethod?: string;
+  /**
+   * Property matching rules for instance routing (XComponent-style)
+   * When present, event is routed to instances where these property equality checks pass
+   * Example: ExecutionInput.OrderId = Order.Id
+   */
+  matchingRules?: MatchingRule[];
+  /**
+   * Specific triggering rule for differentiation when multiple transitions
+   * from same state use same event
+   * Boolean JavaScript expression evaluated with (event, context)
+   * Example: "event.payload.Quantity === context.RemainingQuantity"
+   */
+  specificTriggeringRule?: string;
+  /** Metadata */
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -105,6 +133,12 @@ export interface StateMachine {
   transitions: Transition[];
   /** Initial state name */
   initialState: string;
+  /**
+   * Public member type name (XComponent pattern)
+   * Defines the business object type visible to external components
+   * Example: "Order", "Trade", "Customer"
+   */
+  publicMemberType?: string;
   /** Metadata */
   metadata?: Record<string, any>;
 }
@@ -145,8 +179,22 @@ export interface FSMInstance {
   machineName: string;
   /** Current state */
   currentState: string;
-  /** Context data */
+  /**
+   * Context data (legacy/simple usage)
+   * For XComponent pattern, use publicMember + internalMember instead
+   */
   context: Record<string, any>;
+  /**
+   * Public member (XComponent pattern)
+   * Business object visible to external components/APIs
+   * Example: Order { Id, Quantity, AssetName, ... }
+   */
+  publicMember?: Record<string, any>;
+  /**
+   * Internal member (XComponent pattern)
+   * Private state not exposed externally (rarely used)
+   */
+  internalMember?: Record<string, any>;
   /** Creation timestamp */
   createdAt: number;
   /** Last update timestamp */

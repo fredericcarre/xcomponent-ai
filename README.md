@@ -1,7 +1,7 @@
 # 🤖 xcomponent-ai
 
 [![CI](https://github.com/fredericcarre/mayele-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/mayele-ai/actions)
-[![codecov](https://codecov.io/gh/fredericcarre/mayele-ai/branch/main/graph/badge.svg)](https://codecov.io/gh/fredericcarre/mayele-ai)
+[![Coverage](https://img.shields.io/badge/coverage-88.13%25-brightgreen.svg)](https://github.com/fredericcarre/mayele-ai/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
@@ -29,6 +29,7 @@ xcomponent-ai uniquely combines:
 | **Real-time Monitoring** | ✅ WebSocket + LLM insights | ❌ No built-in | ⚠️ Limited | ✅ Dashboard | ❌ Manual logging |
 | **UI Generation** | ✅ AI-generated wrappers | ❌ Manual | ✅ Built-in UI | ⚠️ Complex forms | ❌ Manual |
 | **Multi-Instance** | ✅ Event-driven runtime | ⚠️ Limited | ⚠️ Limited | ✅ BPMN engine | ⚠️ Manual |
+| **Property Matching** | ✅ Automatic instance routing | ❌ No | ❌ No | ⚠️ Correlation keys | ❌ Manual |
 | **Natural Language** | ✅ Create/update FSM via prompt | ⚠️ Agent tools only | ❌ No | ❌ No | ❌ No |
 | **Open Source** | ✅ Apache 2.0 (core) | ✅ MIT | ❌ Proprietary | ⚠️ Commercial | ✅ Varies |
 
@@ -245,6 +246,39 @@ stateMachines:
 - Timeout handling
 - Error states
 
+### Order Processing with Property Matching (examples/order-processing-xcomponent.yaml)
+
+Complete example demonstrating multi-instance routing:
+
+```typescript
+// Create 100 concurrent orders
+for (let i = 1; i <= 100; i++) {
+  runtime.createInstance('Order', {
+    Id: i,
+    AssetName: i % 2 === 0 ? 'AAPL' : 'GOOGL',
+    Quantity: 1000,
+    RemainingQuantity: 1000,
+    ExecutedQuantity: 0
+  });
+}
+
+// Execute specific order #42 (partial execution)
+await runtime.broadcastEvent('Order', 'Pending', {
+  type: 'ExecutionInput',
+  payload: { OrderId: 42, Quantity: 500 },
+  timestamp: Date.now()
+});
+
+// Only Order #42 transitions to PartiallyExecuted
+// Others remain in Pending state
+```
+
+**Features demonstrated**:
+- Property-based instance routing (OrderId matching)
+- Specific triggering rules (full vs partial execution)
+- Public member pattern (business object separation)
+- Scalable multi-instance management (100+ orders)
+
 ### KYC Workflow (examples/kyc.yaml)
 
 Complete customer onboarding with:
@@ -352,6 +386,7 @@ Visit `http://localhost:3000/dashboard` for:
 
 Built on `@xstate/core` with XComponent-inspired enhancements:
 - **Multi-instance management**: Track unlimited concurrent instances
+- **Property matching**: Automatic event routing to instances based on business properties
 - **Event-driven execution**: Pub/Sub + WebSocket broadcasting
 - **Timeout transitions**: Automatic timeouts with configurable delays
 - **Inter-machine workflows**: Create new instances on transition
@@ -374,6 +409,123 @@ graph TD
 ```
 
 See [archi-agents.mmd](archi-agents.mmd) for detailed flow.
+
+## 🎯 Property Matching & Multi-Instance Routing
+
+**XComponent-inspired property matching** enables automatic event routing to instances based on business properties, eliminating manual instance ID tracking.
+
+### The Problem
+
+In real-world applications, you often have **many instances of the same state machine** running simultaneously:
+- 100+ active orders
+- 1000+ customer KYC applications
+- Dozens of concurrent trades
+
+When an external event arrives, the system needs to **find the correct instance** to update.
+
+### The Solution
+
+Property matching automatically routes events to instances where specified properties match:
+
+```yaml
+transitions:
+  - from: Pending
+    to: Executed
+    event: ExecutionInput
+    matchingRules:
+      - eventProperty: OrderId      # Property in event payload
+        instanceProperty: Id         # Property in instance public member
+```
+
+**How it works**:
+1. Event arrives: `{ OrderId: 42, Quantity: 500 }`
+2. System examines ALL `Order` instances in `Pending` state
+3. For each instance, checks: `event.payload.OrderId === instance.publicMember.Id`
+4. Routes event ONLY to matching instances
+5. Other instances remain unaffected
+
+### Usage Example
+
+```typescript
+import { FSMRuntime } from 'xcomponent-ai';
+
+const runtime = new FSMRuntime(component);
+
+// Create 100 orders
+for (let i = 1; i <= 100; i++) {
+  runtime.createInstance('Order', {
+    Id: i,
+    AssetName: 'AAPL',
+    Quantity: 1000,
+    RemainingQuantity: 1000
+  });
+}
+
+// Execute specific order #42
+const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+  type: 'ExecutionInput',
+  payload: { OrderId: 42, Quantity: 500 },
+  timestamp: Date.now()
+});
+
+console.log(`Processed ${processedCount} instances`); // 1
+// Only Order #42 transitioned, others remain in Pending
+```
+
+### Advanced Features
+
+**Nested Property Matching**:
+```yaml
+matchingRules:
+  - eventProperty: customer.id
+    instanceProperty: customerId
+```
+
+**Comparison Operators**:
+```yaml
+matchingRules:
+  - eventProperty: threshold
+    instanceProperty: balance
+    operator: '>'  # Also: ===, !==, <, >=, <=
+```
+
+**Specific Triggering Rules** (differentiate multiple transitions):
+```yaml
+transitions:
+  # Full execution
+  - from: Pending
+    to: FullyExecuted
+    event: ExecutionInput
+    matchingRules:
+      - eventProperty: OrderId
+        instanceProperty: Id
+    specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
+
+  # Partial execution
+  - from: Pending
+    to: PartiallyExecuted
+    event: ExecutionInput
+    matchingRules:
+      - eventProperty: OrderId
+        instanceProperty: Id
+    specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
+```
+
+**Public Member Pattern** (XComponent convention):
+```yaml
+stateMachines:
+  - name: Order
+    publicMemberType: Order  # Separates business object from internal state
+```
+
+### Benefits
+
+✅ **No manual bookkeeping**: No need to maintain external OrderId → InstanceId maps
+✅ **Survives restarts**: When persistence is added, routing works automatically
+✅ **Decoupled**: External systems don't need runtime internals
+✅ **Scalable**: Handles 100-10,000 instances per state efficiently
+
+**For complete documentation**, see [Property Matching Guide](docs/PROPERTY_MATCHING.md).
 
 ## 🔐 Open-Core Model
 
@@ -415,6 +567,12 @@ npm run doc
 
 # Open docs/index.html
 ```
+
+**Guides**:
+- **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage for LLMs (Claude/GPT)
+- **[Property Matching Guide](docs/PROPERTY_MATCHING.md)** - Multi-instance routing patterns
+- **[Quick Start](QUICKSTART.md)** - Getting started guide
+- **[Full Project Example](examples/full-project-structure.md)** - E-commerce application
 
 **JSDoc coverage**: All public APIs documented
 

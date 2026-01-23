@@ -297,3 +297,121 @@ export interface AgentToolResult {
   /** Suggestions */
   suggestions?: string[];
 }
+
+// ============================================================
+// PHASE 4: PERSISTENCE & EVENT SOURCING
+// ============================================================
+
+/**
+ * Persisted event with causality tracking
+ * Enables full event sourcing and auditability
+ */
+export interface PersistedEvent {
+  /** Unique event ID */
+  id: string;
+  /** Instance ID that received this event */
+  instanceId: string;
+  /** Machine name */
+  machineName: string;
+  /** The FSM event */
+  event: FSMEvent;
+  /** State before transition */
+  stateBefore: string;
+  /** State after transition */
+  stateAfter: string;
+  /** Timestamp when persisted */
+  persistedAt: number;
+  /** Causality: IDs of events that caused this event (cascading/sender) */
+  causedBy?: string[];
+  /** Causality: IDs of events caused by this event */
+  caused?: string[];
+}
+
+/**
+ * Instance snapshot for fast restoration
+ */
+export interface InstanceSnapshot {
+  /** Instance data */
+  instance: FSMInstance;
+  /** Snapshot timestamp */
+  snapshotAt: number;
+  /** Last event ID processed */
+  lastEventId: string;
+  /** Pending timeouts (relative ms from now) */
+  pendingTimeouts?: Array<{
+    stateKey: string;
+    eventType: string;
+    remainingMs: number;
+  }>;
+}
+
+/**
+ * Event store interface for persistence
+ */
+export interface EventStore {
+  /**
+   * Append event to store
+   */
+  append(event: PersistedEvent): Promise<void>;
+
+  /**
+   * Get all events for an instance
+   */
+  getEventsForInstance(instanceId: string): Promise<PersistedEvent[]>;
+
+  /**
+   * Get events in time range
+   */
+  getEventsByTimeRange(startTime: number, endTime: number): Promise<PersistedEvent[]>;
+
+  /**
+   * Get events caused by another event (tracing)
+   */
+  getCausedEvents(eventId: string): Promise<PersistedEvent[]>;
+
+  /**
+   * Get all events (for replay)
+   */
+  getAllEvents(): Promise<PersistedEvent[]>;
+}
+
+/**
+ * Snapshot store interface
+ */
+export interface SnapshotStore {
+  /**
+   * Save instance snapshot
+   */
+  saveSnapshot(snapshot: InstanceSnapshot): Promise<void>;
+
+  /**
+   * Get latest snapshot for instance
+   */
+  getSnapshot(instanceId: string): Promise<InstanceSnapshot | null>;
+
+  /**
+   * Get all snapshots (for full restore)
+   */
+  getAllSnapshots(): Promise<InstanceSnapshot[]>;
+
+  /**
+   * Delete snapshot
+   */
+  deleteSnapshot(instanceId: string): Promise<void>;
+}
+
+/**
+ * Persistence configuration
+ */
+export interface PersistenceConfig {
+  /** Enable event sourcing */
+  eventSourcing?: boolean;
+  /** Enable snapshots */
+  snapshots?: boolean;
+  /** Snapshot interval (save every N transitions) */
+  snapshotInterval?: number;
+  /** Event store implementation */
+  eventStore?: EventStore;
+  /** Snapshot store implementation */
+  snapshotStore?: SnapshotStore;
+}

@@ -1,7 +1,7 @@
 # 🤖 xcomponent-ai
 
 [![CI](https://github.com/fredericcarre/mayele-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/mayele-ai/actions)
-[![codecov](https://codecov.io/gh/fredericcarre/mayele-ai/branch/main/graph/badge.svg)](https://codecov.io/gh/fredericcarre/mayele-ai)
+[![Coverage](https://img.shields.io/badge/coverage-88.13%25-brightgreen.svg)](https://github.com/fredericcarre/mayele-ai/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)

@@ -18,6 +18,7 @@ import {
   PersistenceConfig,
 } from './types';
 import type { MatchingRule } from './types';
+import { TimerWheel } from './timer-wheel';
 import { PersistenceManager, InMemoryEventStore, InMemorySnapshotStore } from './persistence';
 
 /**
@@ -47,7 +48,8 @@ class SenderImpl implements Sender {
 export class FSMRuntime extends EventEmitter {
   private instances: Map<string, FSMInstance>;
   private machines: Map<string, StateMachine>;
-  private timeouts: Map<string, NodeJS.Timeout>;
+  private timerWheel: TimerWheel; // Performance: Single timer for all timeouts
+  private timeoutTasks: Map<string, string[]>; // instanceId → taskIds (for cleanup)
   private persistence: PersistenceManager | null;
   private componentDef: Component;
 
@@ -60,13 +62,20 @@ export class FSMRuntime extends EventEmitter {
     super();
     this.instances = new Map();
     this.machines = new Map();
-    this.timeouts = new Map();
+    // Timer wheel: 10ms ticks for high precision, 6000 buckets = 60s max
+    // Still O(1) with single timer - 10ms granularity is sufficient for most use cases
+    // For longer timeouts (>60s), tasks will wrap around (multi-lap)
+    this.timerWheel = new TimerWheel(10, 6000);
+    this.timeoutTasks = new Map(); // Track tasks for cleanup
     this.componentDef = component;
 
     // Initialize indexes
     this.machineIndex = new Map();
     this.stateIndex = new Map();
     this.propertyIndex = new Map();
+
+    // Start timer wheel
+    this.timerWheel.start();
 
     // Setup persistence (optional)
     if (persistenceConfig && (persistenceConfig.eventSourcing || persistenceConfig.snapshots)) {
@@ -214,8 +223,10 @@ export class FSMRuntime extends EventEmitter {
       });
 
       // Save snapshot if needed
+      // Note: With timer wheel, we don't pass pending timeouts map
+      // Timeouts are resynchronized during restore() based on elapsed time
       if (this.persistence) {
-        await this.persistence.maybeSnapshot(instance, eventId, this.timeouts);
+        await this.persistence.maybeSnapshot(instance, eventId, undefined);
       }
 
       // Check if final or error state
@@ -604,6 +615,12 @@ export class FSMRuntime extends EventEmitter {
   /**
    * Setup timeout transitions
    */
+  /**
+   * Setup timeout transitions using timer wheel (performance optimized)
+   *
+   * Instead of creating one setTimeout per instance (O(n) timers),
+   * use a single timer wheel that manages all timeouts (O(1) timer).
+   */
   private setupTimeouts(instanceId: string, stateName: string): void {
     const instance = this.instances.get(instanceId);
     if (!instance) return;
@@ -617,15 +634,35 @@ export class FSMRuntime extends EventEmitter {
 
     timeoutTransitions.forEach(transition => {
       if (transition.timeoutMs) {
-        const timeout = setTimeout(() => {
-          this.sendEvent(instanceId, {
-            type: transition.event,
-            payload: { reason: 'timeout' },
-            timestamp: Date.now(),
-          });
-        }, transition.timeoutMs);
+        const taskId = `${instanceId}-${stateName}-${transition.event}`;
 
-        this.timeouts.set(`${instanceId}-${stateName}`, timeout);
+        // Track task for cleanup
+        if (!this.timeoutTasks.has(instanceId)) {
+          this.timeoutTasks.set(instanceId, []);
+        }
+        this.timeoutTasks.get(instanceId)!.push(taskId);
+
+        // Use timer wheel instead of setTimeout
+        this.timerWheel.addTimeout(taskId, transition.timeoutMs, () => {
+          // Check if instance still exists and is in the same state
+          const currentInstance = this.instances.get(instanceId);
+          if (currentInstance && currentInstance.currentState === stateName) {
+            this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'timeout' },
+              timestamp: Date.now(),
+            }).catch(error => {
+              console.error(`Timeout event failed for ${instanceId}:`, error);
+            });
+          }
+
+          // Remove taskId from tracking
+          const tasks = this.timeoutTasks.get(instanceId);
+          if (tasks) {
+            const index = tasks.indexOf(taskId);
+            if (index >= 0) tasks.splice(index, 1);
+          }
+        });
       }
     });
   }
@@ -666,15 +703,35 @@ export class FSMRuntime extends EventEmitter {
       }
 
       const delay = transition.timeoutMs || 0; // Default to immediate (0ms)
-      const timeout = setTimeout(() => {
-        this.sendEvent(instanceId, {
-          type: transition.event,
-          payload: { reason: 'auto-transition' },
-          timestamp: Date.now(),
-        });
-      }, delay);
+      const taskId = `${instanceId}-${stateName}-auto-${transition.event}`;
 
-      this.timeouts.set(`${instanceId}-${stateName}-auto`, timeout);
+      // Track task for cleanup
+      if (!this.timeoutTasks.has(instanceId)) {
+        this.timeoutTasks.set(instanceId, []);
+      }
+      this.timeoutTasks.get(instanceId)!.push(taskId);
+
+      // Use timer wheel for auto-transitions
+      this.timerWheel.addTimeout(taskId, delay, () => {
+        // Check if instance still exists and is in the same state
+        const currentInstance = this.instances.get(instanceId);
+        if (currentInstance && currentInstance.currentState === stateName) {
+          this.sendEvent(instanceId, {
+            type: transition.event,
+            payload: { reason: 'auto-transition' },
+            timestamp: Date.now(),
+          }).catch(error => {
+            console.error(`Auto-transition failed for ${instanceId}:`, error);
+          });
+        }
+
+        // Remove taskId from tracking
+        const tasks = this.timeoutTasks.get(instanceId);
+        if (tasks) {
+          const index = tasks.indexOf(taskId);
+          if (index >= 0) tasks.splice(index, 1);
+        }
+      });
     });
   }
 
@@ -891,14 +948,16 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
-   * Clear timeouts for instance
+   * Clear timeouts for instance (using timer wheel)
    */
   private clearTimeouts(instanceId: string): void {
-    for (const [key, timeout] of this.timeouts.entries()) {
-      if (key.startsWith(instanceId)) {
-        clearTimeout(timeout);
-        this.timeouts.delete(key);
-      }
+    const taskIds = this.timeoutTasks.get(instanceId);
+    if (taskIds) {
+      // Remove all timeout tasks for this instance
+      taskIds.forEach(taskId => {
+        this.timerWheel.removeTimeout(taskId);
+      });
+      this.timeoutTasks.delete(instanceId);
     }
   }
 
@@ -1071,16 +1130,35 @@ export class FSMRuntime extends EventEmitter {
             });
           }
         } else {
-          // Timeout still pending - reschedule with remaining time
-          const timeout = setTimeout(() => {
-            this.sendEvent(instanceId, {
-              type: transition.event,
-              payload: { reason: 'timeout' },
-              timestamp: Date.now(),
-            });
-          }, remainingMs);
+          // Timeout still pending - reschedule with remaining time using timer wheel
+          const taskId = `${instanceId}-${instance.currentState}-${transition.event}`;
 
-          this.timeouts.set(`${instanceId}-${instance.currentState}`, timeout);
+          // Track task for cleanup
+          if (!this.timeoutTasks.has(instanceId)) {
+            this.timeoutTasks.set(instanceId, []);
+          }
+          this.timeoutTasks.get(instanceId)!.push(taskId);
+
+          this.timerWheel.addTimeout(taskId, remainingMs, () => {
+            const currentInstance = this.instances.get(instanceId);
+            if (currentInstance && currentInstance.currentState === instance.currentState) {
+              this.sendEvent(instanceId, {
+                type: transition.event,
+                payload: { reason: 'timeout' },
+                timestamp: Date.now(),
+              }).catch(error => {
+                console.error(`Timeout resync failed for ${instanceId}:`, error);
+              });
+            }
+
+            // Remove taskId from tracking
+            const tasks = this.timeoutTasks.get(instanceId);
+            if (tasks) {
+              const index = tasks.indexOf(taskId);
+              if (index >= 0) tasks.splice(index, 1);
+            }
+          });
+
           synced++;
         }
       }
@@ -1107,15 +1185,34 @@ export class FSMRuntime extends EventEmitter {
         const elapsedMs = Date.now() - instance.updatedAt;
         const remainingMs = Math.max(0, delay - elapsedMs);
 
-        const timeout = setTimeout(() => {
-          this.sendEvent(instanceId, {
-            type: transition.event,
-            payload: { reason: 'auto-transition' },
-            timestamp: Date.now(),
-          });
-        }, remainingMs);
+        const taskId = `${instanceId}-${instance.currentState}-auto-${transition.event}`;
 
-        this.timeouts.set(`${instanceId}-${instance.currentState}-auto`, timeout);
+        // Track task for cleanup
+        if (!this.timeoutTasks.has(instanceId)) {
+          this.timeoutTasks.set(instanceId, []);
+        }
+        this.timeoutTasks.get(instanceId)!.push(taskId);
+
+        this.timerWheel.addTimeout(taskId, remainingMs, () => {
+          const currentInstance = this.instances.get(instanceId);
+          if (currentInstance && currentInstance.currentState === instance.currentState) {
+            this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'auto-transition' },
+              timestamp: Date.now(),
+            }).catch(error => {
+              console.error(`Auto-transition resync failed for ${instanceId}:`, error);
+            });
+          }
+
+          // Remove taskId from tracking
+          const tasks = this.timeoutTasks.get(instanceId);
+          if (tasks) {
+            const index = tasks.indexOf(taskId);
+            if (index >= 0) tasks.splice(index, 1);
+          }
+        });
+
         synced++;
       }
     }
@@ -1175,6 +1272,27 @@ export class FSMRuntime extends EventEmitter {
 
     // Find all transitions from current state
     return machine.transitions.filter(t => t.from === instance.currentState);
+  }
+
+  /**
+   * Stop the runtime and cleanup resources
+   * Important: Call this when done to prevent memory leaks from timer wheel
+   */
+  dispose(): void {
+    // Stop timer wheel
+    this.timerWheel.stop();
+
+    // Clear all instances
+    this.instances.clear();
+    this.timeoutTasks.clear();
+
+    // Clear indexes
+    this.machineIndex.clear();
+    this.stateIndex.clear();
+    this.propertyIndex.clear();
+
+    // Remove all event listeners
+    this.removeAllListeners();
   }
 }
 

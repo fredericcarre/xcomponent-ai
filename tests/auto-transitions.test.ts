@@ -283,12 +283,12 @@ describe('Auto-Transitions (XComponent-style)', () => {
 
       expect(runtime.getInstance(instanceId)?.currentState).toBe('Step1');
 
-      // Wait for first auto-transition (20ms + buffer)
-      await new Promise(resolve => setTimeout(resolve, 30));
+      // Wait for first auto-transition (20ms + buffer for timer wheel granularity)
+      await new Promise(resolve => setTimeout(resolve, 50));
       expect(runtime.getInstance(instanceId)?.currentState).toBe('Step2');
 
-      // Wait for second auto-transition (20ms + buffer)
-      await new Promise(resolve => setTimeout(resolve, 30));
+      // Wait for second auto-transition (20ms + buffer for timer wheel granularity)
+      await new Promise(resolve => setTimeout(resolve, 50));
       expect(runtime.getInstance(instanceId)).toBeUndefined(); // Disposed (final state)
     });
   });

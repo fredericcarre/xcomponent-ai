@@ -18,6 +18,7 @@ import {
   PersistenceConfig,
 } from './types';
 import type { MatchingRule } from './types';
+import { TimerWheel } from './timer-wheel';
 import { PersistenceManager, InMemoryEventStore, InMemorySnapshotStore } from './persistence';
 
 /**
@@ -47,16 +48,34 @@ class SenderImpl implements Sender {
 export class FSMRuntime extends EventEmitter {
   private instances: Map<string, FSMInstance>;
   private machines: Map<string, StateMachine>;
-  private timeouts: Map<string, NodeJS.Timeout>;
+  private timerWheel: TimerWheel; // Performance: Single timer for all timeouts
+  private timeoutTasks: Map<string, string[]>; // instanceId → taskIds (for cleanup)
   private persistence: PersistenceManager | null;
   private componentDef: Component;
+
+  // Performance: Hash-based indexes for efficient property matching (XComponent pattern)
+  private machineIndex: Map<string, Set<string>>; // machineName → Set<instanceId>
+  private stateIndex: Map<string, Set<string>>; // "machineName:state" → Set<instanceId>
+  private propertyIndex: Map<string, Set<string>>; // "machineName:propName:propValue" → Set<instanceId>
 
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
     this.instances = new Map();
     this.machines = new Map();
-    this.timeouts = new Map();
+    // Timer wheel: 10ms ticks for high precision, 6000 buckets = 60s max
+    // Still O(1) with single timer - 10ms granularity is sufficient for most use cases
+    // For longer timeouts (>60s), tasks will wrap around (multi-lap)
+    this.timerWheel = new TimerWheel(10, 6000);
+    this.timeoutTasks = new Map(); // Track tasks for cleanup
     this.componentDef = component;
+
+    // Initialize indexes
+    this.machineIndex = new Map();
+    this.stateIndex = new Map();
+    this.propertyIndex = new Map();
+
+    // Start timer wheel
+    this.timerWheel.start();
 
     // Setup persistence (optional)
     if (persistenceConfig && (persistenceConfig.eventSourcing || persistenceConfig.snapshots)) {
@@ -114,6 +133,10 @@ export class FSMRuntime extends EventEmitter {
     };
 
     this.instances.set(instanceId, instance);
+
+    // Add to indexes for fast lookups
+    this.addToIndex(instance);
+
     this.emit('instance_created', instance);
 
     // Setup timeout transitions if any from initial state
@@ -169,6 +192,9 @@ export class FSMRuntime extends EventEmitter {
       instance.currentState = transition.to;
       instance.updatedAt = Date.now();
 
+      // Update indexes
+      this.updateIndexOnStateChange(instance, previousState, transition.to);
+
       // Persist event (event sourcing)
       let eventId = '';
       if (this.persistence) {
@@ -197,14 +223,20 @@ export class FSMRuntime extends EventEmitter {
       });
 
       // Save snapshot if needed
+      // Note: With timer wheel, we don't pass pending timeouts map
+      // Timeouts are resynchronized during restore() based on elapsed time
       if (this.persistence) {
-        await this.persistence.maybeSnapshot(instance, eventId, this.timeouts);
+        await this.persistence.maybeSnapshot(instance, eventId, undefined);
       }
 
       // Check if final or error state
       const targetState = machine.states.find(s => s.name === transition.to);
       if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
         instance.status = targetState.type === StateType.FINAL ? 'completed' : 'error';
+
+        // Remove from indexes before disposing
+        this.removeFromIndex(instance);
+
         this.emit('instance_disposed', instance);
         this.instances.delete(instanceId);
         return;
@@ -227,6 +259,10 @@ export class FSMRuntime extends EventEmitter {
       }
     } catch (error: any) {
       instance.status = 'error';
+
+      // Remove from indexes before deleting
+      this.removeFromIndex(instance);
+
       this.emit('instance_error', { instanceId, error: error.message });
       this.instances.delete(instanceId);
     }
@@ -339,10 +375,47 @@ export class FSMRuntime extends EventEmitter {
     event: FSMEvent,
     matchingRules: MatchingRule[]
   ): FSMInstance[] {
-    // Get all instances of the target machine in the specified state
-    const candidates = Array.from(this.instances.values()).filter(
-      i => i.machineName === machineName && i.currentState === currentState && i.status === 'active'
-    );
+    // Performance optimization: Use hash-based index for O(1) lookup
+    // Instead of iterating all instances, use state index
+
+    // Try to use property index for direct lookup (fastest path)
+    // If we have a single matching rule with === operator, we can use the property index
+    if (matchingRules.length === 1 && (!matchingRules[0].operator || matchingRules[0].operator === '===')) {
+      const rule = matchingRules[0];
+      const eventValue = this.getNestedProperty(event.payload, rule.eventProperty);
+
+      if (eventValue !== undefined) {
+        // Check if property is top-level (no dots) for direct index lookup
+        if (!rule.instanceProperty.includes('.')) {
+          const propKey = `${machineName}:${rule.instanceProperty}:${String(eventValue)}`;
+          const candidateIds = this.propertyIndex.get(propKey);
+
+          if (candidateIds) {
+            // Filter by state and status
+            return Array.from(candidateIds)
+              .map(id => this.instances.get(id)!)
+              .filter(instance =>
+                instance &&
+                instance.currentState === currentState &&
+                instance.status === 'active'
+              );
+          }
+        }
+      }
+    }
+
+    // Fallback: Use state index (still faster than iterating all instances)
+    const stateKey = `${machineName}:${currentState}`;
+    const candidateIds = this.stateIndex.get(stateKey);
+
+    if (!candidateIds || candidateIds.size === 0) {
+      return [];
+    }
+
+    // Get instances and filter by matching rules
+    const candidates = Array.from(candidateIds)
+      .map(id => this.instances.get(id)!)
+      .filter(instance => instance && instance.status === 'active');
 
     // Filter by matching rules
     return candidates.filter(instance => {
@@ -542,6 +615,12 @@ export class FSMRuntime extends EventEmitter {
   /**
    * Setup timeout transitions
    */
+  /**
+   * Setup timeout transitions using timer wheel (performance optimized)
+   *
+   * Instead of creating one setTimeout per instance (O(n) timers),
+   * use a single timer wheel that manages all timeouts (O(1) timer).
+   */
   private setupTimeouts(instanceId: string, stateName: string): void {
     const instance = this.instances.get(instanceId);
     if (!instance) return;
@@ -555,15 +634,35 @@ export class FSMRuntime extends EventEmitter {
 
     timeoutTransitions.forEach(transition => {
       if (transition.timeoutMs) {
-        const timeout = setTimeout(() => {
-          this.sendEvent(instanceId, {
-            type: transition.event,
-            payload: { reason: 'timeout' },
-            timestamp: Date.now(),
-          });
-        }, transition.timeoutMs);
+        const taskId = `${instanceId}-${stateName}-${transition.event}`;
 
-        this.timeouts.set(`${instanceId}-${stateName}`, timeout);
+        // Track task for cleanup
+        if (!this.timeoutTasks.has(instanceId)) {
+          this.timeoutTasks.set(instanceId, []);
+        }
+        this.timeoutTasks.get(instanceId)!.push(taskId);
+
+        // Use timer wheel instead of setTimeout
+        this.timerWheel.addTimeout(taskId, transition.timeoutMs, () => {
+          // Check if instance still exists and is in the same state
+          const currentInstance = this.instances.get(instanceId);
+          if (currentInstance && currentInstance.currentState === stateName) {
+            this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'timeout' },
+              timestamp: Date.now(),
+            }).catch(error => {
+              console.error(`Timeout event failed for ${instanceId}:`, error);
+            });
+          }
+
+          // Remove taskId from tracking
+          const tasks = this.timeoutTasks.get(instanceId);
+          if (tasks) {
+            const index = tasks.indexOf(taskId);
+            if (index >= 0) tasks.splice(index, 1);
+          }
+        });
       }
     });
   }
@@ -604,15 +703,35 @@ export class FSMRuntime extends EventEmitter {
       }
 
       const delay = transition.timeoutMs || 0; // Default to immediate (0ms)
-      const timeout = setTimeout(() => {
-        this.sendEvent(instanceId, {
-          type: transition.event,
-          payload: { reason: 'auto-transition' },
-          timestamp: Date.now(),
-        });
-      }, delay);
+      const taskId = `${instanceId}-${stateName}-auto-${transition.event}`;
 
-      this.timeouts.set(`${instanceId}-${stateName}-auto`, timeout);
+      // Track task for cleanup
+      if (!this.timeoutTasks.has(instanceId)) {
+        this.timeoutTasks.set(instanceId, []);
+      }
+      this.timeoutTasks.get(instanceId)!.push(taskId);
+
+      // Use timer wheel for auto-transitions
+      this.timerWheel.addTimeout(taskId, delay, () => {
+        // Check if instance still exists and is in the same state
+        const currentInstance = this.instances.get(instanceId);
+        if (currentInstance && currentInstance.currentState === stateName) {
+          this.sendEvent(instanceId, {
+            type: transition.event,
+            payload: { reason: 'auto-transition' },
+            timestamp: Date.now(),
+          }).catch(error => {
+            console.error(`Auto-transition failed for ${instanceId}:`, error);
+          });
+        }
+
+        // Remove taskId from tracking
+        const tasks = this.timeoutTasks.get(instanceId);
+        if (tasks) {
+          const index = tasks.indexOf(taskId);
+          if (index >= 0) tasks.splice(index, 1);
+        }
+      });
     });
   }
 
@@ -654,6 +773,85 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
+   * Add instance to indexes (for O(1) lookup)
+   * Performance optimization: XComponent hash-based matching
+   */
+  private addToIndex(instance: FSMInstance): void {
+    const { id, machineName, currentState, publicMember, context } = instance;
+
+    // Machine index
+    if (!this.machineIndex.has(machineName)) {
+      this.machineIndex.set(machineName, new Set());
+    }
+    this.machineIndex.get(machineName)!.add(id);
+
+    // State index
+    const stateKey = `${machineName}:${currentState}`;
+    if (!this.stateIndex.has(stateKey)) {
+      this.stateIndex.set(stateKey, new Set());
+    }
+    this.stateIndex.get(stateKey)!.add(id);
+
+    // Property index (for commonly matched properties)
+    const instanceData = publicMember || context;
+    if (instanceData) {
+      // Index all top-level properties for fast matching
+      for (const [propName, propValue] of Object.entries(instanceData)) {
+        if (propValue !== null && propValue !== undefined) {
+          const propKey = `${machineName}:${propName}:${String(propValue)}`;
+          if (!this.propertyIndex.has(propKey)) {
+            this.propertyIndex.set(propKey, new Set());
+          }
+          this.propertyIndex.get(propKey)!.add(id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove instance from indexes
+   */
+  private removeFromIndex(instance: FSMInstance): void {
+    const { id, machineName, currentState, publicMember, context } = instance;
+
+    // Machine index
+    this.machineIndex.get(machineName)?.delete(id);
+
+    // State index
+    const stateKey = `${machineName}:${currentState}`;
+    this.stateIndex.get(stateKey)?.delete(id);
+
+    // Property index
+    const instanceData = publicMember || context;
+    if (instanceData) {
+      for (const [propName, propValue] of Object.entries(instanceData)) {
+        if (propValue !== null && propValue !== undefined) {
+          const propKey = `${machineName}:${propName}:${String(propValue)}`;
+          this.propertyIndex.get(propKey)?.delete(id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Update state index when state changes
+   */
+  private updateIndexOnStateChange(instance: FSMInstance, oldState: string, newState: string): void {
+    const { id, machineName } = instance;
+
+    // Remove from old state index
+    const oldStateKey = `${machineName}:${oldState}`;
+    this.stateIndex.get(oldStateKey)?.delete(id);
+
+    // Add to new state index
+    const newStateKey = `${machineName}:${newState}`;
+    if (!this.stateIndex.has(newStateKey)) {
+      this.stateIndex.set(newStateKey, new Set());
+    }
+    this.stateIndex.get(newStateKey)!.add(id);
+  }
+
+  /**
    * Process a single cascading rule
    *
    * Applies payload templating and broadcasts event to target instances
@@ -683,21 +881,26 @@ export class FSMRuntime extends EventEmitter {
       processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
     } else {
       // No matching rules - send to ALL instances in target state
-      const targetInstances = Array.from(this.instances.values()).filter(
-        i => i.machineName === rule.targetMachine && i.currentState === rule.targetState && i.status === 'active'
-      );
+      // Performance: Use state index instead of iterating all instances
+      const stateKey = `${rule.targetMachine}:${rule.targetState}`;
+      const candidateIds = this.stateIndex.get(stateKey);
 
-      for (const instance of targetInstances) {
-        try {
-          await this.sendEvent(instance.id, event);
-          processedCount++;
-        } catch (error: any) {
-          // Continue processing other instances even if one fails
-          this.emit('cascade_error', {
-            sourceInstanceId: sourceInstance.id,
-            targetInstanceId: instance.id,
-            error: error.message,
-          });
+      if (candidateIds) {
+        for (const instanceId of candidateIds) {
+          const instance = this.instances.get(instanceId);
+          if (!instance || instance.status !== 'active') continue;
+
+          try {
+            await this.sendEvent(instance.id, event);
+            processedCount++;
+          } catch (error: any) {
+            // Continue processing other instances even if one fails
+            this.emit('cascade_error', {
+              sourceInstanceId: sourceInstance.id,
+              targetInstanceId: instance.id,
+              error: error.message,
+            });
+          }
         }
       }
     }
@@ -745,14 +948,16 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
-   * Clear timeouts for instance
+   * Clear timeouts for instance (using timer wheel)
    */
   private clearTimeouts(instanceId: string): void {
-    for (const [key, timeout] of this.timeouts.entries()) {
-      if (key.startsWith(instanceId)) {
-        clearTimeout(timeout);
-        this.timeouts.delete(key);
-      }
+    const taskIds = this.timeoutTasks.get(instanceId);
+    if (taskIds) {
+      // Remove all timeout tasks for this instance
+      taskIds.forEach(taskId => {
+        this.timerWheel.removeTimeout(taskId);
+      });
+      this.timeoutTasks.delete(instanceId);
     }
   }
 
@@ -925,16 +1130,35 @@ export class FSMRuntime extends EventEmitter {
             });
           }
         } else {
-          // Timeout still pending - reschedule with remaining time
-          const timeout = setTimeout(() => {
-            this.sendEvent(instanceId, {
-              type: transition.event,
-              payload: { reason: 'timeout' },
-              timestamp: Date.now(),
-            });
-          }, remainingMs);
+          // Timeout still pending - reschedule with remaining time using timer wheel
+          const taskId = `${instanceId}-${instance.currentState}-${transition.event}`;
 
-          this.timeouts.set(`${instanceId}-${instance.currentState}`, timeout);
+          // Track task for cleanup
+          if (!this.timeoutTasks.has(instanceId)) {
+            this.timeoutTasks.set(instanceId, []);
+          }
+          this.timeoutTasks.get(instanceId)!.push(taskId);
+
+          this.timerWheel.addTimeout(taskId, remainingMs, () => {
+            const currentInstance = this.instances.get(instanceId);
+            if (currentInstance && currentInstance.currentState === instance.currentState) {
+              this.sendEvent(instanceId, {
+                type: transition.event,
+                payload: { reason: 'timeout' },
+                timestamp: Date.now(),
+              }).catch(error => {
+                console.error(`Timeout resync failed for ${instanceId}:`, error);
+              });
+            }
+
+            // Remove taskId from tracking
+            const tasks = this.timeoutTasks.get(instanceId);
+            if (tasks) {
+              const index = tasks.indexOf(taskId);
+              if (index >= 0) tasks.splice(index, 1);
+            }
+          });
+
           synced++;
         }
       }
@@ -961,15 +1185,34 @@ export class FSMRuntime extends EventEmitter {
         const elapsedMs = Date.now() - instance.updatedAt;
         const remainingMs = Math.max(0, delay - elapsedMs);
 
-        const timeout = setTimeout(() => {
-          this.sendEvent(instanceId, {
-            type: transition.event,
-            payload: { reason: 'auto-transition' },
-            timestamp: Date.now(),
-          });
-        }, remainingMs);
+        const taskId = `${instanceId}-${instance.currentState}-auto-${transition.event}`;
 
-        this.timeouts.set(`${instanceId}-${instance.currentState}-auto`, timeout);
+        // Track task for cleanup
+        if (!this.timeoutTasks.has(instanceId)) {
+          this.timeoutTasks.set(instanceId, []);
+        }
+        this.timeoutTasks.get(instanceId)!.push(taskId);
+
+        this.timerWheel.addTimeout(taskId, remainingMs, () => {
+          const currentInstance = this.instances.get(instanceId);
+          if (currentInstance && currentInstance.currentState === instance.currentState) {
+            this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'auto-transition' },
+              timestamp: Date.now(),
+            }).catch(error => {
+              console.error(`Auto-transition resync failed for ${instanceId}:`, error);
+            });
+          }
+
+          // Remove taskId from tracking
+          const tasks = this.timeoutTasks.get(instanceId);
+          if (tasks) {
+            const index = tasks.indexOf(taskId);
+            if (index >= 0) tasks.splice(index, 1);
+          }
+        });
+
         synced++;
       }
     }
@@ -1029,6 +1272,27 @@ export class FSMRuntime extends EventEmitter {
 
     // Find all transitions from current state
     return machine.transitions.filter(t => t.from === instance.currentState);
+  }
+
+  /**
+   * Stop the runtime and cleanup resources
+   * Important: Call this when done to prevent memory leaks from timer wheel
+   */
+  dispose(): void {
+    // Stop timer wheel
+    this.timerWheel.stop();
+
+    // Clear all instances
+    this.instances.clear();
+    this.timeoutTasks.clear();
+
+    // Clear indexes
+    this.machineIndex.clear();
+    this.stateIndex.clear();
+    this.propertyIndex.clear();
+
+    // Remove all event listeners
+    this.removeAllListeners();
   }
 }
 

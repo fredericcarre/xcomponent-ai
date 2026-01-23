@@ -9,8 +9,38 @@ import { Component } from '../src/types';
 // Mock LLM for testing without API calls
 jest.mock('@langchain/openai', () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
-    invoke: jest.fn().mockResolvedValue({
-      content: `name: MockComponent
+    invoke: jest.fn().mockImplementation((prompt: any) => {
+      const promptStr = typeof prompt === 'string' ? prompt : String(prompt);
+
+      // For event conversion (simulate path)
+      if (promptStr.includes('Convert these event descriptions')) {
+        return Promise.resolve({
+          content: JSON.stringify([
+            { type: 'COMPLETE', payload: {}, timestamp: Date.now() }
+          ]),
+        });
+      }
+
+      // For supervisor planning
+      if (promptStr.includes('Analyze this user request')) {
+        return Promise.resolve({
+          content: JSON.stringify({
+            agents: ['fsm'],
+            action: 'Create FSM from description',
+          }),
+        });
+      }
+
+      // For monitoring analysis
+      if (promptStr.includes('Analyze these FSM execution metrics')) {
+        return Promise.resolve({
+          content: 'Analysis: The workflow is performing well with minimal errors.',
+        });
+      }
+
+      // Default: FSM YAML generation
+      return Promise.resolve({
+        content: `name: MockComponent
 version: 1.0.0
 stateMachines:
   - name: MockMachine
@@ -25,6 +55,7 @@ stateMachines:
         to: End
         event: COMPLETE
         type: regular`,
+      });
     }),
   })),
 }));

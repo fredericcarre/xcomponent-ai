@@ -1,0 +1,113 @@
+name: TradingComponent
+version: 1.0.0
+metadata:
+  domain: fintech
+  compliance:
+    - MiFID II
+    - Best Execution
+  description: Trading order and settlement workflow with compliance guards
+
+stateMachines:
+  - name: OrderEntry
+    initialState: Pending
+    metadata:
+      description: Order validation and execution workflow
+      riskLevel: high
+    states:
+      - name: Pending
+        type: entry
+        entryMethod: logOrderReceived
+        metadata:
+          description: Initial order received, awaiting validation
+      - name: Validated
+        type: regular
+        entryMethod: performComplianceCheck
+        metadata:
+          description: Order passed validation checks
+      - name: Executed
+        type: regular
+        entryMethod: executeOrder
+        metadata:
+          description: Order executed on market
+      - name: Settled
+        type: final
+        metadata:
+          description: Order fully settled
+      - name: Rejected
+        type: error
+        metadata:
+          description: Order rejected due to compliance or limit breach
+    transitions:
+      - from: Pending
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+        guards:
+          - keys:
+              - amount
+              - instrument
+              - clientId
+          - customFunction: "event.payload.amount <= 100000"
+        triggeredMethod: validateOrderLimits
+      - from: Pending
+        to: Rejected
+        event: VALIDATE
+        type: regular
+        guards:
+          - customFunction: "event.payload.amount > 100000"
+      - from: Pending
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+      - from: Validated
+        to: Executed
+        event: EXECUTE
+        type: triggerable
+        triggeredMethod: sendToMarket
+      - from: Executed
+        to: Settled
+        event: SETTLEMENT_COMPLETE
+        type: inter_machine
+        targetMachine: Settlement
+      - from: Executed
+        to: Rejected
+        event: EXECUTION_FAILED
+        type: regular
+      - from: Validated
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 60000
+
+  - name: Settlement
+    initialState: SettlementPending
+    metadata:
+      description: Post-trade settlement workflow
+    states:
+      - name: SettlementPending
+        type: entry
+        entryMethod: initiateSettlement
+      - name: SettlementConfirmed
+        type: final
+        metadata:
+          description: Settlement confirmed by clearing house
+      - name: SettlementFailed
+        type: error
+        metadata:
+          description: Settlement failed
+    transitions:
+      - from: SettlementPending
+        to: SettlementConfirmed
+        event: SETTLEMENT_ACK
+        type: regular
+        triggeredMethod: notifyClient
+      - from: SettlementPending
+        to: SettlementFailed
+        event: SETTLEMENT_NACK
+        type: regular
+      - from: SettlementPending
+        to: SettlementFailed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 120000

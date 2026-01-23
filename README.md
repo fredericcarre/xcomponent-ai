@@ -1,23 +1,393 @@
-# mayele-ai
-📖 Introduction du README
+# 🤖 xcomponent-ai
 
-MayeleAI is an open-source framework designed to bring structure, intent, and discipline to Large Language Models.
+[![CI](https://github.com/fredericcarre/mayele-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/mayele-ai/actions)
+[![codecov](https://codecov.io/gh/fredericcarre/mayele-ai/branch/main/graph/badge.svg)](https://codecov.io/gh/fredericcarre/mayele-ai)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
-Large Language Models are extremely powerful, but when they operate directly on prompts, application code, or loosely defined workflows, their behavior quickly becomes fragile, opaque, and hard to control. As systems grow, business logic, orchestration, and technical concerns tend to collapse into a single unstructured layer.
+> **Agentic FSM tool for fintech workflows** - XComponent-inspired state machines orchestrated by LLM agents
 
-MayeleAI introduces a different approach.
+xcomponent-ai combines the power of **immutable state machines** (inspired by [XComponent](https://github.com/xcomponent/xcomponent)) with **agentic AI orchestration** (LangChain.js) to deliver secure, compliant, and intelligent fintech workflows.
 
-Instead of letting LLMs manipulate code or infrastructure directly, MayeleAI allows them to reason and operate on explicit business state machines — composable, executable representations of domain logic and workflows. These state machine stacks form a protected semantic layer where business intent is clearly separated from technical implementation.
+## 🌟 Why xcomponent-ai?
 
-By enforcing this boundary, MayeleAI makes LLM-driven systems:
+xcomponent-ai uniquely combines:
+- **Sanctuarized Business Logic**: FSM definitions are immutable, version-controlled YAML files - your compliance rules are code
+- **Agentic AI Orchestration**: LLM supervisor delegates to specialized agents (FSM creation, UI generation, monitoring)
+- **Fintech-First**: Built-in compliance guards (AML, KYC, RGPD), timeout handling, and inter-machine workflows
+- **Live Monitoring**: WebSocket-based real-time state tracking with LLM-powered insights
+- **Open-Core Model**: Core runtime and agents are free; enterprise features (cloud, advanced AI) available
 
-easier to reason about,
+### Comparison with Existing Solutions
 
-safer to execute,
+| Feature | xcomponent-ai | LangChain/AutoGen | n8n/Zapier | Camunda | Traditional FSM |
+|---------|---------------|-------------------|------------|---------|----------------|
+| **Agentic AI** | ✅ LLM supervisor + specialized agents | ✅ Agent frameworks | ❌ No AI orchestration | ❌ Manual workflows | ❌ Manual coding |
+| **Immutable FSM** | ✅ YAML-based, Git-versioned | ❌ Code-based | ❌ UI-based config | ⚠️ BPMN (complex) | ⚠️ Code-based |
+| **Fintech Compliance** | ✅ Built-in AML/KYC/RGPD guards | ❌ Generic | ❌ Generic | ⚠️ Via plugins | ❌ Manual |
+| **Real-time Monitoring** | ✅ WebSocket + LLM insights | ❌ No built-in | ⚠️ Limited | ✅ Dashboard | ❌ Manual logging |
+| **UI Generation** | ✅ AI-generated wrappers | ❌ Manual | ✅ Built-in UI | ⚠️ Complex forms | ❌ Manual |
+| **Multi-Instance** | ✅ Event-driven runtime | ⚠️ Limited | ⚠️ Limited | ✅ BPMN engine | ⚠️ Manual |
+| **Natural Language** | ✅ Create/update FSM via prompt | ⚠️ Agent tools only | ❌ No | ❌ No | ❌ No |
+| **Open Source** | ✅ Apache 2.0 (core) | ✅ MIT | ❌ Proprietary | ⚠️ Commercial | ✅ Varies |
 
-more predictable over time,
+**Key Differentiators**:
+- **LangChain/AutoGen**: Generic agent frameworks lack FSM immutability and fintech-specific compliance
+- **n8n/Zapier**: No-code tools with vendor lock-in, no AI orchestration, not designed for regulated workflows
+- **Camunda**: Enterprise BPMN engine (complex setup, no AI agents, expensive licensing)
+- **Traditional FSM libs**: No AI assistance, manual coding, no built-in monitoring or compliance
 
-and better aligned with real-world business domains.
+## 🚀 Quick Start
 
-The goal of MayeleAI is simple:
-give LLMs discernment — a structured space where intent, rules, and workflows are explicit, constrained, and auditable.
+### Installation
+
+```bash
+npm install xcomponent-ai
+# or
+yarn add xcomponent-ai
+```
+
+### Prerequisites
+
+- Node.js ≥ 20.0.0
+- OpenAI API key (for AI agents): `export OPENAI_API_KEY=your_key`
+
+### CLI Usage
+
+```bash
+# Create FSM from natural language (AI-powered)
+xcomponent-ai ai-create "Trading order with compliance guards for amounts over 100k" -o trading.yaml
+
+# Load and validate FSM
+xcomponent-ai load examples/trading.yaml
+
+# Run instance with events
+xcomponent-ai run examples/payment.yaml Payment \
+  --context '{"accountBalance": 5000}' \
+  --events '[{"type":"AUTHORIZE_PAYMENT","payload":{"amount":100,"currency":"EUR","paymentMethod":"card"},"timestamp":1234567890}]'
+
+# Simulate path
+xcomponent-ai simulate examples/kyc.yaml Onboarding \
+  --events '[{"type":"DOCUMENTS_RECEIVED","payload":{"documentType":"passport"},"timestamp":123}]'
+
+# Analyze logs with AI insights
+xcomponent-ai ai-analyze TradingComponent
+
+# Generate UI code
+xcomponent-ai generate-ui examples/trading.yaml --type api -o generated-api.ts
+```
+
+### Programmatic Usage
+
+```typescript
+import { FSMRuntime, loadComponent, SupervisorAgent } from 'xcomponent-ai';
+import * as yaml from 'yaml';
+import * as fs from 'fs';
+
+// Load component
+const content = fs.readFileSync('examples/trading.yaml', 'utf-8');
+const component = yaml.parse(content);
+
+// Create runtime
+const runtime = new FSMRuntime(component);
+
+// Create instance
+const instanceId = runtime.createInstance('OrderEntry', {
+  amount: 50000,
+  instrument: 'AAPL'
+});
+
+// Send event
+await runtime.sendEvent(instanceId, {
+  type: 'VALIDATE',
+  payload: { amount: 50000, instrument: 'AAPL', clientId: 'C123' },
+  timestamp: Date.now(),
+});
+
+// AI Agent: Create FSM from description
+const supervisor = new SupervisorAgent();
+const result = await supervisor.getFSMAgent().createFSM(
+  'Payment workflow with SCA compliance and refund capability'
+);
+console.log(result.data.yaml);
+```
+
+### API Server
+
+```bash
+# Start API server
+npm run api
+
+# Visit dashboard: http://localhost:3000/dashboard
+# WebSocket: ws://localhost:3000
+```
+
+API endpoints:
+- `POST /api/component/load` - Load component from YAML file
+- `POST /api/:component/:machine/instance` - Create instance
+- `POST /api/:component/instance/:instanceId/event` - Send event
+- `GET /api/:component/instance/:instanceId` - Get instance state
+- `GET /api/monitor/:component` - Get monitoring data
+- `POST /api/ai/create-fsm` - AI-powered FSM creation
+- `POST /api/ai/analyze` - AI log analysis
+
+## 📊 Examples
+
+### Trading Workflow (examples/trading.yaml)
+
+```yaml
+name: TradingComponent
+stateMachines:
+  - name: OrderEntry
+    initialState: Pending
+    states:
+      - name: Pending
+        type: entry
+      - name: Validated
+        type: regular
+      - name: Executed
+        type: regular
+      - name: Settled
+        type: final
+      - name: Rejected
+        type: error
+    transitions:
+      - from: Pending
+        to: Validated
+        event: VALIDATE
+        guards:
+          - customFunction: "event.payload.amount <= 100000"  # Compliance limit
+        triggeredMethod: validateOrderLimits
+      - from: Validated
+        to: Executed
+        event: EXECUTE
+        type: triggerable
+      - from: Executed
+        to: Settled
+        event: SETTLEMENT_COMPLETE
+        type: inter_machine  # Instantiates Settlement machine
+        targetMachine: Settlement
+      - from: Pending
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+```
+
+**Features demonstrated**:
+- Compliance guards (amount limits)
+- Inter-machine transitions (Settlement)
+- Timeout handling
+- Error states
+
+### KYC Workflow (examples/kyc.yaml)
+
+Complete customer onboarding with:
+- RGPD/GDPR consent checks
+- AI document validation
+- AML screening
+- Manual review escalation
+
+### Payment Workflow (examples/payment.yaml)
+
+PSD2-compliant payment processing with:
+- Strong Customer Authentication (SCA)
+- Refund capability (inter-machine)
+- Timeout guards
+
+## 🧠 Agentic AI Features
+
+### Supervisor Agent
+
+Orchestrates specialized agents based on user intent:
+
+```typescript
+const supervisor = new SupervisorAgent();
+const result = await supervisor.processRequest(
+  'Create a KYC workflow with AML checks and GDPR compliance'
+);
+```
+
+### FSM Agent
+
+- **Create FSM**: Natural language → YAML
+- **Detect Missing Compliance**: Suggests AML, KYC, RGPD guards
+- **Update FSM**: Apply changes via prompts
+- **Simulate Paths**: Test workflows before deployment
+
+```typescript
+const fsmAgent = supervisor.getFSMAgent();
+
+// Create
+const result = await fsmAgent.createFSM('Payment with refund');
+
+// Get compliance suggestions
+console.log(result.suggestions);
+// ["Consider adding AML/KYC compliance checks", ...]
+```
+
+### UI Agent
+
+Generates Express routes and React components:
+
+```typescript
+const uiAgent = supervisor.getUIAgent();
+const apiCode = await uiAgent.generateAPIRoutes(component);
+const reactCode = await uiAgent.generateReactUI(component);
+```
+
+### Monitoring Agent
+
+Analyzes logs with natural language insights:
+
+```typescript
+const monitoringAgent = supervisor.getMonitoringAgent();
+const analysis = await monitoringAgent.analyzeLogs('TradingComponent');
+
+// Insights:
+// "Bottleneck detected: Validated->Executed takes 8.2s on average"
+// "High error rate: 15.3%. Review error states and guards."
+```
+
+## 📡 Real-time Monitoring
+
+### WebSocket API
+
+Subscribe to FSM events:
+
+```javascript
+import io from 'socket.io-client';
+
+const socket = io('http://localhost:3000');
+
+// Subscribe to component
+socket.emit('subscribe_component', 'TradingComponent');
+
+// Listen to state changes
+socket.on('state_change', (data) => {
+  console.log(`Instance ${data.instanceId}: ${data.previousState} → ${data.newState}`);
+});
+
+// Instance lifecycle
+socket.on('instance_created', (instance) => { ... });
+socket.on('instance_disposed', (instance) => { ... });
+socket.on('instance_error', (error) => { ... });
+```
+
+### Dashboard
+
+Visit `http://localhost:3000/dashboard` for:
+- Active instances table
+- Real-time event stream
+- State visualizations
+
+## 🏗️ Architecture
+
+### FSM Runtime
+
+Built on `@xstate/core` with XComponent-inspired enhancements:
+- **Multi-instance management**: Track unlimited concurrent instances
+- **Event-driven execution**: Pub/Sub + WebSocket broadcasting
+- **Timeout transitions**: Automatic timeouts with configurable delays
+- **Inter-machine workflows**: Create new instances on transition
+- **Guard evaluation**: Conditional transitions (keys, contains, custom functions)
+
+See [archi-runtime.mmd](archi-runtime.mmd) for sequence diagram.
+
+### Agentic Layer
+
+```mermaid
+graph TD
+    User[User Prompt] --> Supervisor[Supervisor Agent]
+    Supervisor --> FSM[FSM Agent]
+    Supervisor --> UI[UI Agent]
+    Supervisor --> Monitor[Monitoring Agent]
+    FSM --> |Create/Update| YAML[FSM YAML]
+    FSM --> |Detect| Compliance[Compliance Gaps]
+    UI --> |Generate| Code[Express/React Code]
+    Monitor --> |Analyze| Insights[Natural Language Insights]
+```
+
+See [archi-agents.mmd](archi-agents.mmd) for detailed flow.
+
+## 🔐 Open-Core Model
+
+### Free (Apache 2.0)
+- Core FSM runtime
+- CLI and API server
+- Agentic AI layer (FSM, UI, Monitoring agents)
+- WebSocket monitoring
+- All examples and documentation
+
+### Enterprise (Coming Soon)
+- **Cloud Hosting**: Managed runtime with auto-scaling
+- **Advanced AI**: Deep compliance analysis (AML risk scoring, GDPR audit trails)
+- **Enterprise Monitoring**: Grafana/Prometheus integration, alerting, SLA tracking
+- **Premium Support**: Dedicated compliance consulting, custom FSM templates
+
+Contact: [enterprise@xcomponent-ai.dev](mailto:enterprise@xcomponent-ai.dev)
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+npm test
+
+# With coverage
+npm test -- --coverage
+
+# Watch mode
+npm run test:watch
+```
+
+Coverage target: **>80%** (branches, functions, lines, statements)
+
+## 📚 Documentation
+
+```bash
+# Generate API docs
+npm run doc
+
+# Open docs/index.html
+```
+
+**JSDoc coverage**: All public APIs documented
+
+## 🤝 Contributing
+
+We welcome contributions! Please:
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit changes: `git commit -m 'Add my feature'`
+4. Push: `git push origin feature/my-feature`
+5. Open a Pull Request
+
+**Guidelines**:
+- Write tests (maintain >80% coverage)
+- Follow TypeScript strict mode
+- Add JSDoc comments
+- Update README for new features
+
+## 📄 License
+
+Apache License 2.0 - see [LICENSE](LICENSE)
+
+## 🙏 Acknowledgments
+
+- Inspired by [XComponent](https://github.com/xcomponent/xcomponent) state machine architecture
+- Built with [LangChain.js](https://github.com/langchain-ai/langchainjs)
+- Powered by [XState](https://xstate.js.org/)
+
+## 🔗 Links
+
+- **Documentation**: [API Docs](docs/index.html)
+- **Examples**: [examples/](examples/)
+- **Issues**: [GitHub Issues](https://github.com/fredericcarre/mayele-ai/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/fredericcarre/mayele-ai/discussions)
+
+---
+
+**Built with ❤️ for secure fintech workflows**
+
+*Reduce compliance risks. Accelerate development. Days → Minutes.*

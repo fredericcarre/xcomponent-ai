@@ -1,0 +1,44 @@
+flowchart TD
+    Start([User Request]) --> Supervisor[Supervisor Agent<br/>LLM: GPT-4o]
+
+    Supervisor --> |Analyze Intent| Decision{Request Type?}
+
+    Decision --> |Create/Update FSM| FSMAgent[FSM Agent]
+    Decision --> |Generate UI/Code| UIAgent[UI Agent]
+    Decision --> |Analyze Performance| MonitorAgent[Monitoring Agent]
+
+    FSMAgent --> CreateFSM[Create FSM from<br/>Natural Language]
+    FSMAgent --> UpdateFSM[Update Existing FSM]
+    FSMAgent --> DetectGaps[Detect Compliance Gaps]
+    FSMAgent --> Simulate[Simulate FSM Path]
+
+    CreateFSM --> |LLM Prompt| LLM1[LLM: Generate YAML]
+    LLM1 --> ParseYAML[Parse & Validate YAML]
+    ParseYAML --> ComplianceCheck[Compliance Check:<br/>AML, KYC, RGPD, Timeouts]
+    ComplianceCheck --> Suggestions[Generate Suggestions]
+    Suggestions --> FSMResult[FSM YAML + Suggestions]
+
+    UIAgent --> GenAPI[Generate Express API Routes]
+    UIAgent --> GenReact[Generate React Components]
+
+    GenAPI --> |LLM Prompt| LLM2[LLM: Code Generation]
+    GenReact --> |LLM Prompt| LLM2
+    LLM2 --> CodeResult[TypeScript Code]
+
+    MonitorAgent --> GetLogs[Fetch Logs from MonitoringService]
+    GetLogs --> AnalyzeLogs[Analyze Logs:<br/>Bottlenecks, Errors, Patterns]
+    AnalyzeLogs --> |LLM Prompt| LLM3[LLM: Generate Insights]
+    LLM3 --> InsightResult[Natural Language Insights<br/>+ Actionable Suggestions]
+
+    FSMResult --> Return([Return to User])
+    CodeResult --> Return
+    InsightResult --> Return
+
+    style Supervisor fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    style FSMAgent fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    style UIAgent fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    style MonitorAgent fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    style LLM1 fill:#f44336,stroke:#333,stroke-width:2px,color:#fff
+    style LLM2 fill:#f44336,stroke:#333,stroke-width:2px,color:#fff
+    style LLM3 fill:#f44336,stroke:#333,stroke-width:2px,color:#fff
+    style ComplianceCheck fill:#FFC107,stroke:#333,stroke-width:2px

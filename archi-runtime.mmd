@@ -1,0 +1,68 @@
+sequenceDiagram
+    participant User
+    participant Runtime as FSM Runtime
+    participant Instance as FSM Instance
+    participant Monitor as Monitoring Service
+    participant WS as WebSocket Manager
+    participant Clients as WebSocket Clients
+
+    User->>Runtime: createInstance(machineName, context)
+    Runtime->>Instance: Create new instance
+    Instance-->>Runtime: instanceId
+    Runtime->>Monitor: emit('instance_created')
+    Runtime->>WS: broadcast instance_created
+    WS->>Clients: instance_created event
+    Runtime-->>User: instanceId
+
+    Note over Runtime,Instance: Instance is in initial state
+
+    User->>Runtime: sendEvent(instanceId, event)
+    Runtime->>Instance: Find applicable transition
+    Instance-->>Runtime: transition found
+
+    alt Guard Evaluation
+        Runtime->>Runtime: evaluateGuards(guards, event, context)
+        alt Guards Pass
+            Runtime->>Instance: executeTransition()
+            Instance->>Instance: Update state
+            Instance-->>Runtime: State changed
+            Runtime->>Monitor: logTransition(entry)
+            Monitor->>Monitor: Store log entry
+            Runtime->>WS: broadcastStateChange(data)
+            WS->>Clients: state_change event
+            Runtime-->>User: Success
+        else Guards Fail
+            Runtime->>Monitor: emit('guard_failed')
+            Runtime->>WS: broadcast guard_failed
+            WS->>Clients: guard_failed event
+            Runtime-->>User: Guard failed
+        end
+    end
+
+    alt Final or Error State
+        Instance->>Runtime: State is final/error
+        Runtime->>Monitor: emit('instance_disposed')
+        Runtime->>WS: broadcast instance_disposed
+        WS->>Clients: instance_disposed event
+        Runtime->>Runtime: Delete instance
+    end
+
+    alt Inter-Machine Transition
+        Runtime->>Runtime: createInstance(targetMachine)
+        Runtime->>Monitor: emit('inter_machine_transition')
+        Runtime->>WS: broadcast inter_machine_transition
+        WS->>Clients: inter_machine_transition event
+    end
+
+    alt Timeout Transition
+        Note over Runtime: Timeout configured
+        Runtime->>Runtime: setTimeout(timeoutMs)
+        Runtime-->>Runtime: Timeout triggered
+        Runtime->>Runtime: sendEvent(instanceId, TIMEOUT_EVENT)
+    end
+
+    User->>Monitor: analyzeLogs(component)
+    Monitor->>Monitor: Calculate metrics<br/>(bottlenecks, errors, patterns)
+    Monitor-->>User: AnalysisInsights
+
+    Note over Runtime,Clients: All events broadcasted in real-time via WebSockets

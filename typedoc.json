@@ -1,0 +1,18 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "out": "docs",
+  "name": "xcomponent-ai",
+  "includeVersion": true,
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeExternals": true,
+  "readme": "README.md",
+  "theme": "default",
+  "categorizeByGroup": true,
+  "sort": ["source-order"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/node_modules/**"
+  ]
+}

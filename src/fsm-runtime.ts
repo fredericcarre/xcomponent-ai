@@ -57,6 +57,9 @@ export class FSMRuntime extends EventEmitter {
     component.stateMachines.forEach(machine => {
       this.machines.set(machine.name, machine);
     });
+
+    // Setup cascading rules engine (XComponent pattern)
+    this.setupCascadingEngine();
   }
 
   /**
@@ -572,6 +575,134 @@ export class FSMRuntime extends EventEmitter {
 
       this.timeouts.set(`${instanceId}-${stateName}-auto`, timeout);
     });
+  }
+
+  /**
+   * Setup cascading rules engine (XComponent pattern)
+   *
+   * Listens to state_change events and automatically triggers cross-machine updates
+   * based on cascading rules defined in state definitions.
+   */
+  private setupCascadingEngine(): void {
+    this.on('state_change', async (data: any) => {
+      const { instanceId, newState } = data;
+      const instance = this.instances.get(instanceId);
+
+      if (!instance) return;
+
+      const machine = this.machines.get(instance.machineName);
+      if (!machine) return;
+
+      // Find the state definition
+      const state = machine.states.find(s => s.name === newState);
+      if (!state || !state.cascadingRules || state.cascadingRules.length === 0) {
+        return; // No cascading rules for this state
+      }
+
+      // Process each cascading rule
+      for (const rule of state.cascadingRules) {
+        try {
+          await this.processCascadingRule(instance, rule);
+        } catch (error: any) {
+          this.emit('cascade_error', {
+            sourceInstanceId: instanceId,
+            rule,
+            error: error.message,
+          });
+        }
+      }
+    });
+  }
+
+  /**
+   * Process a single cascading rule
+   *
+   * Applies payload templating and broadcasts event to target instances
+   * If matchingRules exist, uses property-based routing
+   * Otherwise, sends to ALL instances in the target state
+   */
+  private async processCascadingRule(
+    sourceInstance: FSMInstance,
+    rule: import('./types').CascadingRule
+  ): Promise<void> {
+    // Get source context (publicMember or context)
+    const sourceContext = sourceInstance.publicMember || sourceInstance.context;
+
+    // Apply payload templating
+    const payload = rule.payload ? this.applyPayloadTemplate(rule.payload, sourceContext) : {};
+
+    const event: import('./types').FSMEvent = {
+      type: rule.event,
+      payload,
+      timestamp: Date.now(),
+    };
+
+    let processedCount = 0;
+
+    if (rule.matchingRules && rule.matchingRules.length > 0) {
+      // Use property-based routing
+      processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
+    } else {
+      // No matching rules - send to ALL instances in target state
+      const targetInstances = Array.from(this.instances.values()).filter(
+        i => i.machineName === rule.targetMachine && i.currentState === rule.targetState && i.status === 'active'
+      );
+
+      for (const instance of targetInstances) {
+        try {
+          await this.sendEvent(instance.id, event);
+          processedCount++;
+        } catch (error: any) {
+          // Continue processing other instances even if one fails
+          this.emit('cascade_error', {
+            sourceInstanceId: sourceInstance.id,
+            targetInstanceId: instance.id,
+            error: error.message,
+          });
+        }
+      }
+    }
+
+    this.emit('cascade_completed', {
+      sourceInstanceId: sourceInstance.id,
+      targetMachine: rule.targetMachine,
+      targetState: rule.targetState,
+      event: rule.event,
+      processedCount,
+    });
+  }
+
+  /**
+   * Apply payload template with {{property}} syntax
+   *
+   * Replaces {{property}} with actual values from source context
+   *
+   * Example:
+   *   payload: { orderId: "{{Id}}", total: "{{Total}}" }
+   *   context: { Id: 42, Total: 99.99 }
+   *   result: { orderId: 42, total: 99.99 }
+   */
+  private applyPayloadTemplate(
+    template: Record<string, any>,
+    context: Record<string, any>
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(template)) {
+      if (typeof value === 'string' && value.startsWith('{{') && value.endsWith('}}')) {
+        // Extract property name: "{{Id}}" → "Id"
+        const propertyPath = value.slice(2, -2).trim();
+        result[key] = this.getNestedProperty(context, propertyPath);
+      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        // Recursively apply template for nested objects
+        result[key] = this.applyPayloadTemplate(value, context);
+      } else {
+        // Use value as-is
+        result[key] = value;
+      }
+    }
+
+    return result;
   }
 
   /**

@@ -15,6 +15,7 @@ import {
   TransitionType,
   Guard,
 } from './types';
+import type { MatchingRule } from './types';
 
 /**
  * FSM Runtime Engine
@@ -39,6 +40,14 @@ export class FSMRuntime extends EventEmitter {
 
   /**
    * Create a new FSM instance
+   *
+   * If the state machine defines a publicMemberType (XComponent pattern),
+   * the instance will have separate publicMember and internalMember.
+   * Otherwise, it uses the simple context pattern.
+   *
+   * @param machineName State machine name
+   * @param initialContext Initial context or public member data
+   * @returns Instance ID
    */
   createInstance(machineName: string, initialContext: Record<string, any> = {}): string {
     const machine = this.machines.get(machineName);
@@ -47,11 +56,15 @@ export class FSMRuntime extends EventEmitter {
     }
 
     const instanceId = uuidv4();
+
+    // XComponent pattern: separate publicMember and internalMember
     const instance: FSMInstance = {
       id: instanceId,
       machineName,
       currentState: machine.initialState,
-      context: initialContext,
+      context: machine.publicMemberType ? {} : initialContext,
+      publicMember: machine.publicMemberType ? initialContext : undefined,
+      internalMember: machine.publicMemberType ? {} : undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       status: 'active',
@@ -84,15 +97,18 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${instance.machineName} not found`);
     }
 
+    // Use publicMember if available (XComponent pattern), otherwise fallback to context
+    const instanceContext = instance.publicMember || instance.context;
+
     // Find applicable transition
-    const transition = this.findTransition(machine, instance.currentState, event);
+    const transition = this.findTransition(machine, instance.currentState, event, instanceContext);
     if (!transition) {
       this.emit('event_ignored', { instanceId, event, currentState: instance.currentState });
       return;
     }
 
     // Check guards
-    if (transition.guards && !this.evaluateGuards(transition.guards, event, instance.context)) {
+    if (transition.guards && !this.evaluateGuards(transition.guards, event, instanceContext)) {
       this.emit('guard_failed', { instanceId, event, transition });
       return;
     }
@@ -148,10 +164,214 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
-   * Find applicable transition
+   * Broadcast event to all matching instances (XComponent-style property matching)
+   *
+   * This method implements XComponent's property-based instance routing:
+   * - Finds all instances of the target machine in the specified state
+   * - Evaluates matching rules (property equality checks)
+   * - Routes event to ALL instances where matching rules pass
+   *
+   * Example:
+   *   // 100 Order instances exist
+   *   // Event: ExecutionInput { OrderId: 42, Quantity: 500 }
+   *   // Matching rule: ExecutionInput.OrderId = Order.Id
+   *   // → Automatically routes to Order instance with Id=42
+   *
+   * @param machineName Target state machine name
+   * @param currentState Current state filter (only instances in this state)
+   * @param event Event to broadcast
+   * @returns Number of instances that received the event
    */
-  private findTransition(machine: StateMachine, currentState: string, event: FSMEvent): Transition | null {
-    return machine.transitions.find(t => t.from === currentState && t.event === event.type) || null;
+  async broadcastEvent(
+    machineName: string,
+    currentState: string,
+    event: FSMEvent
+  ): Promise<number> {
+    const machine = this.machines.get(machineName);
+    if (!machine) {
+      throw new Error(`Machine ${machineName} not found`);
+    }
+
+    // Find transition with matching rules
+    const transition = this.findTransition(machine, currentState, event, {});
+    if (!transition || !transition.matchingRules || transition.matchingRules.length === 0) {
+      throw new Error(
+        `No transition with matching rules found for ${machineName}.${currentState} on event ${event.type}`
+      );
+    }
+
+    // Find all instances that match
+    const matchingInstances = this.findMatchingInstances(
+      machineName,
+      currentState,
+      event,
+      transition.matchingRules
+    );
+
+    // Send event to each matching instance
+    let processedCount = 0;
+    for (const instance of matchingInstances) {
+      try {
+        await this.sendEvent(instance.id, event);
+        processedCount++;
+      } catch (error: any) {
+        this.emit('broadcast_error', {
+          instanceId: instance.id,
+          event,
+          error: error.message,
+        });
+      }
+    }
+
+    this.emit('broadcast_completed', {
+      machineName,
+      currentState,
+      event,
+      matchedCount: matchingInstances.length,
+      processedCount,
+    });
+
+    return processedCount;
+  }
+
+  /**
+   * Find instances that match the property matching rules
+   *
+   * @param machineName Target machine name
+   * @param currentState Current state filter
+   * @param event Event to match against
+   * @param matchingRules Property matching rules
+   * @returns Array of matching instances
+   */
+  private findMatchingInstances(
+    machineName: string,
+    currentState: string,
+    event: FSMEvent,
+    matchingRules: MatchingRule[]
+  ): FSMInstance[] {
+    // Get all instances of the target machine in the specified state
+    const candidates = Array.from(this.instances.values()).filter(
+      i => i.machineName === machineName && i.currentState === currentState && i.status === 'active'
+    );
+
+    // Filter by matching rules
+    return candidates.filter(instance => {
+      return this.evaluateMatchingRules(instance, event, matchingRules);
+    });
+  }
+
+  /**
+   * Evaluate matching rules for an instance
+   *
+   * @param instance FSM instance to check
+   * @param event Event to match against
+   * @param matchingRules Matching rules to evaluate
+   * @returns true if all matching rules pass
+   */
+  private evaluateMatchingRules(
+    instance: FSMInstance,
+    event: FSMEvent,
+    matchingRules: MatchingRule[]
+  ): boolean {
+    return matchingRules.every(rule => {
+      const eventValue = this.getNestedProperty(event.payload, rule.eventProperty);
+
+      // Use publicMember if available (XComponent pattern), otherwise fallback to context
+      const instanceData = instance.publicMember || instance.context;
+      const instanceValue = this.getNestedProperty(instanceData, rule.instanceProperty);
+
+      // Handle undefined values
+      if (eventValue === undefined || instanceValue === undefined) {
+        return false;
+      }
+
+      // Apply operator (default to strict equality)
+      const operator = rule.operator || '===';
+      switch (operator) {
+        case '===':
+          return eventValue === instanceValue;
+        case '!==':
+          return eventValue !== instanceValue;
+        case '>':
+          return eventValue > instanceValue;
+        case '<':
+          return eventValue < instanceValue;
+        case '>=':
+          return eventValue >= instanceValue;
+        case '<=':
+          return eventValue <= instanceValue;
+        default:
+          return eventValue === instanceValue;
+      }
+    });
+  }
+
+  /**
+   * Get nested property value from object using dot notation
+   *
+   * Example: getNestedProperty({ customer: { id: 42 } }, "customer.id") → 42
+   *
+   * @param obj Object to get property from
+   * @param path Property path (dot notation)
+   * @returns Property value or undefined
+   */
+  private getNestedProperty(obj: any, path: string): any {
+    return path.split('.').reduce((current, prop) => current?.[prop], obj);
+  }
+
+  /**
+   * Find applicable transition with support for specific triggering rules
+   *
+   * When multiple transitions exist from the same state with the same event,
+   * specific triggering rules differentiate them (XComponent pattern).
+   *
+   * @param machine State machine
+   * @param currentState Current state name
+   * @param event Event to match
+   * @param instanceContext Instance context for specific triggering rule evaluation
+   * @returns Matching transition or null
+   */
+  private findTransition(
+    machine: StateMachine,
+    currentState: string,
+    event: FSMEvent,
+    instanceContext: Record<string, any>
+  ): Transition | null {
+    // Find all candidate transitions
+    const candidates = machine.transitions.filter(
+      t => t.from === currentState && t.event === event.type
+    );
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    // Single candidate - return it
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    // Multiple candidates - need specific triggering rules to differentiate
+    for (const transition of candidates) {
+      if (transition.specificTriggeringRule) {
+        try {
+          const func = new Function(
+            'event',
+            'context',
+            `return ${transition.specificTriggeringRule}`
+          );
+          if (func(event, instanceContext)) {
+            return transition;
+          }
+        } catch (error) {
+          // Rule evaluation failed, skip this transition
+          continue;
+        }
+      }
+    }
+
+    // No specific triggering rule matched - return first candidate (backward compatibility)
+    return candidates[0];
   }
 
   /**
@@ -273,7 +493,7 @@ export class FSMRuntime extends EventEmitter {
     const context: Record<string, any> = {};
 
     for (const event of events) {
-      const transition = this.findTransition(machine, currentState, event);
+      const transition = this.findTransition(machine, currentState, event, context);
       if (!transition) {
         return { success: false, path, error: `No transition from ${currentState} for event ${event.type}` };
       }

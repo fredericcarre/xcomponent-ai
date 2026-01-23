@@ -14,8 +14,29 @@ import {
   StateType,
   TransitionType,
   Guard,
+  Sender,
 } from './types';
 import type { MatchingRule } from './types';
+
+/**
+ * Sender implementation for triggered methods
+ * Provides controlled access to runtime operations
+ */
+class SenderImpl implements Sender {
+  constructor(private runtime: FSMRuntime) {}
+
+  async sendTo(instanceId: string, event: FSMEvent): Promise<void> {
+    return this.runtime.sendEvent(instanceId, event);
+  }
+
+  async broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number> {
+    return this.runtime.broadcastEvent(machineName, currentState, event);
+  }
+
+  createInstance(machineName: string, initialContext: Record<string, any>): string {
+    return this.runtime.createInstance(machineName, initialContext);
+  }
+}
 
 /**
  * FSM Runtime Engine
@@ -75,6 +96,9 @@ export class FSMRuntime extends EventEmitter {
 
     // Setup timeout transitions if any from initial state
     this.setupTimeouts(instanceId, machine.initialState);
+
+    // Setup auto-transitions if any from initial state
+    this.setupAutoTransitions(instanceId, machine.initialState);
 
     return instanceId;
   }
@@ -146,6 +170,9 @@ export class FSMRuntime extends EventEmitter {
 
       // Setup new timeouts
       this.setupTimeouts(instanceId, transition.to);
+
+      // Setup auto-transitions
+      this.setupAutoTransitions(instanceId, transition.to);
 
       // Handle inter-machine transitions
       if (transition.type === TransitionType.INTER_MACHINE && transition.targetMachine) {
@@ -450,14 +477,22 @@ export class FSMRuntime extends EventEmitter {
 
   /**
    * Execute transition
+   *
+   * Creates a Sender instance and passes it to triggered methods,
+   * enabling cross-instance communication (XComponent pattern)
    */
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
     // In production, execute triggered methods here
     if (transition.triggeredMethod) {
+      const sender = new SenderImpl(this);
+      const instanceContext = instance.publicMember || instance.context;
+
       this.emit('triggered_method', {
         instanceId: instance.id,
         method: transition.triggeredMethod,
         event,
+        context: instanceContext,
+        sender,
       });
     }
   }
@@ -488,6 +523,54 @@ export class FSMRuntime extends EventEmitter {
 
         this.timeouts.set(`${instanceId}-${stateName}`, timeout);
       }
+    });
+  }
+
+  /**
+   * Setup auto-transitions (XComponent-style automatic transitions)
+   *
+   * Auto-transitions are triggered automatically when entering a state,
+   * typically with timeoutMs: 0 for immediate execution.
+   *
+   * Example:
+   *   - from: Validated
+   *     to: Processing
+   *     event: AUTO_PROCESS
+   *     type: auto
+   *     timeoutMs: 0
+   */
+  private setupAutoTransitions(instanceId: string, stateName: string): void {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) return;
+
+    const autoTransitions = machine.transitions.filter(
+      t => t.from === stateName && t.type === TransitionType.AUTO
+    );
+
+    autoTransitions.forEach(transition => {
+      // Use publicMember if available (XComponent pattern), otherwise fallback to context
+      const instanceContext = instance.publicMember || instance.context;
+
+      // Check guards before scheduling auto-transition
+      if (transition.guards && !this.evaluateGuards(transition.guards,
+        { type: transition.event, payload: {}, timestamp: Date.now() },
+        instanceContext)) {
+        return; // Guard failed, skip this auto-transition
+      }
+
+      const delay = transition.timeoutMs || 0; // Default to immediate (0ms)
+      const timeout = setTimeout(() => {
+        this.sendEvent(instanceId, {
+          type: transition.event,
+          payload: { reason: 'auto-transition' },
+          timestamp: Date.now(),
+        });
+      }, delay);
+
+      this.timeouts.set(`${instanceId}-${stateName}-auto`, timeout);
     });
   }
 

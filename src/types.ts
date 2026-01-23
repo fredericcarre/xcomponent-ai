@@ -31,6 +31,8 @@ export enum TransitionType {
   INTERNAL = 'internal',
   /** Triggerable from code */
   TRIGGERABLE = 'triggerable',
+  /** Auto-transition (triggered automatically when entering state) */
+  AUTO = 'auto',
 }
 
 /**
@@ -39,9 +41,31 @@ export enum TransitionType {
 export type GuardFunction = (event: FSMEvent, context: any) => boolean;
 
 /**
- * Triggered method (async JS hook on entry/transition)
+ * Sender interface for triggered methods
+ * Allows state machines to send events to other instances (XComponent pattern)
  */
-export type TriggeredMethod = (event: FSMEvent, context: any) => Promise<void>;
+export interface Sender {
+  /**
+   * Send event to specific instance by ID
+   */
+  sendTo(instanceId: string, event: FSMEvent): Promise<void>;
+
+  /**
+   * Broadcast event to instances matching property rules
+   */
+  broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number>;
+
+  /**
+   * Create new instance (inter-machine pattern)
+   */
+  createInstance(machineName: string, initialContext: Record<string, any>): string;
+}
+
+/**
+ * Triggered method (async JS hook on entry/transition)
+ * Receives event, context, and sender for cross-instance communication
+ */
+export type TriggeredMethod = (event: FSMEvent, context: any, sender: Sender) => Promise<void>;
 
 /**
  * Guard configuration

@@ -93,6 +93,25 @@ export interface MatchingRule {
 }
 
 /**
+ * Cascading rule for automatic cross-machine updates
+ * When a source machine reaches a specific state, automatically triggers events on target machines
+ *
+ * Example: When Order reaches Confirmed, start Shipment workflow
+ */
+export interface CascadingRule {
+  /** Target machine name */
+  targetMachine: string;
+  /** Target state filter (only instances in this state) */
+  targetState: string;
+  /** Event to send to target instances */
+  event: string;
+  /** Property matching rules for routing */
+  matchingRules?: MatchingRule[];
+  /** Payload template with {{property}} syntax */
+  payload?: Record<string, any>;
+}
+
+/**
  * State definition
  */
 export interface State {
@@ -106,6 +125,8 @@ export interface State {
   exitMethod?: string;
   /** Metadata */
   metadata?: Record<string, any>;
+  /** Cascading rules triggered when entering this state */
+  cascadingRules?: CascadingRule[];
 }
 
 /**

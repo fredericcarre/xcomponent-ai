@@ -49,12 +49,14 @@ export class FSMRuntime extends EventEmitter {
   private machines: Map<string, StateMachine>;
   private timeouts: Map<string, NodeJS.Timeout>;
   private persistence: PersistenceManager | null;
+  private componentDef: Component;
 
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
     this.instances = new Map();
     this.machines = new Map();
     this.timeouts = new Map();
+    this.componentDef = component;
 
     // Setup persistence (optional)
     if (persistenceConfig && (persistenceConfig.eventSourcing || persistenceConfig.snapshots)) {
@@ -1002,6 +1004,31 @@ export class FSMRuntime extends EventEmitter {
     }
 
     return await this.persistence.traceEventCausality(eventId);
+  }
+
+  /**
+   * Get component definition
+   */
+  getComponent(): Component {
+    return this.componentDef;
+  }
+
+  /**
+   * Get available transitions from current state of an instance
+   */
+  getAvailableTransitions(instanceId: string): Transition[] {
+    const instance = this.getInstance(instanceId);
+    if (!instance) {
+      return [];
+    }
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) {
+      return [];
+    }
+
+    // Find all transitions from current state
+    return machine.transitions.filter(t => t.from === instance.currentState);
   }
 }
 

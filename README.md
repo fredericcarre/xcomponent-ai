@@ -542,7 +542,7 @@ stateMachines:
 - **Enterprise Monitoring**: Grafana/Prometheus integration, alerting, SLA tracking
 - **Premium Support**: Dedicated compliance consulting, custom FSM templates
 
-Contact: [enterprise@xcomponent-ai.dev](mailto:enterprise@xcomponent-ai.dev)
+Contact: [dev@xcomponent.com](mailto:dev@xcomponent.com)
 
 ## 🧪 Testing
 

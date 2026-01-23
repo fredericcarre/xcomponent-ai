@@ -1,0 +1,172 @@
+name: PaymentComponent
+version: 1.0.0
+metadata:
+  domain: fintech
+  compliance:
+    - PSD2
+    - PCI DSS
+    - Strong Customer Authentication
+  description: Payment processing workflow with refund capability
+
+stateMachines:
+  - name: Payment
+    initialState: Pending
+    metadata:
+      description: Payment authorization and execution
+      sla: 30 seconds
+    states:
+      - name: Pending
+        type: entry
+        entryMethod: initiatePayment
+        metadata:
+          description: Payment initiated, awaiting authorization
+      - name: Authorizing
+        type: regular
+        entryMethod: requestSCA
+        metadata:
+          description: Strong Customer Authentication in progress
+          psd2Required: true
+      - name: Authorized
+        type: regular
+        entryMethod: reserveFunds
+        metadata:
+          description: Payment authorized, funds reserved
+      - name: Processing
+        type: regular
+        entryMethod: executePayment
+        metadata:
+          description: Payment being processed by payment gateway
+      - name: Paid
+        type: final
+        metadata:
+          description: Payment successfully completed
+      - name: Failed
+        type: error
+        metadata:
+          description: Payment failed
+    transitions:
+      - from: Pending
+        to: Authorizing
+        event: AUTHORIZE_PAYMENT
+        type: triggerable
+        guards:
+          - keys:
+              - amount
+              - currency
+              - paymentMethod
+          - customFunction: "event.payload.amount > 0"
+          - customFunction: "event.payload.amount <= context.accountBalance"
+        triggeredMethod: logPaymentInitiation
+      - from: Pending
+        to: Failed
+        event: AUTHORIZE_PAYMENT
+        type: regular
+        guards:
+          - customFunction: "event.payload.amount > context.accountBalance"
+      - from: Authorizing
+        to: Authorized
+        event: SCA_SUCCESS
+        type: regular
+        guards:
+          - keys:
+              - scaToken
+              - timestamp
+        triggeredMethod: validateSCAToken
+      - from: Authorizing
+        to: Failed
+        event: SCA_FAILED
+        type: regular
+      - from: Authorizing
+        to: Failed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 120000
+        metadata:
+          comment: 2 minutes for SCA
+      - from: Authorized
+        to: Processing
+        event: PROCESS
+        type: triggerable
+        triggeredMethod: sendToPaymentGateway
+      - from: Processing
+        to: Paid
+        event: GATEWAY_SUCCESS
+        type: regular
+        triggeredMethod: releaseReservedFunds
+      - from: Processing
+        to: Failed
+        event: GATEWAY_FAILED
+        type: regular
+      - from: Processing
+        to: Failed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+      - from: Paid
+        to: Refunded
+        event: INITIATE_REFUND
+        type: inter_machine
+        targetMachine: Refund
+
+  - name: Refund
+    initialState: RefundPending
+    metadata:
+      description: Payment refund workflow
+    states:
+      - name: RefundPending
+        type: entry
+        entryMethod: initiateRefund
+        metadata:
+          description: Refund requested
+      - name: RefundValidating
+        type: regular
+        entryMethod: validateRefundEligibility
+        metadata:
+          description: Checking refund eligibility
+      - name: RefundProcessing
+        type: regular
+        entryMethod: processRefund
+        metadata:
+          description: Processing refund through gateway
+      - name: Refunded
+        type: final
+        metadata:
+          description: Refund completed
+      - name: RefundFailed
+        type: error
+        metadata:
+          description: Refund failed
+    transitions:
+      - from: RefundPending
+        to: RefundValidating
+        event: VALIDATE_REFUND
+        type: triggerable
+        guards:
+          - keys:
+              - originalPaymentId
+              - refundAmount
+      - from: RefundValidating
+        to: RefundProcessing
+        event: REFUND_ELIGIBLE
+        type: regular
+        guards:
+          - customFunction: "event.payload.refundAmount <= context.originalAmount"
+          - customFunction: "context.refundWindowDays <= 30"
+      - from: RefundValidating
+        to: RefundFailed
+        event: REFUND_INELIGIBLE
+        type: regular
+      - from: RefundProcessing
+        to: Refunded
+        event: REFUND_SUCCESS
+        type: regular
+        triggeredMethod: notifyCustomer
+      - from: RefundProcessing
+        to: RefundFailed
+        event: REFUND_GATEWAY_FAILED
+        type: regular
+      - from: RefundProcessing
+        to: RefundFailed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 60000

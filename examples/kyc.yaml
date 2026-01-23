@@ -1,0 +1,125 @@
+name: KYCComponent
+version: 1.0.0
+metadata:
+  domain: fintech
+  compliance:
+    - RGPD/GDPR
+    - AML/KYC
+    - eIDAS
+  description: Know Your Customer onboarding workflow with compliance checks
+
+stateMachines:
+  - name: Onboarding
+    initialState: IDPending
+    metadata:
+      description: Customer identity verification workflow
+      dataRetention: 5 years
+    states:
+      - name: IDPending
+        type: entry
+        entryMethod: requestIdentityDocuments
+        metadata:
+          description: Awaiting customer identity documents
+          personalData: true
+      - name: IDValidating
+        type: regular
+        entryMethod: validateDocuments
+        metadata:
+          description: AI/manual validation of documents
+      - name: AMLCheck
+        type: regular
+        entryMethod: performAMLScreening
+        metadata:
+          description: Anti-Money Laundering screening
+          externalAPI: true
+      - name: Validated
+        type: regular
+        entryMethod: createCustomerAccount
+        metadata:
+          description: Customer validated and account created
+      - name: ManualReview
+        type: regular
+        entryMethod: escalateToCompliance
+        metadata:
+          description: Requires manual compliance review
+      - name: Approved
+        type: final
+        metadata:
+          description: Customer fully onboarded
+      - name: Rejected
+        type: error
+        metadata:
+          description: Customer rejected (fraud/compliance)
+    transitions:
+      - from: IDPending
+        to: IDValidating
+        event: DOCUMENTS_RECEIVED
+        type: triggerable
+        guards:
+          - keys:
+              - documentType
+              - documentNumber
+              - country
+          - customFunction: "context.rgpdConsent === true"
+        triggeredMethod: storeEncryptedDocuments
+      - from: IDValidating
+        to: AMLCheck
+        event: DOCUMENTS_VALID
+        type: regular
+        guards:
+          - customFunction: "event.payload.documentScore > 0.8"
+      - from: IDValidating
+        to: ManualReview
+        event: DOCUMENTS_UNCLEAR
+        type: regular
+        guards:
+          - customFunction: "event.payload.documentScore <= 0.8 && event.payload.documentScore > 0.5"
+      - from: IDValidating
+        to: Rejected
+        event: DOCUMENTS_INVALID
+        type: regular
+      - from: AMLCheck
+        to: Validated
+        event: AML_CLEAR
+        type: regular
+        guards:
+          - customFunction: "event.payload.riskScore === 'low'"
+      - from: AMLCheck
+        to: ManualReview
+        event: AML_FLAGGED
+        type: regular
+        guards:
+          - customFunction: "event.payload.riskScore === 'medium'"
+      - from: AMLCheck
+        to: Rejected
+        event: AML_BLOCKED
+        type: regular
+        guards:
+          - customFunction: "event.payload.riskScore === 'high'"
+      - from: ManualReview
+        to: Validated
+        event: MANUAL_APPROVE
+        type: triggerable
+      - from: ManualReview
+        to: Rejected
+        event: MANUAL_REJECT
+        type: triggerable
+      - from: Validated
+        to: Approved
+        event: ACCOUNT_CREATED
+        type: regular
+        triggeredMethod: sendWelcomeEmail
+      - from: IDPending
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 604800000
+        metadata:
+          comment: 7 days timeout
+      - from: ManualReview
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 259200000
+        metadata:
+          comment: 3 days timeout for manual review

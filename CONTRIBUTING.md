@@ -188,7 +188,7 @@ npm run cli -- load examples/trading.yaml
 
 - Open a [Discussion](https://github.com/fredericcarre/mayele-ai/discussions)
 - Join our community chat (coming soon)
-- Email: contributors@xcomponent-ai.dev
+- Email: contributors@xcomponent.com
 
 ## License
 

@@ -1,0 +1,504 @@
+name: CompleteWorkflowComponent
+version: 1.0.0
+metadata:
+  description: Complete e-commerce workflow demonstrating all XComponent triggering mechanisms
+  domain: e-commerce
+  features:
+    - Auto-transitions (Phase 1)
+    - Sender interface for triggered methods (Phase 2)
+    - Cascading rules for cross-machine updates (Phase 3)
+    - Property matching for multi-instance routing
+    - Public member pattern
+
+stateMachines:
+  # ============================================================
+  # ORDER: Main workflow orchestrator
+  # Demonstrates: Cascading rules, auto-transitions, public member
+  # ============================================================
+  - name: Order
+    initialState: Draft
+    publicMemberType: Order
+
+    states:
+      - name: Draft
+        type: entry
+        entryMethod: recordOrder
+        metadata:
+          description: Order created but not yet validated
+
+      - name: Validated
+        type: regular
+        metadata:
+          description: Order passed validation checks
+
+      - name: InventoryChecked
+        type: regular
+        metadata:
+          description: Inventory availability confirmed
+        # Cascading Rule (Phase 3): Automatically reserve inventory
+        cascadingRules:
+          - targetMachine: Inventory
+            targetState: Available
+            event: RESERVE
+            matchingRules:
+              - eventProperty: productId
+                instanceProperty: ProductId
+            payload:
+              productId: "{{ProductId}}"
+              quantity: "{{Quantity}}"
+              orderId: "{{Id}}"
+
+      - name: PaymentProcessing
+        type: regular
+        metadata:
+          description: Payment is being processed
+        # Cascading Rule (Phase 3): Automatically start payment
+        cascadingRules:
+          - targetMachine: Payment
+            targetState: Pending
+            event: CHARGE
+            matchingRules:
+              - eventProperty: orderId
+                instanceProperty: orderId
+            payload:
+              orderId: "{{Id}}"
+              amount: "{{Total}}"
+              customerId: "{{CustomerId}}"
+
+      - name: Confirmed
+        type: regular
+        metadata:
+          description: Order confirmed and ready for shipment
+        # Cascading Rule (Phase 3): Automatically start shipment
+        cascadingRules:
+          - targetMachine: Shipment
+            targetState: Idle
+            event: START
+            matchingRules:
+              - eventProperty: orderId
+                instanceProperty: orderId
+            payload:
+              orderId: "{{Id}}"
+              address: "{{ShippingAddress}}"
+              productId: "{{ProductId}}"
+
+      - name: Shipped
+        type: regular
+        metadata:
+          description: Order shipped to customer
+
+      - name: Delivered
+        type: final
+        metadata:
+          description: Order delivered successfully
+
+      - name: Cancelled
+        type: error
+        metadata:
+          description: Order cancelled
+
+    transitions:
+      # Draft → Validated
+      - from: Draft
+        to: Validated
+        event: VALIDATE
+        type: regular
+        guards:
+          - keys: [ProductId, Quantity, CustomerId, ShippingAddress]
+          - customFunction: "event.payload.Quantity > 0"
+        triggeredMethod: onOrderValidated
+
+      # Validated → InventoryChecked (Auto-transition - Phase 1)
+      - from: Validated
+        to: InventoryChecked
+        event: AUTO_CHECK_INVENTORY
+        type: auto
+        timeoutMs: 0
+        metadata:
+          description: Automatically check inventory after validation
+
+      # InventoryChecked → PaymentProcessing (Manual trigger from external confirmation)
+      - from: InventoryChecked
+        to: PaymentProcessing
+        event: INVENTORY_CONFIRMED
+        type: triggerable
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: Id
+
+      # PaymentProcessing → Confirmed (Manual trigger from payment gateway)
+      - from: PaymentProcessing
+        to: Confirmed
+        event: PAYMENT_SUCCESS
+        type: triggerable
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: Id
+
+      # Confirmed → Shipped (Triggered when shipment completes)
+      - from: Confirmed
+        to: Shipped
+        event: SHIPMENT_DISPATCHED
+        type: triggerable
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: Id
+
+      # Shipped → Delivered (Auto-transition after delivery confirmation)
+      - from: Shipped
+        to: Delivered
+        event: DELIVERY_CONFIRMED
+        type: triggerable
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: Id
+
+      # Error handling
+      - from: Draft
+        to: Cancelled
+        event: CANCEL
+        type: triggerable
+
+      - from: InventoryChecked
+        to: Cancelled
+        event: INVENTORY_UNAVAILABLE
+        type: triggerable
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: Id
+
+      - from: PaymentProcessing
+        to: Cancelled
+        event: PAYMENT_FAILED
+        type: triggerable
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: Id
+
+  # ============================================================
+  # INVENTORY: Stock management
+  # Demonstrates: Property matching, guards
+  # ============================================================
+  - name: Inventory
+    initialState: Available
+    publicMemberType: Inventory
+
+    states:
+      - name: Available
+        type: entry
+        entryMethod: initializeStock
+
+      - name: Reserved
+        type: regular
+        entryMethod: decrementStock
+
+      - name: OutOfStock
+        type: error
+        metadata:
+          description: No stock available
+
+    transitions:
+      - from: Available
+        to: Reserved
+        event: RESERVE
+        type: regular
+        matchingRules:
+          - eventProperty: productId
+            instanceProperty: ProductId
+        guards:
+          - customFunction: "context.StockLevel >= event.payload.quantity"
+        triggeredMethod: onInventoryReserved
+
+      - from: Available
+        to: OutOfStock
+        event: RESERVE
+        type: regular
+        matchingRules:
+          - eventProperty: productId
+            instanceProperty: ProductId
+        guards:
+          - customFunction: "context.StockLevel < event.payload.quantity"
+
+  # ============================================================
+  # PAYMENT: Payment processing
+  # Demonstrates: Timeout transitions, error states
+  # ============================================================
+  - name: Payment
+    initialState: Pending
+    publicMemberType: Payment
+
+    states:
+      - name: Pending
+        type: entry
+        entryMethod: initializePayment
+
+      - name: Processing
+        type: regular
+        entryMethod: callPaymentGateway
+
+      - name: Completed
+        type: regular
+        metadata:
+          description: Payment successful
+
+      - name: Failed
+        type: error
+        metadata:
+          description: Payment failed
+
+    transitions:
+      # Pending → Processing (Triggered by cascading rule)
+      - from: Pending
+        to: Processing
+        event: CHARGE
+        type: regular
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
+
+      # Processing → Completed (Auto after gateway response - Phase 1)
+      - from: Processing
+        to: Completed
+        event: GATEWAY_SUCCESS
+        type: auto
+        timeoutMs: 100
+        guards:
+          - keys: [transactionId]
+        triggeredMethod: notifyOrderPaymentSuccess
+
+      # Processing → Failed (Timeout - safety mechanism)
+      - from: Processing
+        to: Failed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+        metadata:
+          description: Payment gateway timeout after 30 seconds
+
+      # Processing → Failed (Gateway rejection)
+      - from: Processing
+        to: Failed
+        event: GATEWAY_FAILED
+        type: triggerable
+        triggeredMethod: notifyOrderPaymentFailed
+
+  # ============================================================
+  # SHIPMENT: Shipping workflow
+  # Demonstrates: Auto-transitions chain, inter-machine updates
+  # ============================================================
+  - name: Shipment
+    initialState: Idle
+    publicMemberType: Shipment
+
+    states:
+      - name: Idle
+        type: entry
+        metadata:
+          description: Waiting for order confirmation
+
+      - name: Preparing
+        type: regular
+        entryMethod: preparePackage
+
+      - name: ReadyForDispatch
+        type: regular
+        entryMethod: assignCourier
+
+      - name: InTransit
+        type: regular
+        entryMethod: trackShipment
+
+      - name: Delivered
+        type: final
+        entryMethod: confirmDelivery
+
+    transitions:
+      # Idle → Preparing (Triggered by cascading rule)
+      - from: Idle
+        to: Preparing
+        event: START
+        type: regular
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
+
+      # Preparing → ReadyForDispatch (Auto-transition - Phase 1)
+      - from: Preparing
+        to: ReadyForDispatch
+        event: AUTO_READY
+        type: auto
+        timeoutMs: 0
+        metadata:
+          description: Package prepared, ready for dispatch
+
+      # ReadyForDispatch → InTransit (Manual trigger from courier)
+      - from: ReadyForDispatch
+        to: InTransit
+        event: DISPATCH
+        type: triggerable
+        matchingRules:
+          - eventProperty: trackingNumber
+            instanceProperty: trackingNumber
+        triggeredMethod: notifyOrderDispatched
+
+      # InTransit → Delivered (Manual confirmation)
+      - from: InTransit
+        to: Delivered
+        event: CONFIRM_DELIVERY
+        type: triggerable
+        matchingRules:
+          - eventProperty: trackingNumber
+            instanceProperty: trackingNumber
+        triggeredMethod: notifyOrderDelivered
+
+# ============================================================
+# USAGE EXAMPLES
+# ============================================================
+#
+# Example 1: Complete workflow with 100 concurrent orders
+#
+# const runtime = new FSMRuntime(component);
+#
+# // Create inventory items
+# runtime.createInstance('Inventory', { ProductId: 'P1', StockLevel: 1000 });
+# runtime.createInstance('Inventory', { ProductId: 'P2', StockLevel: 500 });
+#
+# // Create 100 orders
+# for (let i = 1; i <= 100; i++) {
+#   const orderId = runtime.createInstance('Order', {
+#     Id: i,
+#     ProductId: i % 2 === 0 ? 'P1' : 'P2',
+#     Quantity: 1,
+#     CustomerId: `C${i}`,
+#     ShippingAddress: `${i} Main St`,
+#     Total: 99.99
+#   });
+#
+#   // Create corresponding payment and shipment instances
+#   runtime.createInstance('Payment', { orderId: i });
+#   runtime.createInstance('Shipment', { orderId: i });
+# }
+#
+# // Validate order #42
+# await runtime.broadcastEvent('Order', 'Draft', {
+#   type: 'VALIDATE',
+#   payload: { ProductId: 'P1', Quantity: 1, CustomerId: 'C42', ShippingAddress: '42 Main St' },
+#   timestamp: Date.now()
+# });
+#
+# // What happens automatically:
+# // 1. Order #42: Draft → Validated
+# // 2. AUTO-TRANSITION: Validated → InventoryChecked (Phase 1)
+# // 3. CASCADING RULE: Inventory P1 receives RESERVE event (Phase 3)
+# // 4. Inventory P1: Available → Reserved
+#
+# // Simulate inventory confirmation from warehouse
+# await runtime.broadcastEvent('Order', 'InventoryChecked', {
+#   type: 'INVENTORY_CONFIRMED',
+#   payload: { orderId: 42 },
+#   timestamp: Date.now()
+# });
+#
+# // What happens automatically:
+# // 1. Order #42: InventoryChecked → PaymentProcessing
+# // 2. CASCADING RULE: Payment for order 42 receives CHARGE event (Phase 3)
+# // 3. Payment: Pending → Processing
+# // 4. AUTO-TRANSITION: Processing → Completed after 100ms (Phase 1)
+# // 5. TRIGGERED METHOD: notifyOrderPaymentSuccess sends event back to Order (Phase 2)
+#
+# // Simulate payment gateway success (via triggered method - Phase 2)
+# // This would be done in notifyOrderPaymentSuccess triggered method:
+# //   await sender.broadcast('Order', 'PaymentProcessing', {
+# //     type: 'PAYMENT_SUCCESS',
+# //     payload: { orderId: context.orderId }
+# //   });
+#
+# // What happens automatically:
+# // 1. Order #42: PaymentProcessing → Confirmed
+# // 2. CASCADING RULE: Shipment for order 42 receives START event (Phase 3)
+# // 3. Shipment: Idle → Preparing
+# // 4. AUTO-TRANSITION: Preparing → ReadyForDispatch (Phase 1)
+#
+# // Simulate courier dispatch
+# await runtime.broadcastEvent('Shipment', 'ReadyForDispatch', {
+#   type: 'DISPATCH',
+#   payload: { trackingNumber: 'TRK42' },
+#   timestamp: Date.now()
+# });
+#
+# // What happens automatically:
+# // 1. Shipment: ReadyForDispatch → InTransit
+# // 2. TRIGGERED METHOD: notifyOrderDispatched sends SHIPMENT_DISPATCHED to Order (Phase 2)
+# // 3. Order #42: Confirmed → Shipped
+#
+# // Simulate delivery confirmation
+# await runtime.broadcastEvent('Shipment', 'InTransit', {
+#   type: 'CONFIRM_DELIVERY',
+#   payload: { trackingNumber: 'TRK42' },
+#   timestamp: Date.now()
+# });
+#
+# // What happens automatically:
+# // 1. Shipment: InTransit → Delivered (final state, disposed)
+# // 2. TRIGGERED METHOD: notifyOrderDelivered sends DELIVERY_CONFIRMED to Order (Phase 2)
+# // 3. Order #42: Shipped → Delivered (final state, disposed)
+#
+# ============================================================
+# TRIGGERED METHODS (Phase 2 - Sender Interface)
+# ============================================================
+#
+# File: triggered-methods.ts
+#
+# import { FSMEvent, Sender } from 'xcomponent-ai';
+#
+# export const onOrderValidated = async (event: FSMEvent, context: any, sender: Sender) => {
+#   console.log(`Order ${context.Id} validated`);
+#   // Could send notifications, log to audit system, etc.
+# };
+#
+# export const onInventoryReserved = async (event: FSMEvent, context: any, sender: Sender) => {
+#   console.log(`Inventory ${context.ProductId} reserved for order ${event.payload.orderId}`);
+#
+#   // Notify order that inventory is confirmed
+#   await sender.broadcast('Order', 'InventoryChecked', {
+#     type: 'INVENTORY_CONFIRMED',
+#     payload: { orderId: event.payload.orderId },
+#     timestamp: Date.now()
+#   });
+# };
+#
+# export const notifyOrderPaymentSuccess = async (event: FSMEvent, context: any, sender: Sender) => {
+#   // Notify order that payment succeeded
+#   await sender.broadcast('Order', 'PaymentProcessing', {
+#     type: 'PAYMENT_SUCCESS',
+#     payload: { orderId: context.orderId, transactionId: context.transactionId },
+#     timestamp: Date.now()
+#   });
+# };
+#
+# export const notifyOrderPaymentFailed = async (event: FSMEvent, context: any, sender: Sender) => {
+#   // Notify order that payment failed
+#   await sender.broadcast('Order', 'PaymentProcessing', {
+#     type: 'PAYMENT_FAILED',
+#     payload: { orderId: context.orderId, reason: event.payload.reason },
+#     timestamp: Date.now()
+#   });
+# };
+#
+# export const notifyOrderDispatched = async (event: FSMEvent, context: any, sender: Sender) => {
+#   // Notify order that shipment is dispatched
+#   await sender.broadcast('Order', 'Confirmed', {
+#     type: 'SHIPMENT_DISPATCHED',
+#     payload: { orderId: context.orderId, trackingNumber: context.trackingNumber },
+#     timestamp: Date.now()
+#   });
+# };
+#
+# export const notifyOrderDelivered = async (event: FSMEvent, context: any, sender: Sender) => {
+#   // Notify order that delivery is confirmed
+#   await sender.broadcast('Order', 'Shipped', {
+#     type: 'DELIVERY_CONFIRMED',
+#     payload: { orderId: context.orderId, deliveredAt: Date.now() },
+#     timestamp: Date.now()
+#   });
+# };

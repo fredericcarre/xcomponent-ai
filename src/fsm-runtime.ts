@@ -14,8 +14,31 @@ import {
   StateType,
   TransitionType,
   Guard,
+  Sender,
+  PersistenceConfig,
 } from './types';
 import type { MatchingRule } from './types';
+import { PersistenceManager, InMemoryEventStore, InMemorySnapshotStore } from './persistence';
+
+/**
+ * Sender implementation for triggered methods
+ * Provides controlled access to runtime operations
+ */
+class SenderImpl implements Sender {
+  constructor(private runtime: FSMRuntime) {}
+
+  async sendTo(instanceId: string, event: FSMEvent): Promise<void> {
+    return this.runtime.sendEvent(instanceId, event);
+  }
+
+  async broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number> {
+    return this.runtime.broadcastEvent(machineName, currentState, event);
+  }
+
+  createInstance(machineName: string, initialContext: Record<string, any>): string {
+    return this.runtime.createInstance(machineName, initialContext);
+  }
+}
 
 /**
  * FSM Runtime Engine
@@ -25,17 +48,37 @@ export class FSMRuntime extends EventEmitter {
   private instances: Map<string, FSMInstance>;
   private machines: Map<string, StateMachine>;
   private timeouts: Map<string, NodeJS.Timeout>;
+  private persistence: PersistenceManager | null;
+  private componentDef: Component;
 
-  constructor(component: Component) {
+  constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
     this.instances = new Map();
     this.machines = new Map();
     this.timeouts = new Map();
+    this.componentDef = component;
+
+    // Setup persistence (optional)
+    if (persistenceConfig && (persistenceConfig.eventSourcing || persistenceConfig.snapshots)) {
+      const eventStore = persistenceConfig.eventStore || new InMemoryEventStore();
+      const snapshotStore = persistenceConfig.snapshotStore || new InMemorySnapshotStore();
+
+      this.persistence = new PersistenceManager(eventStore, snapshotStore, {
+        eventSourcing: persistenceConfig.eventSourcing,
+        snapshots: persistenceConfig.snapshots,
+        snapshotInterval: persistenceConfig.snapshotInterval,
+      });
+    } else {
+      this.persistence = null;
+    }
 
     // Index machines by name
     component.stateMachines.forEach(machine => {
       this.machines.set(machine.name, machine);
     });
+
+    // Setup cascading rules engine (XComponent pattern)
+    this.setupCascadingEngine();
   }
 
   /**
@@ -75,6 +118,9 @@ export class FSMRuntime extends EventEmitter {
 
     // Setup timeout transitions if any from initial state
     this.setupTimeouts(instanceId, machine.initialState);
+
+    // Setup auto-transitions if any from initial state
+    this.setupAutoTransitions(instanceId, machine.initialState);
 
     return instanceId;
   }
@@ -123,6 +169,21 @@ export class FSMRuntime extends EventEmitter {
       instance.currentState = transition.to;
       instance.updatedAt = Date.now();
 
+      // Persist event (event sourcing)
+      let eventId = '';
+      if (this.persistence) {
+        eventId = await this.persistence.persistEvent(
+          instanceId,
+          instance.machineName,
+          event,
+          previousState,
+          transition.to
+        );
+
+        // Set as current event for causality tracking
+        this.persistence.setCurrentEventId(eventId);
+      }
+
       // Clear old timeouts
       this.clearTimeouts(instanceId);
 
@@ -135,6 +196,11 @@ export class FSMRuntime extends EventEmitter {
         timestamp: Date.now(),
       });
 
+      // Save snapshot if needed
+      if (this.persistence) {
+        await this.persistence.maybeSnapshot(instance, eventId, this.timeouts);
+      }
+
       // Check if final or error state
       const targetState = machine.states.find(s => s.name === transition.to);
       if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
@@ -146,6 +212,9 @@ export class FSMRuntime extends EventEmitter {
 
       // Setup new timeouts
       this.setupTimeouts(instanceId, transition.to);
+
+      // Setup auto-transitions
+      this.setupAutoTransitions(instanceId, transition.to);
 
       // Handle inter-machine transitions
       if (transition.type === TransitionType.INTER_MACHINE && transition.targetMachine) {
@@ -450,14 +519,22 @@ export class FSMRuntime extends EventEmitter {
 
   /**
    * Execute transition
+   *
+   * Creates a Sender instance and passes it to triggered methods,
+   * enabling cross-instance communication (XComponent pattern)
    */
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
     // In production, execute triggered methods here
     if (transition.triggeredMethod) {
+      const sender = new SenderImpl(this);
+      const instanceContext = instance.publicMember || instance.context;
+
       this.emit('triggered_method', {
         instanceId: instance.id,
         method: transition.triggeredMethod,
         event,
+        context: instanceContext,
+        sender,
       });
     }
   }
@@ -489,6 +566,182 @@ export class FSMRuntime extends EventEmitter {
         this.timeouts.set(`${instanceId}-${stateName}`, timeout);
       }
     });
+  }
+
+  /**
+   * Setup auto-transitions (XComponent-style automatic transitions)
+   *
+   * Auto-transitions are triggered automatically when entering a state,
+   * typically with timeoutMs: 0 for immediate execution.
+   *
+   * Example:
+   *   - from: Validated
+   *     to: Processing
+   *     event: AUTO_PROCESS
+   *     type: auto
+   *     timeoutMs: 0
+   */
+  private setupAutoTransitions(instanceId: string, stateName: string): void {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) return;
+
+    const autoTransitions = machine.transitions.filter(
+      t => t.from === stateName && t.type === TransitionType.AUTO
+    );
+
+    autoTransitions.forEach(transition => {
+      // Use publicMember if available (XComponent pattern), otherwise fallback to context
+      const instanceContext = instance.publicMember || instance.context;
+
+      // Check guards before scheduling auto-transition
+      if (transition.guards && !this.evaluateGuards(transition.guards,
+        { type: transition.event, payload: {}, timestamp: Date.now() },
+        instanceContext)) {
+        return; // Guard failed, skip this auto-transition
+      }
+
+      const delay = transition.timeoutMs || 0; // Default to immediate (0ms)
+      const timeout = setTimeout(() => {
+        this.sendEvent(instanceId, {
+          type: transition.event,
+          payload: { reason: 'auto-transition' },
+          timestamp: Date.now(),
+        });
+      }, delay);
+
+      this.timeouts.set(`${instanceId}-${stateName}-auto`, timeout);
+    });
+  }
+
+  /**
+   * Setup cascading rules engine (XComponent pattern)
+   *
+   * Listens to state_change events and automatically triggers cross-machine updates
+   * based on cascading rules defined in state definitions.
+   */
+  private setupCascadingEngine(): void {
+    this.on('state_change', async (data: any) => {
+      const { instanceId, newState } = data;
+      const instance = this.instances.get(instanceId);
+
+      if (!instance) return;
+
+      const machine = this.machines.get(instance.machineName);
+      if (!machine) return;
+
+      // Find the state definition
+      const state = machine.states.find(s => s.name === newState);
+      if (!state || !state.cascadingRules || state.cascadingRules.length === 0) {
+        return; // No cascading rules for this state
+      }
+
+      // Process each cascading rule
+      for (const rule of state.cascadingRules) {
+        try {
+          await this.processCascadingRule(instance, rule);
+        } catch (error: any) {
+          this.emit('cascade_error', {
+            sourceInstanceId: instanceId,
+            rule,
+            error: error.message,
+          });
+        }
+      }
+    });
+  }
+
+  /**
+   * Process a single cascading rule
+   *
+   * Applies payload templating and broadcasts event to target instances
+   * If matchingRules exist, uses property-based routing
+   * Otherwise, sends to ALL instances in the target state
+   */
+  private async processCascadingRule(
+    sourceInstance: FSMInstance,
+    rule: import('./types').CascadingRule
+  ): Promise<void> {
+    // Get source context (publicMember or context)
+    const sourceContext = sourceInstance.publicMember || sourceInstance.context;
+
+    // Apply payload templating
+    const payload = rule.payload ? this.applyPayloadTemplate(rule.payload, sourceContext) : {};
+
+    const event: import('./types').FSMEvent = {
+      type: rule.event,
+      payload,
+      timestamp: Date.now(),
+    };
+
+    let processedCount = 0;
+
+    if (rule.matchingRules && rule.matchingRules.length > 0) {
+      // Use property-based routing
+      processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
+    } else {
+      // No matching rules - send to ALL instances in target state
+      const targetInstances = Array.from(this.instances.values()).filter(
+        i => i.machineName === rule.targetMachine && i.currentState === rule.targetState && i.status === 'active'
+      );
+
+      for (const instance of targetInstances) {
+        try {
+          await this.sendEvent(instance.id, event);
+          processedCount++;
+        } catch (error: any) {
+          // Continue processing other instances even if one fails
+          this.emit('cascade_error', {
+            sourceInstanceId: sourceInstance.id,
+            targetInstanceId: instance.id,
+            error: error.message,
+          });
+        }
+      }
+    }
+
+    this.emit('cascade_completed', {
+      sourceInstanceId: sourceInstance.id,
+      targetMachine: rule.targetMachine,
+      targetState: rule.targetState,
+      event: rule.event,
+      processedCount,
+    });
+  }
+
+  /**
+   * Apply payload template with {{property}} syntax
+   *
+   * Replaces {{property}} with actual values from source context
+   *
+   * Example:
+   *   payload: { orderId: "{{Id}}", total: "{{Total}}" }
+   *   context: { Id: 42, Total: 99.99 }
+   *   result: { orderId: 42, total: 99.99 }
+   */
+  private applyPayloadTemplate(
+    template: Record<string, any>,
+    context: Record<string, any>
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(template)) {
+      if (typeof value === 'string' && value.startsWith('{{') && value.endsWith('}}')) {
+        // Extract property name: "{{Id}}" → "Id"
+        const propertyPath = value.slice(2, -2).trim();
+        result[key] = this.getNestedProperty(context, propertyPath);
+      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        // Recursively apply template for nested objects
+        result[key] = this.applyPayloadTemplate(value, context);
+      } else {
+        // Use value as-is
+        result[key] = value;
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -557,6 +810,225 @@ export class FSMRuntime extends EventEmitter {
     }
 
     return { success: true, path };
+  }
+
+  // ============================================================
+  // PHASE 4: PERSISTENCE & RESTORATION
+  // ============================================================
+
+  /**
+   * Restore all instances from snapshots (for long-running workflows)
+   *
+   * Called after restart to restore system state from persistence
+   *
+   * Example:
+   *   const runtime = new FSMRuntime(component, { snapshots: true });
+   *   await runtime.restore();
+   *   // System is now in same state as before restart
+   */
+  async restore(): Promise<{ restored: number; failed: number }> {
+    if (!this.persistence) {
+      throw new Error('Persistence is not enabled');
+    }
+
+    const snapshots = await this.persistence.getAllSnapshots();
+    let restored = 0;
+    let failed = 0;
+
+    for (const snapshot of snapshots) {
+      try {
+        const instance = snapshot.instance;
+
+        // Validate machine exists
+        if (!this.machines.has(instance.machineName)) {
+          failed++;
+          this.emit('restore_error', {
+            instanceId: instance.id,
+            error: `Machine ${instance.machineName} not found`,
+          });
+          continue;
+        }
+
+        // Restore instance
+        this.instances.set(instance.id, instance);
+        restored++;
+
+        this.emit('instance_restored', {
+          instanceId: instance.id,
+          machineName: instance.machineName,
+          currentState: instance.currentState,
+        });
+      } catch (error: any) {
+        failed++;
+        this.emit('restore_error', {
+          instanceId: snapshot.instance.id,
+          error: error.message,
+        });
+      }
+    }
+
+    // Resynchronize timeouts after restore
+    if (restored > 0) {
+      await this.resynchronizeTimeouts();
+    }
+
+    return { restored, failed };
+  }
+
+  /**
+   * Resynchronize timeouts after restart
+   *
+   * Recalculates timeout transitions based on current state and elapsed time
+   * Handles expired timeouts by triggering them immediately
+   */
+  async resynchronizeTimeouts(): Promise<{ synced: number; expired: number }> {
+    let synced = 0;
+    let expired = 0;
+
+    for (const [instanceId, instance] of this.instances.entries()) {
+      if (instance.status !== 'active') {
+        continue;
+      }
+
+      const machine = this.machines.get(instance.machineName);
+      if (!machine) {
+        continue;
+      }
+
+      // Find timeout transitions from current state
+      const timeoutTransitions = machine.transitions.filter(
+        t => t.from === instance.currentState && t.type === TransitionType.TIMEOUT
+      );
+
+      for (const transition of timeoutTransitions) {
+        if (!transition.timeoutMs) {
+          continue;
+        }
+
+        // Calculate elapsed time since last update
+        const elapsedMs = Date.now() - instance.updatedAt;
+        const remainingMs = transition.timeoutMs - elapsedMs;
+
+        if (remainingMs <= 0) {
+          // Timeout already expired - trigger immediately
+          try {
+            await this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'timeout_expired_during_restart' },
+              timestamp: Date.now(),
+            });
+            expired++;
+          } catch (error: any) {
+            this.emit('timeout_resync_error', {
+              instanceId,
+              error: error.message,
+            });
+          }
+        } else {
+          // Timeout still pending - reschedule with remaining time
+          const timeout = setTimeout(() => {
+            this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'timeout' },
+              timestamp: Date.now(),
+            });
+          }, remainingMs);
+
+          this.timeouts.set(`${instanceId}-${instance.currentState}`, timeout);
+          synced++;
+        }
+      }
+
+      // Resynchronize auto-transitions (should trigger immediately if not already transitioned)
+      const autoTransitions = machine.transitions.filter(
+        t => t.from === instance.currentState && t.type === TransitionType.AUTO
+      );
+
+      for (const transition of autoTransitions) {
+        // Use publicMember if available (XComponent pattern), otherwise fallback to context
+        const instanceContext = instance.publicMember || instance.context;
+
+        // Check guards before scheduling auto-transition
+        if (transition.guards && !this.evaluateGuards(transition.guards,
+          { type: transition.event, payload: {}, timestamp: Date.now() },
+          instanceContext)) {
+          continue; // Guard failed, skip this auto-transition
+        }
+
+        const delay = transition.timeoutMs || 0;
+
+        // Calculate elapsed time
+        const elapsedMs = Date.now() - instance.updatedAt;
+        const remainingMs = Math.max(0, delay - elapsedMs);
+
+        const timeout = setTimeout(() => {
+          this.sendEvent(instanceId, {
+            type: transition.event,
+            payload: { reason: 'auto-transition' },
+            timestamp: Date.now(),
+          });
+        }, remainingMs);
+
+        this.timeouts.set(`${instanceId}-${instance.currentState}-auto`, timeout);
+        synced++;
+      }
+    }
+
+    return { synced, expired };
+  }
+
+  /**
+   * Get persistence manager (for testing/inspection)
+   */
+  getPersistenceManager(): PersistenceManager | null {
+    return this.persistence;
+  }
+
+  /**
+   * Get instance event history (for audit/debug)
+   */
+  async getInstanceHistory(instanceId: string): Promise<import('./types').PersistedEvent[]> {
+    if (!this.persistence) {
+      return [];
+    }
+
+    return await this.persistence.getInstanceEvents(instanceId);
+  }
+
+  /**
+   * Trace event causality chain (for debugging cascades/sender)
+   */
+  async traceEventCausality(eventId: string): Promise<import('./types').PersistedEvent[]> {
+    if (!this.persistence) {
+      return [];
+    }
+
+    return await this.persistence.traceEventCausality(eventId);
+  }
+
+  /**
+   * Get component definition
+   */
+  getComponent(): Component {
+    return this.componentDef;
+  }
+
+  /**
+   * Get available transitions from current state of an instance
+   */
+  getAvailableTransitions(instanceId: string): Transition[] {
+    const instance = this.getInstance(instanceId);
+    if (!instance) {
+      return [];
+    }
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) {
+      return [];
+    }
+
+    // Find all transitions from current state
+    return machine.transitions.filter(t => t.from === instance.currentState);
   }
 }
 

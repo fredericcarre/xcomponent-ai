@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XComponent AI - Enhanced Dashboard</title>
+
+  <!-- External Dependencies -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f7fa;
+      color: #2c3e50;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.5rem 2rem;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .header h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .header .subtitle {
+      opacity: 0.9;
+      font-size: 0.875rem;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid #e9ecef;
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .badge-primary { background: #667eea; color: white; }
+    .badge-success { background: #10b981; color: white; }
+    .badge-danger { background: #ef4444; color: white; }
+    .badge-warning { background: #f59e0b; color: white; }
+    .badge-info { background: #3b82f6; color: white; }
+
+    .btn {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      border: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .btn-primary { background: #667eea; color: white; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
+
+    .grid {
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+    .instance-card {
+      border: 2px solid #e9ecef;
+      border-radius: 8px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .instance-card:hover {
+      border-color: #667eea;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+    }
+
+    .instance-card.selected {
+      border-color: #667eea;
+      background: #f8f9ff;
+    }
+
+    .instance-id {
+      font-family: 'Courier New', monospace;
+      font-size: 0.8125rem;
+      color: #6b7280;
+      margin-bottom: 0.5rem;
+    }
+
+    .instance-machine {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .instance-state {
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid #e9ecef;
+      margin-bottom: 1.5rem;
+    }
+
+    .tab {
+      padding: 0.75rem 1.5rem;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      font-weight: 500;
+      color: #6b7280;
+      transition: all 0.2s;
+      margin-bottom: -2px;
+    }
+
+    .tab:hover { color: #667eea; }
+    .tab.active { color: #667eea; border-bottom-color: #667eea; }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .json-viewer {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 1rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8125rem;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .diagram-container {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 2rem;
+      overflow-x: auto;
+    }
+
+    .timeline {
+      position: relative;
+      padding-left: 2rem;
+    }
+
+    .timeline-item {
+      position: relative;
+      padding-bottom: 1.5rem;
+    }
+
+    .timeline-item:before {
+      content: '';
+      position: absolute;
+      left: -1.5rem;
+      top: 0.5rem;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #667eea;
+      border: 3px solid white;
+      box-shadow: 0 0 0 2px #667eea;
+    }
+
+    .timeline-item:after {
+      content: '';
+      position: absolute;
+      left: -1.06rem;
+      top: 1.25rem;
+      width: 2px;
+      height: calc(100% - 0.5rem);
+      background: #e9ecef;
+    }
+
+    .timeline-item:last-child:after {
+      display: none;
+    }
+
+    .timeline-content {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+    }
+
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .timeline-event {
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .timeline-time {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+    .timeline-transition {
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: #374151;
+    }
+
+    .form-select,
+    .form-textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      transition: border-color 0.2s;
+    }
+
+    .form-select:focus,
+    .form-textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .form-textarea {
+      font-family: 'Courier New', monospace;
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #6b7280;
+    }
+
+    .empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #6b7280;
+    }
+
+    .spinner {
+      border: 3px solid #f3f4f6;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .connection-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    .status-indicator.disconnected {
+      background: #ef4444;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <h1>🤖 XComponent AI - Enhanced Dashboard</h1>
+      <div class="subtitle">
+        Real-time State Machine Monitoring & Control
+        <span class="connection-status" style="float: right;">
+          <span :class="['status-indicator', { disconnected: !connected }]"></span>
+          {{ connected ? 'Connected' : 'Disconnected' }}
+        </span>
+      </div>
+    </div>
+
+    <div class="container">
+      <!-- Component Selector -->
+      <div class="card" v-if="components.length > 0">
+        <div class="card-header">
+          <div class="card-title">Component</div>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <select v-model="selectedComponent" @change="loadInstances" class="form-select">
+            <option value="">Select a component...</option>
+            <option v-for="comp in components" :key="comp" :value="comp">{{ comp }}</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Instances Grid -->
+      <div class="card" v-if="selectedComponent && instances.length > 0">
+        <div class="card-header">
+          <div class="card-title">Active Instances</div>
+          <span class="badge badge-primary">{{ instances.length }} active</span>
+        </div>
+        <div class="grid grid-2">
+          <div
+            v-for="instance in instances"
+            :key="instance.id"
+            :class="['instance-card', { selected: selectedInstance?.id === instance.id }]"
+            @click="selectInstance(instance)"
+          >
+            <div class="instance-id">{{ instance.id }}</div>
+            <div class="instance-machine">{{ instance.machineName }}</div>
+            <div class="instance-state">
+              State: <span :class="'badge badge-' + getStateColor(instance.currentState)">{{ instance.currentState }}</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #6b7280;">
+              Created: {{ new Date(instance.createdAt).toLocaleString() }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Instance Details -->
+      <div class="card" v-if="selectedInstance">
+        <div class="card-header">
+          <div class="card-title">Instance Details</div>
+          <span class="badge badge-info">{{ selectedInstance.machineName }}</span>
+        </div>
+
+        <div class="tabs">
+          <div
+            v-for="tab in tabs"
+            :key="tab.id"
+            :class="['tab', { active: activeTab === tab.id }]"
+            @click="activeTab = tab.id"
+          >
+            {{ tab.label }}
+          </div>
+        </div>
+
+        <!-- Overview Tab -->
+        <div :class="['tab-content', { active: activeTab === 'overview' }]">
+          <h3 style="margin-bottom: 1rem;">Current State</h3>
+          <div style="margin-bottom: 1.5rem;">
+            <span :class="'badge badge-' + getStateColor(selectedInstance.currentState)" style="font-size: 1rem; padding: 0.5rem 1rem;">
+              {{ selectedInstance.currentState }}
+            </span>
+          </div>
+
+          <h3 style="margin-bottom: 1rem;">Public Member (Business Data)</h3>
+          <div class="json-viewer">
+            <pre>{{ JSON.stringify(selectedInstance.publicMember || {}, null, 2) }}</pre>
+          </div>
+
+          <h3 style="margin-bottom: 1rem; margin-top: 1.5rem;">Internal Context</h3>
+          <div class="json-viewer">
+            <pre>{{ JSON.stringify(selectedInstance.context || {}, null, 2) }}</pre>
+          </div>
+        </div>
+
+        <!-- FSM Diagram Tab -->
+        <div :class="['tab-content', { active: activeTab === 'fsm' }]">
+          <div class="diagram-container">
+            <div v-if="fsmDiagram" class="mermaid" v-html="fsmDiagram"></div>
+            <div v-else class="loading">
+              <div class="spinner"></div>
+              <p style="margin-top: 1rem;">Generating FSM diagram...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- History Tab -->
+        <div :class="['tab-content', { active: activeTab === 'history' }]">
+          <div v-if="history.length > 0" class="timeline">
+            <div v-for="(event, idx) in history" :key="event.id" class="timeline-item">
+              <div class="timeline-content">
+                <div class="timeline-header">
+                  <div class="timeline-event">{{ event.event.type }}</div>
+                  <div class="timeline-time">{{ new Date(event.persistedAt).toLocaleTimeString() }}</div>
+                </div>
+                <div class="timeline-transition">
+                  {{ event.stateBefore }} → {{ event.stateAfter }}
+                </div>
+                <div v-if="event.event.payload && Object.keys(event.event.payload).length > 0" style="margin-top: 0.5rem;">
+                  <details>
+                    <summary style="cursor: pointer; font-size: 0.8125rem; color: #6b7280;">Payload</summary>
+                    <pre style="margin-top: 0.5rem; font-size: 0.75rem;">{{ JSON.stringify(event.event.payload, null, 2) }}</pre>
+                  </details>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="historyLoading" class="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 1rem;">Loading history...</p>
+          </div>
+          <div v-else class="empty-state">
+            <div class="empty-state-icon">📊</div>
+            <p>No history available</p>
+            <p style="font-size: 0.875rem; margin-top: 0.5rem;">Enable persistence (event sourcing) to see event history</p>
+          </div>
+        </div>
+
+        <!-- Sequence Diagram Tab -->
+        <div :class="['tab-content', { active: activeTab === 'sequence' }]">
+          <div class="diagram-container">
+            <div v-if="sequenceDiagram" class="mermaid" v-html="sequenceDiagram"></div>
+            <div v-else-if="history.length > 0" class="loading">
+              <div class="spinner"></div>
+              <p style="margin-top: 1rem;">Generating sequence diagram...</p>
+            </div>
+            <div v-else class="empty-state">
+              <div class="empty-state-icon">🔄</div>
+              <p>No sequence data available</p>
+              <p style="font-size: 0.875rem; margin-top: 0.5rem;">Enable persistence to see interaction sequences</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Actions Tab -->
+        <div :class="['tab-content', { active: activeTab === 'actions' }]">
+          <h3 style="margin-bottom: 1rem;">Trigger Transition</h3>
+
+          <div v-if="availableTransitions.length > 0">
+            <div class="form-group">
+              <label class="form-label">Select Transition</label>
+              <select v-model="selectedTransition" class="form-select">
+                <option value="">Choose a transition...</option>
+                <option v-for="trans in availableTransitions" :key="trans.event" :value="trans">
+                  {{ trans.event }} → {{ trans.to }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="selectedTransition" class="form-group">
+              <label class="form-label">Event Payload (JSON)</label>
+              <textarea
+                v-model="eventPayload"
+                class="form-textarea"
+                placeholder='{ "key": "value" }'
+              ></textarea>
+            </div>
+
+            <button
+              v-if="selectedTransition"
+              @click="triggerTransition"
+              class="btn btn-primary"
+              :disabled="sending"
+            >
+              {{ sending ? 'Sending...' : 'Send Event' }}
+            </button>
+          </div>
+          <div v-else class="empty-state">
+            <div class="empty-state-icon">⚡</div>
+            <p>No transitions available from current state</p>
+            <p style="font-size: 0.875rem; margin-top: 0.5rem;">
+              Current state: <strong>{{ selectedInstance.currentState }}</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty States -->
+      <div class="card" v-if="!selectedComponent && components.length === 0">
+        <div class="empty-state">
+          <div class="empty-state-icon">📦</div>
+          <h3 style="margin-bottom: 0.5rem;">No Components Loaded</h3>
+          <p>Load a component using the API to get started</p>
+          <p style="font-size: 0.875rem; margin-top: 1rem; color: #6b7280;">
+            POST /api/component/load with { "filePath": "path/to/component.yaml" }
+          </p>
+        </div>
+      </div>
+
+      <div class="card" v-if="selectedComponent && instances.length === 0">
+        <div class="empty-state">
+          <div class="empty-state-icon">🎯</div>
+          <h3 style="margin-bottom: 0.5rem;">No Active Instances</h3>
+          <p>Create an instance to get started</p>
+          <p style="font-size: 0.875rem; margin-top: 1rem; color: #6b7280;">
+            POST /api/{{ selectedComponent }}/:machine/instance with context data
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          socket: null,
+          connected: false,
+          components: [],
+          selectedComponent: '',
+          instances: [],
+          selectedInstance: null,
+          activeTab: 'overview',
+          tabs: [
+            { id: 'overview', label: 'Overview' },
+            { id: 'fsm', label: 'FSM Diagram' },
+            { id: 'history', label: 'History' },
+            { id: 'sequence', label: 'Sequence Diagram' },
+            { id: 'actions', label: 'Actions' }
+          ],
+          fsmDiagram: null,
+          sequenceDiagram: null,
+          history: [],
+          historyLoading: false,
+          availableTransitions: [],
+          selectedTransition: null,
+          eventPayload: '{}',
+          sending: false
+        };
+      },
+      mounted() {
+        this.initSocket();
+        this.loadComponents();
+        mermaid.initialize({ startOnLoad: false, theme: 'default' });
+      },
+      methods: {
+        initSocket() {
+          this.socket = io();
+
+          this.socket.on('connect', () => {
+            this.connected = true;
+            console.log('Connected to WebSocket');
+          });
+
+          this.socket.on('disconnect', () => {
+            this.connected = false;
+          });
+
+          this.socket.on('state_change', (data) => {
+            console.log('State change:', data);
+            // Update instance if it's the selected one
+            if (this.selectedInstance && this.selectedInstance.id === data.instanceId) {
+              this.selectedInstance.currentState = data.newState;
+              // Reload details
+              this.selectInstance(this.selectedInstance);
+            }
+            // Reload instances list
+            this.loadInstances();
+          });
+
+          this.socket.on('instance_created', () => {
+            this.loadInstances();
+          });
+
+          this.socket.on('instance_disposed', () => {
+            this.loadInstances();
+          });
+        },
+
+        async loadComponents() {
+          // For now, we need to discover components via instances
+          // In a real implementation, we'd have an API endpoint to list loaded components
+          // As a workaround, we'll try to fetch instances and extract component names
+          this.components = ['TestComponent']; // Placeholder
+        },
+
+        async loadInstances() {
+          if (!this.selectedComponent) return;
+
+          try {
+            const response = await fetch(`/api/${this.selectedComponent}/instances`);
+            const data = await response.json();
+
+            if (data.success) {
+              this.instances = data.data.instances;
+
+              // Subscribe to component events
+              if (this.socket) {
+                this.socket.emit('subscribe_component', this.selectedComponent);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load instances:', error);
+          }
+        },
+
+        async selectInstance(instance) {
+          this.selectedInstance = instance;
+          this.activeTab = 'overview';
+
+          // Load component definition for FSM diagram
+          await this.loadFSMDiagram();
+
+          // Load history
+          await this.loadHistory();
+
+          // Load available transitions
+          await this.loadAvailableTransitions();
+
+          // Subscribe to instance events
+          if (this.socket) {
+            this.socket.emit('subscribe_instance', {
+              componentName: this.selectedComponent,
+              instanceId: instance.id
+            });
+          }
+        },
+
+        async loadFSMDiagram() {
+          try {
+            const response = await fetch(`/api/${this.selectedComponent}/definition`);
+            const data = await response.json();
+
+            if (data.success) {
+              const component = data.data.component;
+              const machine = component.stateMachines.find(m => m.name === this.selectedInstance.machineName);
+
+              if (machine) {
+                this.fsmDiagram = this.generateMermaidFSM(machine, this.selectedInstance.currentState);
+                this.$nextTick(() => {
+                  mermaid.run();
+                });
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load FSM diagram:', error);
+          }
+        },
+
+        generateMermaidFSM(machine, currentState) {
+          let diagram = 'stateDiagram-v2\n';
+
+          // Add states with special styling for current state
+          machine.states.forEach(state => {
+            if (state.name === currentState) {
+              diagram += `    ${state.name} : **${state.name}** (CURRENT)\n`;
+            }
+          });
+
+          // Add transitions
+          machine.transitions.forEach(trans => {
+            diagram += `    ${trans.from} --> ${trans.to} : ${trans.event}\n`;
+          });
+
+          return diagram;
+        },
+
+        async loadHistory() {
+          this.historyLoading = true;
+          this.history = [];
+
+          try {
+            const response = await fetch(`/api/${this.selectedComponent}/instance/${this.selectedInstance.id}/history`);
+            const data = await response.json();
+
+            if (data.success) {
+              this.history = data.data.history;
+
+              // Generate sequence diagram
+              if (this.history.length > 0) {
+                await this.generateSequenceDiagram();
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load history:', error);
+          } finally {
+            this.historyLoading = false;
+          }
+        },
+
+        async generateSequenceDiagram() {
+          let diagram = 'sequenceDiagram\n';
+          diagram += `    participant User\n`;
+          diagram += `    participant ${this.selectedInstance.machineName}\n`;
+
+          this.history.forEach((event, idx) => {
+            diagram += `    User->>+${this.selectedInstance.machineName}: ${event.event.type}\n`;
+            diagram += `    Note over ${this.selectedInstance.machineName}: ${event.stateBefore} → ${event.stateAfter}\n`;
+            diagram += `    ${this.selectedInstance.machineName}-->>-User: State updated\n`;
+          });
+
+          this.sequenceDiagram = diagram;
+          this.$nextTick(() => {
+            mermaid.run();
+          });
+        },
+
+        async loadAvailableTransitions() {
+          try {
+            const response = await fetch(`/api/${this.selectedComponent}/instance/${this.selectedInstance.id}/transitions`);
+            const data = await response.json();
+
+            if (data.success) {
+              this.availableTransitions = data.data.transitions;
+            }
+          } catch (error) {
+            console.error('Failed to load transitions:', error);
+          }
+        },
+
+        async triggerTransition() {
+          if (!this.selectedTransition) return;
+
+          this.sending = true;
+
+          try {
+            let payload = {};
+            try {
+              payload = JSON.parse(this.eventPayload);
+            } catch (e) {
+              alert('Invalid JSON payload');
+              this.sending = false;
+              return;
+            }
+
+            const event = {
+              type: this.selectedTransition.event,
+              payload,
+              timestamp: Date.now()
+            };
+
+            const response = await fetch(`/api/${this.selectedComponent}/instance/${this.selectedInstance.id}/event`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(event)
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+              // Reset form
+              this.selectedTransition = null;
+              this.eventPayload = '{}';
+
+              // Show success message
+              alert('Event sent successfully!');
+            } else {
+              alert('Failed to send event: ' + data.error);
+            }
+          } catch (error) {
+            console.error('Failed to trigger transition:', error);
+            alert('Failed to send event');
+          } finally {
+            this.sending = false;
+          }
+        },
+
+        getStateColor(state) {
+          const stateUpper = (state || '').toUpperCase();
+          if (stateUpper.includes('ERROR') || stateUpper.includes('FAILED') || stateUpper.includes('CANCELLED')) {
+            return 'danger';
+          }
+          if (stateUpper.includes('COMPLETED') || stateUpper.includes('SUCCESS') || stateUpper.includes('DONE')) {
+            return 'success';
+          }
+          if (stateUpper.includes('PENDING') || stateUpper.includes('WAITING')) {
+            return 'warning';
+          }
+          return 'info';
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

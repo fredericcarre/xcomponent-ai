@@ -12,6 +12,8 @@ import { SupervisorAgent } from './agents';
 import { Component, FSMEvent } from './types';
 import * as yaml from 'yaml';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
+import * as path from 'path';
 
 /**
  * API Server
@@ -211,6 +213,81 @@ export class APIServer {
       }
     });
 
+    // Get component definition (for FSM diagram generation)
+    this.app.get('/api/:component/definition', (req: Request, res: Response) => {
+      try {
+        const componentName = req.params.component as string;
+        const runtime = this.runtimes.get(componentName);
+        if (!runtime) {
+          return res.status(404).json({ success: false, error: 'Component not found' });
+        }
+
+        const component = runtime.getComponent();
+        return res.json({ success: true, data: { component } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get available transitions for instance
+    this.app.get('/api/:component/instance/:instanceId/transitions', (req: Request, res: Response) => {
+      try {
+        const componentName = req.params.component as string;
+        const instanceId = req.params.instanceId as string;
+
+        const runtime = this.runtimes.get(componentName);
+        if (!runtime) {
+          return res.status(404).json({ success: false, error: 'Component not found' });
+        }
+
+        const instance = runtime.getInstance(instanceId);
+        if (!instance) {
+          return res.status(404).json({ success: false, error: 'Instance not found' });
+        }
+
+        const availableTransitions = runtime.getAvailableTransitions(instanceId);
+        return res.json({ success: true, data: { transitions: availableTransitions } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get instance history (requires persistence)
+    this.app.get('/api/:component/instance/:instanceId/history', async (req: Request, res: Response) => {
+      try {
+        const componentName = req.params.component as string;
+        const instanceId = req.params.instanceId as string;
+
+        const runtime = this.runtimes.get(componentName);
+        if (!runtime) {
+          return res.status(404).json({ success: false, error: 'Component not found' });
+        }
+
+        const history = await runtime.getInstanceHistory(instanceId);
+        return res.json({ success: true, data: { history } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Trace event causality
+    this.app.get('/api/:component/causality/:eventId', async (req: Request, res: Response) => {
+      try {
+        const componentName = req.params.component as string;
+        const eventId = req.params.eventId as string;
+
+        const runtime = this.runtimes.get(componentName);
+        if (!runtime) {
+          return res.status(404).json({ success: false, error: 'Component not found' });
+        }
+
+        const causality = await runtime.traceEventCausality(eventId);
+        return res.json({ success: true, data: { causality } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     // Dashboard
     this.app.get('/dashboard', (_req: Request, res: Response) => {
       return res.send(this.getDashboardHTML());
@@ -240,58 +317,31 @@ export class APIServer {
    * Get dashboard HTML
    */
   private getDashboardHTML(): string {
-    return `
+    // Serve the enhanced dashboard from public/dashboard.html
+    const dashboardPath = path.join(__dirname, '../public/dashboard.html');
+    try {
+      return fsSync.readFileSync(dashboardPath, 'utf-8');
+    } catch (error) {
+      // Fallback to basic dashboard if file not found
+      return `
 <!DOCTYPE html>
 <html>
 <head>
   <title>xcomponent-ai Dashboard</title>
-  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f5f5f5; }
-    h1 { color: #333; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    table { width: 100%; border-collapse: collapse; background: white; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-    th { background: #4CAF50; color: white; }
-    .status { padding: 4px 8px; border-radius: 3px; font-size: 12px; }
-    .status.active { background: #4CAF50; color: white; }
-    .status.completed { background: #2196F3; color: white; }
-    .status.error { background: #f44336; color: white; }
-    #events { max-height: 400px; overflow-y: auto; background: white; padding: 15px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .event { padding: 8px; margin: 5px 0; border-left: 3px solid #4CAF50; background: #f9f9f9; }
+    body { font-family: sans-serif; padding: 2rem; background: #f5f5f5; }
+    .error { background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🤖 xcomponent-ai Dashboard</h1>
-    <h2>Active Instances</h2>
-    <table id="instances">
-      <thead>
-        <tr>
-          <th>Instance ID</th>
-          <th>Machine</th>
-          <th>Current State</th>
-          <th>Status</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <h2>Real-time Events</h2>
-    <div id="events"></div>
+  <div class="error">
+    <h1>Dashboard Error</h1>
+    <p>Could not load dashboard. Please ensure the public/dashboard.html file exists.</p>
+    <p>Error: ${error instanceof Error ? error.message : String(error)}</p>
   </div>
-  <script>
-    const socket = io();
-    socket.on('connect', () => console.log('Connected to WebSocket'));
-    socket.on('state_change', (data) => {
-      const div = document.createElement('div');
-      div.className = 'event';
-      div.innerHTML = \`<strong>\${data.instanceId}</strong>: \${data.previousState} → \${data.newState} (event: \${data.event.type})\`;
-      document.getElementById('events').prepend(div);
-    });
-  </script>
 </body>
 </html>`;
+    }
   }
 
   /**

@@ -31,6 +31,8 @@ export enum TransitionType {
   INTERNAL = 'internal',
   /** Triggerable from code */
   TRIGGERABLE = 'triggerable',
+  /** Auto-transition (triggered automatically when entering state) */
+  AUTO = 'auto',
 }
 
 /**
@@ -39,9 +41,31 @@ export enum TransitionType {
 export type GuardFunction = (event: FSMEvent, context: any) => boolean;
 
 /**
- * Triggered method (async JS hook on entry/transition)
+ * Sender interface for triggered methods
+ * Allows state machines to send events to other instances (XComponent pattern)
  */
-export type TriggeredMethod = (event: FSMEvent, context: any) => Promise<void>;
+export interface Sender {
+  /**
+   * Send event to specific instance by ID
+   */
+  sendTo(instanceId: string, event: FSMEvent): Promise<void>;
+
+  /**
+   * Broadcast event to instances matching property rules
+   */
+  broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number>;
+
+  /**
+   * Create new instance (inter-machine pattern)
+   */
+  createInstance(machineName: string, initialContext: Record<string, any>): string;
+}
+
+/**
+ * Triggered method (async JS hook on entry/transition)
+ * Receives event, context, and sender for cross-instance communication
+ */
+export type TriggeredMethod = (event: FSMEvent, context: any, sender: Sender) => Promise<void>;
 
 /**
  * Guard configuration
@@ -69,6 +93,25 @@ export interface MatchingRule {
 }
 
 /**
+ * Cascading rule for automatic cross-machine updates
+ * When a source machine reaches a specific state, automatically triggers events on target machines
+ *
+ * Example: When Order reaches Confirmed, start Shipment workflow
+ */
+export interface CascadingRule {
+  /** Target machine name */
+  targetMachine: string;
+  /** Target state filter (only instances in this state) */
+  targetState: string;
+  /** Event to send to target instances */
+  event: string;
+  /** Property matching rules for routing */
+  matchingRules?: MatchingRule[];
+  /** Payload template with {{property}} syntax */
+  payload?: Record<string, any>;
+}
+
+/**
  * State definition
  */
 export interface State {
@@ -82,6 +125,8 @@ export interface State {
   exitMethod?: string;
   /** Metadata */
   metadata?: Record<string, any>;
+  /** Cascading rules triggered when entering this state */
+  cascadingRules?: CascadingRule[];
 }
 
 /**
@@ -251,4 +296,122 @@ export interface AgentToolResult {
   error?: string;
   /** Suggestions */
   suggestions?: string[];
+}
+
+// ============================================================
+// PHASE 4: PERSISTENCE & EVENT SOURCING
+// ============================================================
+
+/**
+ * Persisted event with causality tracking
+ * Enables full event sourcing and auditability
+ */
+export interface PersistedEvent {
+  /** Unique event ID */
+  id: string;
+  /** Instance ID that received this event */
+  instanceId: string;
+  /** Machine name */
+  machineName: string;
+  /** The FSM event */
+  event: FSMEvent;
+  /** State before transition */
+  stateBefore: string;
+  /** State after transition */
+  stateAfter: string;
+  /** Timestamp when persisted */
+  persistedAt: number;
+  /** Causality: IDs of events that caused this event (cascading/sender) */
+  causedBy?: string[];
+  /** Causality: IDs of events caused by this event */
+  caused?: string[];
+}
+
+/**
+ * Instance snapshot for fast restoration
+ */
+export interface InstanceSnapshot {
+  /** Instance data */
+  instance: FSMInstance;
+  /** Snapshot timestamp */
+  snapshotAt: number;
+  /** Last event ID processed */
+  lastEventId: string;
+  /** Pending timeouts (relative ms from now) */
+  pendingTimeouts?: Array<{
+    stateKey: string;
+    eventType: string;
+    remainingMs: number;
+  }>;
+}
+
+/**
+ * Event store interface for persistence
+ */
+export interface EventStore {
+  /**
+   * Append event to store
+   */
+  append(event: PersistedEvent): Promise<void>;
+
+  /**
+   * Get all events for an instance
+   */
+  getEventsForInstance(instanceId: string): Promise<PersistedEvent[]>;
+
+  /**
+   * Get events in time range
+   */
+  getEventsByTimeRange(startTime: number, endTime: number): Promise<PersistedEvent[]>;
+
+  /**
+   * Get events caused by another event (tracing)
+   */
+  getCausedEvents(eventId: string): Promise<PersistedEvent[]>;
+
+  /**
+   * Get all events (for replay)
+   */
+  getAllEvents(): Promise<PersistedEvent[]>;
+}
+
+/**
+ * Snapshot store interface
+ */
+export interface SnapshotStore {
+  /**
+   * Save instance snapshot
+   */
+  saveSnapshot(snapshot: InstanceSnapshot): Promise<void>;
+
+  /**
+   * Get latest snapshot for instance
+   */
+  getSnapshot(instanceId: string): Promise<InstanceSnapshot | null>;
+
+  /**
+   * Get all snapshots (for full restore)
+   */
+  getAllSnapshots(): Promise<InstanceSnapshot[]>;
+
+  /**
+   * Delete snapshot
+   */
+  deleteSnapshot(instanceId: string): Promise<void>;
+}
+
+/**
+ * Persistence configuration
+ */
+export interface PersistenceConfig {
+  /** Enable event sourcing */
+  eventSourcing?: boolean;
+  /** Enable snapshots */
+  snapshots?: boolean;
+  /** Snapshot interval (save every N transitions) */
+  snapshotInterval?: number;
+  /** Event store implementation */
+  eventStore?: EventStore;
+  /** Snapshot store implementation */
+  snapshotStore?: SnapshotStore;
 }

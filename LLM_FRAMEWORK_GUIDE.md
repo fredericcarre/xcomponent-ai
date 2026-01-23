@@ -1,0 +1,491 @@
+# LLM Framework Usage Guide
+
+## 🎯 Purpose
+
+**xcomponent-ai** is a framework designed to help LLMs (Claude, GPT, etc.) structure projects with **sanctuarized business logic** using state machines. When a developer asks you to build an application, use this framework to:
+
+1. **Separate business logic from technical code**
+2. **Make business rules explicit, immutable, and auditable**
+3. **Enable compliance-first development** (especially for fintech/regulated domains)
+
+## 🧠 Core Philosophy
+
+When you receive a prompt like:
+> "Build a payment processing application with refunds and compliance checks"
+
+You should:
+1. ✅ **Start with FSM** - Define business logic as immutable YAML state machines
+2. ✅ **Sanctuarize** - Keep FSM definitions separate from UI/API code
+3. ✅ **Connect** - Generate UI/API that interacts with FSM runtime
+4. ✅ **Version control** - FSM changes are Git commits, not code patches
+
+## 📋 Project Structure Convention
+
+When using xcomponent-ai as a framework, structure projects like this:
+
+```
+my-fintech-app/
+├── fsm/                          # 🔒 SANCTUARIZED BUSINESS LOGIC
+│   ├── payment-flow.yaml        # Immutable FSM definitions
+│   ├── kyc-process.yaml
+│   └── refund-workflow.yaml
+├── src/
+│   ├── runtime/                 # FSM runtime (from xcomponent-ai)
+│   │   └── index.ts
+│   ├── api/                     # Technical layer (UI/API)
+│   │   ├── payment-routes.ts    # Express routes triggering FSM events
+│   │   ├── kyc-api.ts
+│   │   └── websocket-server.ts
+│   ├── ui/                      # Frontend
+│   │   ├── PaymentWidget.tsx   # React components
+│   │   └── KYCForm.tsx
+│   └── services/                # External integrations
+│       ├── stripe.ts
+│       └── identity-provider.ts
+├── tests/
+│   ├── fsm/                     # FSM simulation tests
+│   └── api/                     # Integration tests
+└── README.md
+```
+
+**Key principle**: `fsm/` directory is **read-only in production**. Changes = new Git commits + review process.
+
+## 🛠️ Step-by-Step Usage
+
+### Step 1: Analyze Requirements & Extract Business Logic
+
+**User prompt**: "Build a lending platform with credit checks and approval workflow"
+
+**Your analysis**:
+```
+Business logic to extract:
+1. Loan application states: Submitted → CreditCheck → Underwriting → Approved/Rejected
+2. Compliance guards: Credit score > 650, debt-to-income < 40%
+3. Timeouts: Credit check must complete in 2 hours
+4. Inter-machine: Approved → Disbursement workflow
+```
+
+### Step 2: Generate FSM Definitions
+
+Create `fsm/loan-application.yaml`:
+
+```yaml
+name: LendingComponent
+version: 1.0.0
+metadata:
+  domain: lending
+  compliance:
+    - Fair Lending Act
+    - Equal Credit Opportunity Act
+
+stateMachines:
+  - name: LoanApplication
+    initialState: Submitted
+    states:
+      - name: Submitted
+        type: entry
+        entryMethod: recordApplication
+      - name: CreditCheck
+        type: regular
+        entryMethod: requestCreditReport
+      - name: Underwriting
+        type: regular
+        entryMethod: assignUnderwriter
+      - name: Approved
+        type: final
+      - name: Rejected
+        type: error
+    transitions:
+      - from: Submitted
+        to: CreditCheck
+        event: START_CREDIT_CHECK
+        type: triggerable
+        guards:
+          - keys: [applicantId, requestedAmount]
+          - customFunction: "event.payload.requestedAmount >= 1000"
+      - from: CreditCheck
+        to: Underwriting
+        event: CREDIT_REPORT_RECEIVED
+        guards:
+          - customFunction: "event.payload.creditScore >= 650"
+        triggeredMethod: logCreditCheckSuccess
+      - from: CreditCheck
+        to: Rejected
+        event: CREDIT_REPORT_RECEIVED
+        guards:
+          - customFunction: "event.payload.creditScore < 650"
+      - from: CreditCheck
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 7200000  # 2 hours
+      - from: Underwriting
+        to: Approved
+        event: UNDERWRITER_APPROVE
+        type: inter_machine
+        targetMachine: Disbursement
+      - from: Underwriting
+        to: Rejected
+        event: UNDERWRITER_REJECT
+```
+
+**Important**: Include metadata for compliance tracking!
+
+### Step 3: Initialize Runtime
+
+Create `src/runtime/index.ts`:
+
+```typescript
+import { FSMRuntime } from 'xcomponent-ai';
+import * as yaml from 'yaml';
+import * as fs from 'fs';
+
+// Load FSM from sanctuarized directory
+const loanFSM = yaml.parse(
+  fs.readFileSync('./fsm/loan-application.yaml', 'utf-8')
+);
+
+export const loanRuntime = new FSMRuntime(loanFSM);
+
+// Setup monitoring
+loanRuntime.on('state_change', (data) => {
+  console.log(`Loan ${data.instanceId}: ${data.previousState} → ${data.newState}`);
+});
+
+loanRuntime.on('guard_failed', (data) => {
+  console.log(`Guard failed for loan ${data.instanceId}: ${data.transition}`);
+});
+```
+
+### Step 4: Generate API Layer (Technical Code)
+
+Create `src/api/loan-routes.ts`:
+
+```typescript
+import express from 'express';
+import { loanRuntime } from '../runtime';
+
+const router = express.Router();
+
+// Create loan application (triggers FSM)
+router.post('/loans', async (req, res) => {
+  try {
+    const { applicantId, requestedAmount, term } = req.body;
+
+    // Create FSM instance (business logic)
+    const loanId = loanRuntime.createInstance('LoanApplication', {
+      applicantId,
+      requestedAmount,
+      term,
+    });
+
+    // Trigger first event
+    await loanRuntime.sendEvent(loanId, {
+      type: 'START_CREDIT_CHECK',
+      payload: { applicantId, requestedAmount },
+      timestamp: Date.now(),
+    });
+
+    res.json({ loanId, status: 'submitted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Webhook from credit bureau (external event)
+router.post('/webhooks/credit-report', async (req, res) => {
+  const { loanId, creditScore, creditReport } = req.body;
+
+  await loanRuntime.sendEvent(loanId, {
+    type: 'CREDIT_REPORT_RECEIVED',
+    payload: { creditScore, creditReport },
+    timestamp: Date.now(),
+  });
+
+  res.json({ received: true });
+});
+
+// Underwriter decision
+router.post('/loans/:loanId/decision', async (req, res) => {
+  const { loanId } = req.params;
+  const { decision, notes } = req.body;
+
+  await loanRuntime.sendEvent(loanId, {
+    type: decision === 'approve' ? 'UNDERWRITER_APPROVE' : 'UNDERWRITER_REJECT',
+    payload: { decision, notes, underwriterId: req.user.id },
+    timestamp: Date.now(),
+  });
+
+  res.json({ loanId, decision });
+});
+
+export default router;
+```
+
+**Key insight**: API routes are thin wrappers that translate HTTP → FSM events. Business logic stays in YAML.
+
+### Step 5: Generate UI Components
+
+Create `src/ui/LoanApplicationForm.tsx`:
+
+```typescript
+import React, { useState } from 'react';
+import axios from 'axios';
+
+export const LoanApplicationForm: React.FC = () => {
+  const [applicantId, setApplicantId] = useState('');
+  const [amount, setAmount] = useState(0);
+  const [loanId, setLoanId] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    const response = await axios.post('/api/loans', {
+      applicantId,
+      requestedAmount: amount,
+      term: 36,
+    });
+    setLoanId(response.data.loanId);
+  };
+
+  return (
+    <div>
+      <h2>Apply for Loan</h2>
+      <input
+        placeholder="Applicant ID"
+        value={applicantId}
+        onChange={(e) => setApplicantId(e.target.value)}
+      />
+      <input
+        type="number"
+        placeholder="Amount"
+        value={amount}
+        onChange={(e) => setAmount(Number(e.target.value))}
+      />
+      <button onClick={handleSubmit}>Submit Application</button>
+      {loanId && <p>Application submitted! Loan ID: {loanId}</p>}
+    </div>
+  );
+};
+```
+
+### Step 6: External Service Integration
+
+Create `src/services/credit-bureau.ts`:
+
+```typescript
+import axios from 'axios';
+
+export class CreditBureauService {
+  async requestCreditReport(applicantId: string): Promise<void> {
+    // Call external API
+    const report = await axios.post('https://credit-api.example.com/reports', {
+      applicantId,
+      callbackUrl: `${process.env.BASE_URL}/webhooks/credit-report`,
+    });
+
+    // Webhook will trigger FSM event when ready
+    console.log(`Credit report requested: ${report.data.requestId}`);
+  }
+}
+
+// Hook into FSM events
+import { loanRuntime } from '../runtime';
+
+loanRuntime.on('triggered_method', async (data) => {
+  if (data.method === 'requestCreditReport') {
+    const service = new CreditBureauService();
+    await service.requestCreditReport(data.event.payload.applicantId);
+  }
+});
+```
+
+## 🔒 Sanctuarization Rules
+
+When generating code, enforce these rules:
+
+### ✅ DO
+- Put ALL business logic in FSM YAML files
+- Generate thin API/UI wrappers that translate to FSM events
+- Use guards for business rules (credit score, amounts, timeouts)
+- Version FSM changes through Git
+- Test FSM paths with `runtime.simulatePath()`
+- Add compliance metadata to FSM definitions
+
+### ❌ DON'T
+- Put business logic in API routes or UI components
+- Modify FSM definitions at runtime
+- Hardcode state transitions in code
+- Skip guard definitions for critical rules
+- Mix technical concerns (DB, API) with business logic
+
+## 📊 Common Patterns
+
+### Pattern 1: Compliance-First Fintech
+
+```yaml
+# Always include compliance metadata
+metadata:
+  domain: payments
+  compliance:
+    - PSD2
+    - AML
+    - KYC
+  dataRetention: 7 years
+
+# Guards for regulatory limits
+guards:
+  - customFunction: "event.payload.amount <= 10000"  # AML threshold
+  - keys: [customerKYCStatus]  # Require KYC
+```
+
+### Pattern 2: Timeout for External Operations
+
+```yaml
+# Credit check, payment gateway, identity verification
+transitions:
+  - from: WaitingForGateway
+    to: Failed
+    event: TIMEOUT
+    type: timeout
+    timeoutMs: 30000
+    metadata:
+      reason: "Payment gateway timeout"
+```
+
+### Pattern 3: Inter-Machine Workflows
+
+```yaml
+# Order → Payment → Shipping
+transitions:
+  - from: OrderValidated
+    to: PaymentPending
+    event: PROCEED_TO_PAYMENT
+    type: inter_machine
+    targetMachine: Payment
+```
+
+### Pattern 4: Manual Review Escalation
+
+```yaml
+states:
+  - name: ManualReview
+    type: regular
+    entryMethod: assignToReviewQueue
+transitions:
+  - from: AutomatedCheck
+    to: ManualReview
+    event: FRAUD_RISK_HIGH
+    guards:
+      - customFunction: "event.payload.riskScore > 0.7"
+```
+
+## 🎨 Code Generation Guidelines
+
+When the user says "Build X with FSMs":
+
+1. **Identify business entities**: Payment, User, Order, Loan, etc.
+2. **Extract state flows**: Draft → Validated → Processed → Complete
+3. **Identify guards**: Amount limits, status checks, time windows
+4. **Map external systems**: Payment gateways, identity providers, etc.
+5. **Generate FSM YAML first** ← MOST IMPORTANT
+6. **Then generate API/UI code** that references FSM events
+
+### Example Prompt Flow
+
+**User**: "Build a KYC onboarding flow with document upload and manual review"
+
+**Your response**:
+```
+I'll structure this using xcomponent-ai to sanctuarize the KYC business logic.
+
+First, let me define the FSM for the KYC workflow in `fsm/kyc-onboarding.yaml`:
+
+[Generate YAML with states: DocumentPending → Uploaded → AIValidation →
+ ManualReview → Approved/Rejected, with appropriate guards and timeouts]
+
+Now I'll create the API layer in `src/api/kyc-routes.ts`:
+
+[Generate Express routes that trigger FSM events: upload-document,
+ ai-validation-complete, reviewer-decision]
+
+And the UI components in `src/ui/KYCWidget.tsx`:
+
+[Generate React form with file upload, status display, real-time updates via WebSocket]
+
+The business logic is now immutable in the YAML file. Any compliance changes
+(new document types, validation rules) are FSM updates, not code changes.
+```
+
+## 🧪 Testing Approach
+
+Always generate FSM tests first:
+
+```typescript
+describe('Loan Application FSM', () => {
+  it('should approve loan with good credit', () => {
+    const result = loanRuntime.simulatePath('LoanApplication', [
+      { type: 'START_CREDIT_CHECK', payload: { creditScore: 750 }, timestamp: Date.now() },
+      { type: 'CREDIT_REPORT_RECEIVED', payload: { creditScore: 750 }, timestamp: Date.now() },
+      { type: 'UNDERWRITER_APPROVE', payload: {}, timestamp: Date.now() },
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(result.path).toEqual(['Submitted', 'CreditCheck', 'Underwriting', 'Approved']);
+  });
+
+  it('should reject loan with poor credit', () => {
+    const result = loanRuntime.simulatePath('LoanApplication', [
+      { type: 'START_CREDIT_CHECK', payload: { creditScore: 500 }, timestamp: Date.now() },
+      { type: 'CREDIT_REPORT_RECEIVED', payload: { creditScore: 500 }, timestamp: Date.now() },
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(result.path).toEqual(['Submitted', 'CreditCheck', 'Rejected']);
+  });
+});
+```
+
+## 📦 Project Bootstrap
+
+When starting a new project, generate this structure:
+
+```bash
+npx xcomponent-ai init my-fintech-app
+cd my-fintech-app
+```
+
+This creates:
+- `fsm/` directory for business logic
+- Runtime setup in `src/runtime/`
+- Example API routes
+- Docker Compose with monitoring
+- CI/CD for FSM validation
+
+## 🎯 Success Criteria
+
+You've successfully used xcomponent-ai when:
+
+1. ✅ Business logic can be explained by showing YAML files
+2. ✅ Compliance officer can audit FSM without reading code
+3. ✅ UI/API changes don't require FSM changes (and vice versa)
+4. ✅ FSM simulations cover all business paths
+5. ✅ Git history shows FSM evolution as meaningful commits
+
+## 🚨 Red Flags
+
+Warn the user if:
+- Business logic appears in API routes (move to FSM guards)
+- State transitions are hardcoded in UI (use FSM events)
+- Compliance rules are in if/else statements (use guards)
+- FSM files are modified at runtime (immutable!)
+
+## 💡 Pro Tips
+
+1. **Start with FSM diagram**: Draw states on whiteboard/mermaid before coding
+2. **Use AI agent for compliance**: Let FSMAgent detect missing guards
+3. **Monitor in production**: FSM events = perfect audit logs
+4. **Version FSMs semantically**: v1.0.0 → v1.1.0 when adding states
+5. **Generate docs from FSM**: Mermaid diagrams from YAML
+
+---
+
+**Remember**: xcomponent-ai is not just a library—it's a **development philosophy** where business logic is first-class, explicit, and separate from technical implementation. Use it to help users build maintainable, auditable, compliance-ready applications.

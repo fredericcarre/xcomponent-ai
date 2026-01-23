@@ -38,14 +38,78 @@ xcomponent-ai uniquely combines:
 - **Camunda**: Enterprise BPMN engine (complex setup, no AI agents, expensive licensing)
 - **Traditional FSM libs**: No AI assistance, manual coding, no built-in monitoring or compliance
 
+## 🤖 For LLMs: Use as a Framework
+
+**xcomponent-ai is designed to be used by LLMs (Claude, GPT, etc.) as a structuring framework** for building applications with sanctuarized business logic.
+
+### Usage Pattern
+
+When a developer asks you to build an application:
+
+```
+User: "Build a lending platform with credit checks and approval workflow"
+
+LLM (You): I'll use xcomponent-ai to structure this with sanctuarized business logic.
+
+1️⃣ First, define FSM (business logic):
+   fsm/loan-application.yaml → States, guards, compliance rules
+
+2️⃣ Initialize runtime:
+   src/runtime/index.ts → FSM runtime setup
+
+3️⃣ Create API layer:
+   src/api/loan-routes.ts → HTTP → FSM events (thin wrapper)
+
+4️⃣ Build UI:
+   src/ui/LoanForm.tsx → React components reading FSM state
+
+Key principle: Business logic lives in YAML, code just connects to it.
+```
+
+### Project Structure
+
+```
+my-fintech-app/
+├── fsm/                    # 🔒 SANCTUARIZED (business logic)
+│   ├── *.yaml             # Immutable state machines
+├── src/
+│   ├── runtime/           # xcomponent-ai runtime
+│   ├── api/               # HTTP → FSM events
+│   └── ui/                # UI reading FSM state
+└── tests/fsm/             # FSM simulation tests
+```
+
+**For detailed guidance**, see:
+- **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage instructions for LLMs
+- **[Full Project Example](examples/full-project-structure.md)** - E-commerce platform example
+
+### Why This Matters
+
+✅ **Separation of concerns**: Business logic (FSM) vs technical code (API/UI)
+✅ **Auditability**: Compliance officer reviews YAML, not code
+✅ **Maintainability**: FSM changes are explicit Git commits
+✅ **LLM-friendly**: Clear structure for code generation
+
 ## 🚀 Quick Start
 
-### Installation
+> **📖 Full guide: [QUICKSTART.md](QUICKSTART.md)**
+
+### Two Ways to Use xcomponent-ai
+
+#### 1️⃣ Standalone CLI (Exploration)
 
 ```bash
-npm install xcomponent-ai
-# or
-yarn add xcomponent-ai
+npm install -g xcomponent-ai
+xcomponent-ai load examples/trading.yaml
+```
+
+#### 2️⃣ Framework (Production Projects) **← Recommended**
+
+```bash
+npx xcomponent-ai init my-fintech-app
+cd my-fintech-app
+npm install
+# Edit fsm/*.yaml → build API/UI
 ```
 
 ### Prerequisites
@@ -53,7 +117,7 @@ yarn add xcomponent-ai
 - Node.js ≥ 20.0.0
 - OpenAI API key (for AI agents): `export OPENAI_API_KEY=your_key`
 
-### CLI Usage
+### CLI Usage Examples
 
 ```bash
 # Create FSM from natural language (AI-powered)

@@ -20,6 +20,202 @@ program
   .version('0.1.0');
 
 /**
+ * Initialize new project
+ */
+program
+  .command('init <project-name>')
+  .description('Initialize new project with xcomponent-ai framework structure')
+  .option('-d, --domain <domain>', 'Domain (fintech, healthcare, ecommerce)', 'fintech')
+  .action(async (projectName: string, options: any) => {
+    try {
+      const path = require('path');
+      const projectPath = path.join(process.cwd(), projectName);
+
+      console.log(`🚀 Initializing xcomponent-ai project: ${projectName}\n`);
+
+      // Create directory structure
+      const dirs = [
+        projectPath,
+        path.join(projectPath, 'fsm'),
+        path.join(projectPath, 'src'),
+        path.join(projectPath, 'src/runtime'),
+        path.join(projectPath, 'src/api'),
+        path.join(projectPath, 'src/ui'),
+        path.join(projectPath, 'src/services'),
+        path.join(projectPath, 'tests'),
+        path.join(projectPath, 'tests/fsm'),
+      ];
+
+      for (const dir of dirs) {
+        await fs.mkdir(dir, { recursive: true });
+      }
+
+      // Create README
+      const readme = `# ${projectName}
+
+Built with [xcomponent-ai](https://github.com/fredericcarre/mayele-ai) framework.
+
+## 🏗️ Structure
+
+\`\`\`
+${projectName}/
+├── fsm/              # 🔒 SANCTUARIZED BUSINESS LOGIC
+│   └── *.yaml       # FSM definitions (immutable)
+├── src/
+│   ├── runtime/     # FSM runtime initialization
+│   ├── api/         # HTTP → FSM event wrappers
+│   ├── ui/          # Frontend components
+│   └── services/    # External integrations
+└── tests/fsm/       # FSM simulation tests
+\`\`\`
+
+## 🚀 Getting Started
+
+1. Define your business logic in \`fsm/*.yaml\`
+2. Initialize runtime in \`src/runtime/index.ts\`
+3. Create API routes in \`src/api/\`
+4. Build UI in \`src/ui/\`
+
+## 📚 Documentation
+
+- [xcomponent-ai Framework Guide](https://github.com/fredericcarre/mayele-ai/blob/main/LLM_FRAMEWORK_GUIDE.md)
+- [Full Project Example](https://github.com/fredericcarre/mayele-ai/blob/main/examples/full-project-structure.md)
+
+## 🔒 Sanctuarization Principle
+
+Business logic lives in \`fsm/\` directory as YAML files. These are:
+- Immutable (changes = Git commits)
+- Version controlled
+- Auditable by non-technical stakeholders
+- Separate from technical implementation
+`;
+
+      await fs.writeFile(path.join(projectPath, 'README.md'), readme);
+
+      // Create example FSM
+      const exampleFSM = `name: ${projectName.charAt(0).toUpperCase() + projectName.slice(1)}Component
+version: 1.0.0
+metadata:
+  domain: ${options.domain}
+  description: Main business workflow
+  compliance: []
+
+stateMachines:
+  - name: MainWorkflow
+    initialState: Start
+    metadata:
+      description: Primary business flow
+    states:
+      - name: Start
+        type: entry
+        metadata:
+          description: Initial state
+      - name: Processing
+        type: regular
+      - name: Complete
+        type: final
+      - name: Failed
+        type: error
+    transitions:
+      - from: Start
+        to: Processing
+        event: BEGIN
+        type: triggerable
+        guards:
+          - keys: [userId]
+      - from: Processing
+        to: Complete
+        event: SUCCESS
+        type: regular
+      - from: Processing
+        to: Failed
+        event: ERROR
+        type: regular
+`;
+
+      await fs.writeFile(path.join(projectPath, 'fsm', 'main-workflow.yaml'), exampleFSM);
+
+      // Create runtime template
+      const runtimeTemplate = `import { FSMRuntime } from 'xcomponent-ai';
+import * as yaml from 'yaml';
+import * as fs from 'fs';
+
+// Load FSM from sanctuarized directory
+const mainWorkflowFSM = yaml.parse(
+  fs.readFileSync('./fsm/main-workflow.yaml', 'utf-8')
+);
+
+export const mainRuntime = new FSMRuntime(mainWorkflowFSM);
+
+// Setup monitoring
+mainRuntime.on('state_change', (data) => {
+  console.log(\`[\${data.instanceId}] \${data.previousState} → \${data.newState}\`);
+});
+
+mainRuntime.on('instance_error', (data) => {
+  console.error(\`[ERROR] \${data.instanceId}: \${data.error}\`);
+});
+`;
+
+      await fs.writeFile(path.join(projectPath, 'src/runtime/index.ts'), runtimeTemplate);
+
+      // Create package.json
+      const packageJson = {
+        name: projectName,
+        version: '1.0.0',
+        description: `${projectName} - built with xcomponent-ai`,
+        main: 'src/index.ts',
+        scripts: {
+          dev: 'ts-node src/api/server.ts',
+          test: 'jest',
+          build: 'tsc',
+        },
+        dependencies: {
+          'xcomponent-ai': '^0.1.0',
+          express: '^4.21.2',
+          'socket.io': '^4.8.1',
+          yaml: '^2.6.1',
+        },
+        devDependencies: {
+          '@types/node': '^22.10.5',
+          typescript: '^5.7.3',
+          'ts-node': '^10.9.2',
+          jest: '^29.7.0',
+        },
+      };
+
+      await fs.writeFile(path.join(projectPath, 'package.json'), JSON.stringify(packageJson, null, 2));
+
+      // Create .gitignore
+      const gitignore = `node_modules/
+dist/
+coverage/
+.env
+*.log
+`;
+      await fs.writeFile(path.join(projectPath, '.gitignore'), gitignore);
+
+      console.log('✓ Project structure created');
+      console.log('✓ Example FSM: fsm/main-workflow.yaml');
+      console.log('✓ Runtime template: src/runtime/index.ts');
+      console.log('✓ README.md created\n');
+
+      console.log('📝 Next steps:');
+      console.log(`  cd ${projectName}`);
+      console.log('  npm install');
+      console.log('  # Edit fsm/main-workflow.yaml to define your business logic');
+      console.log('  # Build API/UI that connects to FSM runtime\n');
+
+      console.log('📚 Resources:');
+      console.log('  LLM Guide: https://github.com/fredericcarre/mayele-ai/blob/main/LLM_FRAMEWORK_GUIDE.md');
+      console.log('  Example: https://github.com/fredericcarre/mayele-ai/blob/main/examples/full-project-structure.md');
+    } catch (error: any) {
+      console.error(`✗ Error: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+/**
  * Load component
  */
 program

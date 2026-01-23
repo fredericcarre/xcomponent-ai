@@ -306,6 +306,8 @@ When generating code, enforce these rules:
 - Put ALL business logic in FSM YAML files
 - Generate thin API/UI wrappers that translate to FSM events
 - Use guards for business rules (credit score, amounts, timeouts)
+- Use property matching for multi-instance scenarios (100+ concurrent instances)
+- Use publicMemberType to separate business objects from internal state
 - Version FSM changes through Git
 - Test FSM paths with `runtime.simulatePath()`
 - Add compliance metadata to FSM definitions
@@ -378,6 +380,100 @@ transitions:
       - customFunction: "event.payload.riskScore > 0.7"
 ```
 
+### Pattern 5: Property Matching for Multi-Instance Routing
+
+**Use case**: When you have many instances of the same state machine (100+ orders, 1000+ customers) and need to route external events to specific instances based on business properties.
+
+**Problem**: Without property matching, you must maintain external maps (OrderId → InstanceId), which doesn't scale.
+
+**Solution**: Use property matching to automatically route events based on business identifiers.
+
+```yaml
+stateMachines:
+  - name: Order
+    publicMemberType: Order  # Enable public member pattern
+    states:
+      - name: Pending
+        type: entry
+      - name: PartiallyExecuted
+        type: regular
+      - name: FullyExecuted
+        type: final
+    transitions:
+      # Full execution
+      - from: Pending
+        to: FullyExecuted
+        event: ExecutionInput
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
+
+      # Partial execution
+      - from: Pending
+        to: PartiallyExecuted
+        event: ExecutionInput
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
+```
+
+**Usage in code**:
+
+```typescript
+// Create 100 concurrent orders
+for (let i = 1; i <= 100; i++) {
+  runtime.createInstance('Order', {
+    Id: i,
+    AssetName: 'AAPL',
+    Quantity: 1000,
+    RemainingQuantity: 1000,
+    ExecutedQuantity: 0
+  });
+}
+
+// External event arrives (e.g., from execution venue)
+// No need to maintain OrderId → InstanceId mapping!
+const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+  type: 'ExecutionInput',
+  payload: { OrderId: 42, Quantity: 500 },
+  timestamp: Date.now()
+});
+
+console.log(`Processed ${processedCount} instances`); // 1
+// System automatically found Order #42 and transitioned it
+```
+
+**Advanced: Nested properties and comparison operators**:
+
+```yaml
+matchingRules:
+  # Nested property access
+  - eventProperty: customer.id
+    instanceProperty: customerId
+
+  # Comparison operators (for range queries)
+  - eventProperty: threshold
+    instanceProperty: balance
+    operator: '>'  # Also: ===, !==, <, >=, <=
+```
+
+**When to use**:
+- ✅ 100-10,000 concurrent instances per state
+- ✅ External events need to update specific instances (order executions, document uploads)
+- ✅ Multi-tenant systems (route by customerId, accountId)
+- ✅ IoT/device management (route by deviceId)
+- ❌ Single instance workflows (use sendEvent directly)
+
+**Best practices**:
+- Choose unique matching properties (OrderId, CustomerId, not AssetName)
+- Always specify target state in broadcastEvent() for filtering
+- Monitor processedCount to detect routing issues
+- Use publicMemberType to separate business object from internal state
+
+**For complete documentation**, see [Property Matching Guide](docs/PROPERTY_MATCHING.md).
+
 ## 🎨 Code Generation Guidelines
 
 When the user says "Build X with FSMs":
@@ -386,8 +482,9 @@ When the user says "Build X with FSMs":
 2. **Extract state flows**: Draft → Validated → Processed → Complete
 3. **Identify guards**: Amount limits, status checks, time windows
 4. **Map external systems**: Payment gateways, identity providers, etc.
-5. **Generate FSM YAML first** ← MOST IMPORTANT
-6. **Then generate API/UI code** that references FSM events
+5. **Consider multi-instance scenarios**: Will there be 100+ concurrent instances? → Use property matching
+6. **Generate FSM YAML first** ← MOST IMPORTANT
+7. **Then generate API/UI code** that references FSM events
 
 ### Example Prompt Flow
 
@@ -413,6 +510,47 @@ And the UI components in `src/ui/KYCWidget.tsx`:
 
 The business logic is now immutable in the YAML file. Any compliance changes
 (new document types, validation rules) are FSM updates, not code changes.
+```
+
+**Example with property matching**:
+
+**User**: "Build an order execution system handling 100+ concurrent orders with real-time executions from exchanges"
+
+**Your response**:
+```
+This is a perfect use case for property matching! I'll structure it with xcomponent-ai.
+
+First, let me define the FSM in `fsm/order-execution.yaml` with property-based routing:
+
+[Generate YAML with publicMemberType: Order, matchingRules for OrderId,
+ specificTriggeringRule for full vs partial execution]
+
+The key feature here is property matching:
+- When execution confirmations arrive from exchanges, they include OrderId
+- The system automatically routes to the correct Order instance
+- No manual OrderId → InstanceId mapping required
+
+Now the API layer in `src/api/order-routes.ts`:
+
+[Generate routes using broadcastEvent() instead of sendEvent()]
+
+typescript
+// External execution arrives from exchange webhook
+router.post('/webhooks/execution', async (req, res) => {
+  const { orderId, quantity, price } = req.body;
+
+  // System automatically finds the right order instance
+  const processedCount = await orderRuntime.broadcastEvent('Order', 'Pending', {
+    type: 'ExecutionInput',
+    payload: { OrderId: orderId, Quantity: quantity, Price: price },
+    timestamp: Date.now()
+  });
+
+  res.json({ processed: processedCount });
+});
+
+
+This scales to thousands of concurrent orders without performance issues.
 ```
 
 ## 🧪 Testing Approach
@@ -444,6 +582,52 @@ describe('Loan Application FSM', () => {
 });
 ```
 
+**Testing property matching**:
+
+```typescript
+describe('Order Execution with Property Matching', () => {
+  it('should route execution to correct order instance', async () => {
+    const runtime = new FSMRuntime(orderComponent);
+
+    // Create 100 orders
+    for (let i = 1; i <= 100; i++) {
+      runtime.createInstance('Order', { Id: i, Quantity: 1000 });
+    }
+
+    // Execute order #42
+    const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      type: 'ExecutionInput',
+      payload: { OrderId: 42, Quantity: 500 },
+      timestamp: Date.now()
+    });
+
+    expect(processedCount).toBe(1); // Only one instance matched
+
+    // Verify only order #42 transitioned
+    const allInstances = runtime.getInstancesByMachine('Order');
+    const order42 = allInstances.find(i => i.publicMember.Id === 42);
+    expect(order42?.currentState).toBe('PartiallyExecuted');
+
+    // Others remain in Pending
+    const pendingOrders = allInstances.filter(i => i.currentState === 'Pending');
+    expect(pendingOrders.length).toBe(99);
+  });
+
+  it('should handle no matches gracefully', async () => {
+    const runtime = new FSMRuntime(orderComponent);
+    runtime.createInstance('Order', { Id: 1, Quantity: 1000 });
+
+    const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      type: 'ExecutionInput',
+      payload: { OrderId: 999, Quantity: 100 }, // No match
+      timestamp: Date.now()
+    });
+
+    expect(processedCount).toBe(0);
+  });
+});
+```
+
 ## 📦 Project Bootstrap
 
 When starting a new project, generate this structure:
@@ -469,6 +653,7 @@ You've successfully used xcomponent-ai when:
 3. ✅ UI/API changes don't require FSM changes (and vice versa)
 4. ✅ FSM simulations cover all business paths
 5. ✅ Git history shows FSM evolution as meaningful commits
+6. ✅ Multi-instance scenarios use property matching, not manual ID tracking
 
 ## 🚨 Red Flags
 

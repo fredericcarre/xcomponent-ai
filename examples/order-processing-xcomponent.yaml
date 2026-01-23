@@ -1,0 +1,231 @@
+name: OrderProcessingComponent
+version: 2.0.0
+metadata:
+  domain: fintech
+  description: Complete Order Processing workflow with XComponent-style property matching
+  features:
+    - Property-based instance routing
+    - Specific triggering rules
+    - Public member pattern
+    - Inter-machine transitions
+  compliance:
+    - MiFID II (Market order limits)
+    - Best Execution requirements
+
+stateMachines:
+  # Main Order State Machine
+  - name: Order
+    initialState: Pending
+    publicMemberType: Order
+    metadata:
+      description: Order lifecycle with multi-instance support
+      businessObject: |
+        Order {
+          Id: number,
+          AssetName: string,
+          Quantity: number,
+          ExecutedQuantity: number,
+          RemainingQuantity: number,
+          CreationDate: timestamp
+        }
+
+    states:
+      - name: Pending
+        type: entry
+        entryMethod: createOrder
+        metadata:
+          description: Order created, awaiting execution
+
+      - name: PartiallyExecuted
+        type: regular
+        entryMethod: updateExecutedQuantity
+        metadata:
+          description: Order partially filled, still active
+
+      - name: FullyExecuted
+        type: regular
+        entryMethod: markComplete
+        metadata:
+          description: Order completely filled
+
+      - name: Settled
+        type: final
+        metadata:
+          description: Order settled and archived
+
+      - name: Rejected
+        type: error
+        metadata:
+          description: Order rejected due to business rules
+
+    transitions:
+      # Initial order creation
+      - from: Pending
+        to: Pending
+        event: CreateOrder
+        type: triggerable
+        guards:
+          - keys: [AssetName, Quantity]
+          - customFunction: "event.payload.Quantity > 0"
+        triggeredMethod: initializeOrder
+        metadata:
+          description: Internal initialization
+
+      # Execution with property matching
+      # Scenario: 100 pending orders, execution event finds the right one
+      - from: Pending
+        to: PartiallyExecuted
+        event: ExecutionInput
+        type: regular
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
+        triggeredMethod: processPartialExecution
+        metadata:
+          description: Partial execution (Quantity < RemainingQuantity)
+          example: |
+            Order #42: RemainingQuantity = 1000
+            Event: ExecutionInput { OrderId: 42, Quantity: 500 }
+            → Matches Order #42 (property matching)
+            → 500 < 1000 (specific rule)
+            → Transition to PartiallyExecuted
+
+      - from: Pending
+        to: FullyExecuted
+        event: ExecutionInput
+        type: regular
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
+        triggeredMethod: processFullExecution
+        metadata:
+          description: Full execution (Quantity === RemainingQuantity)
+          example: |
+            Order #42: RemainingQuantity = 1000
+            Event: ExecutionInput { OrderId: 42, Quantity: 1000 }
+            → Matches Order #42 (property matching)
+            → 1000 === 1000 (specific rule)
+            → Transition to FullyExecuted
+
+      # Subsequent partial executions
+      - from: PartiallyExecuted
+        to: PartiallyExecuted
+        event: ExecutionInput
+        type: internal
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
+        triggeredMethod: processPartialExecution
+        metadata:
+          description: Another partial fill
+
+      - from: PartiallyExecuted
+        to: FullyExecuted
+        event: ExecutionInput
+        type: regular
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
+        triggeredMethod: processFullExecution
+        metadata:
+          description: Final fill
+
+      # Settlement (inter-machine)
+      - from: FullyExecuted
+        to: Settled
+        event: SettlementComplete
+        type: inter_machine
+        targetMachine: Settlement
+        metadata:
+          description: Triggers settlement workflow
+
+      # Rejection scenarios
+      - from: Pending
+        to: Rejected
+        event: ExecutionInput
+        type: regular
+        matchingRules:
+          - eventProperty: OrderId
+            instanceProperty: Id
+        guards:
+          - customFunction: "event.payload.Quantity > context.RemainingQuantity"
+        metadata:
+          description: Reject if execution quantity exceeds remaining
+
+      - from: Pending
+        to: Rejected
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 86400000  # 24 hours
+        metadata:
+          description: Order expired
+
+  # Settlement State Machine
+  - name: Settlement
+    initialState: SettlementPending
+    publicMemberType: Settlement
+    metadata:
+      description: Post-trade settlement workflow
+
+    states:
+      - name: SettlementPending
+        type: entry
+        entryMethod: initiateSettlement
+
+      - name: SettlementValidated
+        type: regular
+        entryMethod: validateSettlement
+
+      - name: Completed
+        type: final
+
+      - name: Failed
+        type: error
+
+    transitions:
+      - from: SettlementPending
+        to: SettlementValidated
+        event: VALIDATE
+        type: triggerable
+        guards:
+          - keys: [OrderId, TradeDate]
+
+      - from: SettlementValidated
+        to: Completed
+        event: SETTLE
+        type: triggerable
+
+      - from: SettlementPending
+        to: Failed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 172800000  # 48 hours (T+2 settlement)
+
+# Usage Example:
+# ================
+#
+# 1. Create 100 orders:
+#    for i in 1..100:
+#      runtime.createInstance('Order', { Id: i, AssetName: 'AAPL', Quantity: 1000, RemainingQuantity: 1000 })
+#
+# 2. Execute order #42 (partial):
+#    runtime.broadcastEvent('Order', 'Pending', {
+#      type: 'ExecutionInput',
+#      payload: { OrderId: 42, Quantity: 500 }
+#    })
+#    → System automatically finds Order #42 (property matching)
+#    → Evaluates: 500 < 1000 (specific rule) → PartiallyExecuted
+#    → Other 99 orders unaffected
+#
+# 3. Execute order #42 (complete):
+#    runtime.broadcastEvent('Order', 'PartiallyExecuted', {
+#      type: 'ExecutionInput',
+#      payload: { OrderId: 42, Quantity: 500 }
+#    })
+#    → Matches Order #42 again
+#    → Evaluates: 500 === 500 (remaining) → FullyExecuted
+#    → Triggers Settlement inter-machine transition

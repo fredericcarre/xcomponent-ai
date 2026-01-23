@@ -192,34 +192,55 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${machineName} not found`);
     }
 
-    // Find transition with matching rules
-    const transition = this.findTransition(machine, currentState, event, {});
-    if (!transition || !transition.matchingRules || transition.matchingRules.length === 0) {
+    // Find ALL transitions with matching rules for this state/event combination
+    const transitionsWithMatchingRules = machine.transitions.filter(
+      t => t.from === currentState && t.event === event.type && t.matchingRules && t.matchingRules.length > 0
+    );
+
+    if (transitionsWithMatchingRules.length === 0) {
       throw new Error(
         `No transition with matching rules found for ${machineName}.${currentState} on event ${event.type}`
       );
     }
 
-    // Find all instances that match
-    const matchingInstances = this.findMatchingInstances(
-      machineName,
-      currentState,
-      event,
-      transition.matchingRules
-    );
-
-    // Send event to each matching instance
     let processedCount = 0;
-    for (const instance of matchingInstances) {
-      try {
-        await this.sendEvent(instance.id, event);
-        processedCount++;
-      } catch (error: any) {
-        this.emit('broadcast_error', {
-          instanceId: instance.id,
-          event,
-          error: error.message,
-        });
+    const processedInstances = new Set<string>();
+
+    // For each transition with matching rules, find and process matching instances
+    for (const transition of transitionsWithMatchingRules) {
+      // Find all instances that match this transition's rules
+      const matchingInstances = this.findMatchingInstances(
+        machineName,
+        currentState,
+        event,
+        transition.matchingRules!
+      );
+
+      // Send event to each matching instance (only once per instance)
+      for (const instance of matchingInstances) {
+        if (processedInstances.has(instance.id)) {
+          continue; // Already processed by another transition
+        }
+
+        try {
+          const stateBefore = instance.currentState;
+          await this.sendEvent(instance.id, event);
+
+          // Check if state actually changed (or instance was disposed)
+          const instanceAfter = this.instances.get(instance.id);
+          const transitioned = !instanceAfter || instanceAfter.currentState !== stateBefore;
+
+          if (transitioned) {
+            processedInstances.add(instance.id);
+            processedCount++;
+          }
+        } catch (error: any) {
+          this.emit('broadcast_error', {
+            instanceId: instance.id,
+            event,
+            error: error.message,
+          });
+        }
       }
     }
 
@@ -227,7 +248,7 @@ export class FSMRuntime extends EventEmitter {
       machineName,
       currentState,
       event,
-      matchedCount: matchingInstances.length,
+      matchedCount: processedInstances.size,
       processedCount,
     });
 
@@ -286,22 +307,24 @@ export class FSMRuntime extends EventEmitter {
       }
 
       // Apply operator (default to strict equality)
+      // Semantics: instanceValue operator eventValue
+      // Example: balance > threshold means instanceValue (balance) > eventValue (threshold)
       const operator = rule.operator || '===';
       switch (operator) {
         case '===':
-          return eventValue === instanceValue;
+          return instanceValue === eventValue;
         case '!==':
-          return eventValue !== instanceValue;
+          return instanceValue !== eventValue;
         case '>':
-          return eventValue > instanceValue;
+          return instanceValue > eventValue;
         case '<':
-          return eventValue < instanceValue;
+          return instanceValue < eventValue;
         case '>=':
-          return eventValue >= instanceValue;
+          return instanceValue >= eventValue;
         case '<=':
-          return eventValue <= instanceValue;
+          return instanceValue <= eventValue;
         default:
-          return eventValue === instanceValue;
+          return instanceValue === eventValue;
       }
     });
   }
@@ -351,7 +374,7 @@ export class FSMRuntime extends EventEmitter {
       return candidates[0];
     }
 
-    // Multiple candidates - need specific triggering rules to differentiate
+    // Multiple candidates - try specific triggering rules first
     for (const transition of candidates) {
       if (transition.specificTriggeringRule) {
         try {
@@ -370,7 +393,29 @@ export class FSMRuntime extends EventEmitter {
       }
     }
 
-    // No specific triggering rule matched - return first candidate (backward compatibility)
+    // If no specific triggering rules matched, try matching rules
+    // This handles cases where multiple transitions differentiate by matching rules (e.g., different operators)
+    for (const transition of candidates) {
+      if (transition.matchingRules && transition.matchingRules.length > 0) {
+        // Create a mock instance to evaluate matching rules
+        const mockInstance: FSMInstance = {
+          id: 'temp',
+          machineName: machine.name,
+          currentState,
+          context: instanceContext,
+          publicMember: instanceContext,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          status: 'active',
+        };
+
+        if (this.evaluateMatchingRules(mockInstance, event, transition.matchingRules)) {
+          return transition;
+        }
+      }
+    }
+
+    // No rules matched - return first candidate (backward compatibility)
     return candidates[0];
   }
 

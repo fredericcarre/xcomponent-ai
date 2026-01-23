@@ -137,7 +137,7 @@ describe('Property Matching (XComponent-style)', () => {
           publicMemberType: 'Customer',
           states: [
             { name: 'Active', type: StateType.ENTRY },
-            { name: 'Updated', type: StateType.FINAL },
+            { name: 'Updated', type: StateType.REGULAR },
           ],
           transitions: [
             {
@@ -356,7 +356,7 @@ describe('Property Matching (XComponent-style)', () => {
           publicMemberType: 'BusinessObject',
           states: [
             { name: 'Start', type: StateType.ENTRY },
-            { name: 'End', type: StateType.FINAL },
+            { name: 'End', type: StateType.REGULAR },
           ],
           transitions: [
             {

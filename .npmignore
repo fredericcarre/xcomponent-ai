@@ -1,0 +1,48 @@
+# Source files (only dist/ is published)
+src/
+tsconfig.json
+
+# Tests
+tests/
+jest.config.js
+coverage/
+.nyc_output/
+
+# Examples and docs (keep README and PERSISTENCE)
+examples/
+docs/
+
+# Development files
+.vscode/
+.idea/
+*.log
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.github/
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+circle.yml
+appveyor.yml
+
+# Misc
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+
+# Lock files (users should use their own)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build artifacts
+*.tsbuildinfo
+dist/**/*.tsbuildinfo

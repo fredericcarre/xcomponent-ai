@@ -303,7 +303,7 @@ export class APIServer {
     });
 
     // Cross-component traceability: get all events across all components
-    this.app.get('/api/cross-component/events', async (req: Request, res: Response) => {
+    this.app.get('/api/cross-component/events', async (_req: Request, res: Response) => {
       try {
         const events = await this.registry.getAllPersistedEvents();
         return res.json({ success: true, data: { events, count: events.length } });

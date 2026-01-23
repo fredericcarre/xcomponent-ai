@@ -1,14 +1,24 @@
 # 🤖 xcomponent-ai
 
+[![npm version](https://img.shields.io/npm/v/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
+[![npm downloads](https://img.shields.io/npm/dm/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
 [![CI](https://github.com/fredericcarre/mayele-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/mayele-ai/actions)
-[![Coverage](https://img.shields.io/badge/coverage-88.13%25-brightgreen.svg)](https://github.com/fredericcarre/mayele-ai/actions)
+[![Coverage](https://img.shields.io/badge/coverage-79.91%25-brightgreen.svg)](https://github.com/fredericcarre/mayele-ai/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
-> **Agentic FSM tool for fintech workflows** - XComponent-inspired state machines orchestrated by LLM agents
+> **Event-driven FSM runtime with XComponent patterns**: Multi-instance state machines, cross-component communication, event sourcing, and production-ready persistence.
 
-xcomponent-ai combines the power of **immutable state machines** (inspired by [XComponent](https://github.com/xcomponent/xcomponent)) with **agentic AI orchestration** (LangChain.js) to deliver secure, compliant, and intelligent fintech workflows.
+xcomponent-ai is a TypeScript FSM runtime inspired by [XComponent](https://github.com/xcomponent/xcomponent) that provides multi-instance state machine management, cross-component communication, property-based routing, event sourcing with causality tracking, and production-ready database integrations (PostgreSQL, MongoDB).
+
+## 📦 Installation
+
+```bash
+npm install xcomponent-ai
+```
+
+**Requirements**: Node.js 20.0.0+
 
 ## 🌟 Why xcomponent-ai?
 

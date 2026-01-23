@@ -20,24 +20,59 @@ import {
 import type { MatchingRule } from './types';
 import { TimerWheel } from './timer-wheel';
 import { PersistenceManager, InMemoryEventStore, InMemorySnapshotStore } from './persistence';
+import type { ComponentRegistry } from './component-registry';
 
 /**
  * Sender implementation for triggered methods
  * Provides controlled access to runtime operations
+ * Supports both intra-component and cross-component communication
  */
 class SenderImpl implements Sender {
-  constructor(private runtime: FSMRuntime) {}
+  constructor(
+    private runtime: FSMRuntime,
+    private registry?: ComponentRegistry
+  ) {}
 
   async sendTo(instanceId: string, event: FSMEvent): Promise<void> {
     return this.runtime.sendEvent(instanceId, event);
+  }
+
+  async sendToComponent(componentName: string, instanceId: string, event: FSMEvent): Promise<void> {
+    if (!this.registry) {
+      throw new Error('Cross-component communication requires ComponentRegistry');
+    }
+    return this.registry.sendEventToComponent(componentName, instanceId, event);
   }
 
   async broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number> {
     return this.runtime.broadcastEvent(machineName, currentState, event);
   }
 
+  async broadcastToComponent(
+    componentName: string,
+    machineName: string,
+    currentState: string,
+    event: FSMEvent
+  ): Promise<number> {
+    if (!this.registry) {
+      throw new Error('Cross-component communication requires ComponentRegistry');
+    }
+    return this.registry.broadcastToComponent(componentName, machineName, currentState, event);
+  }
+
   createInstance(machineName: string, initialContext: Record<string, any>): string {
     return this.runtime.createInstance(machineName, initialContext);
+  }
+
+  createInstanceInComponent(
+    componentName: string,
+    machineName: string,
+    initialContext: Record<string, any>
+  ): string {
+    if (!this.registry) {
+      throw new Error('Cross-component communication requires ComponentRegistry');
+    }
+    return this.registry.createInstanceInComponent(componentName, machineName, initialContext);
   }
 }
 
@@ -52,6 +87,7 @@ export class FSMRuntime extends EventEmitter {
   private timeoutTasks: Map<string, string[]>; // instanceId → taskIds (for cleanup)
   private persistence: PersistenceManager | null;
   private componentDef: Component;
+  private registry?: ComponentRegistry; // For cross-component communication
 
   // Performance: Hash-based indexes for efficient property matching (XComponent pattern)
   private machineIndex: Map<string, Set<string>>; // machineName → Set<instanceId>
@@ -599,7 +635,7 @@ export class FSMRuntime extends EventEmitter {
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
     // In production, execute triggered methods here
     if (transition.triggeredMethod) {
-      const sender = new SenderImpl(this);
+      const sender = new SenderImpl(this, this.registry);
       const instanceContext = instance.publicMember || instance.context;
 
       this.emit('triggered_method', {
@@ -1254,6 +1290,13 @@ export class FSMRuntime extends EventEmitter {
    */
   getComponent(): Component {
     return this.componentDef;
+  }
+
+  /**
+   * Set component registry for cross-component communication
+   */
+  setRegistry(registry: ComponentRegistry): void {
+    this.registry = registry;
   }
 
   /**

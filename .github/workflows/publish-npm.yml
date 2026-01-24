@@ -48,10 +48,8 @@ jobs:
           echo "Checking package contents..."
           npm pack --dry-run
 
-      - name: Publish to npm
+      - name: Publish to npm (with Trusted Publishing)
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create summary
         run: |

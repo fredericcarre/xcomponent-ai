@@ -249,8 +249,8 @@
     });
     
     socket.on('component_data', (data) => {
-      componentData = data;
-      document.getElementById('component-name').textContent = data.name;
+      componentData = data.component;
+      document.getElementById('component-name').textContent = componentData.name;
       populateSelectors();
     });
     
@@ -384,8 +384,8 @@
     function renderDiagram() {
       const machineName = document.getElementById('diagram-machine').value;
       if (!machineName || !componentData) return;
-      
-      const machine = componentData.machines.find(m => m.name === machineName);
+
+      const machine = componentData.stateMachines.find(m => m.name === machineName);
       if (!machine) return;
       
       // Generate Mermaid diagram
@@ -423,8 +423,8 @@
     function updateCreateForm() {
       const machineName = document.getElementById('create-machine').value;
       if (!machineName || !componentData) return;
-      
-      const machine = componentData.machines.find(m => m.name === machineName);
+
+      const machine = componentData.stateMachines.find(m => m.name === machineName);
       if (!machine || !machine.contextSchema) {
         document.getElementById('create-form-fields').innerHTML = '<div class="form-group"><label>Context (JSON)</label><textarea id="context-json" rows="4"></textarea></div>';
         return;
@@ -451,8 +451,8 @@
     async function createInstance() {
       const machineName = document.getElementById('create-machine').value;
       if (!machineName) return alert('Please select a state machine');
-      
-      const machine = componentData?.machines.find(m => m.name === machineName);
+
+      const machine = componentData?.stateMachines.find(m => m.name === machineName);
       let context = {};
       
       if (machine?.contextSchema) {
@@ -486,9 +486,9 @@
     }
     
     function populateSelectors() {
-      if (!componentData) return;
-      
-      const machines = componentData.machines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
+      if (!componentData || !componentData.stateMachines) return;
+
+      const machines = componentData.stateMachines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
       document.getElementById('filter-machine').innerHTML = '<option value="">All Machines</option>' + machines;
       document.getElementById('diagram-machine').innerHTML = '<option value="">Select...</option>' + machines;
       document.getElementById('create-machine').innerHTML = '<option value="">Select...</option>' + machines;

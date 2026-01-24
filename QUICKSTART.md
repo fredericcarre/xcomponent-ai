@@ -1,363 +1,222 @@
-# Quick Start Guide
+# 🚀 Quick Start Guide
 
-xcomponent-ai can be used in **two ways**:
+Ce guide vous montre comment utiliser xcomponent-ai en 5 minutes.
 
-1. **🛠️ Standalone CLI** - For exploring FSM concepts and testing workflows
-2. **🏗️ Framework** - For structuring complete applications with sanctuarized business logic
-
-## 🛠️ Standalone CLI Usage
-
-Use the CLI to load, run, and analyze FSM definitions.
-
-### Installation
+## 📦 Installation
 
 ```bash
 npm install -g xcomponent-ai
 ```
 
-### Load and Validate FSM
+## 🎯 Workflow en 4 étapes
 
+### 1. Créer ou Utiliser un FSM
+
+Utilisez un exemple fourni :
 ```bash
+# Voir la liste des exemples
+ls $(npm root -g)/xcomponent-ai/examples/
+
+# Charger un exemple pour voir sa structure
 xcomponent-ai load examples/trading.yaml
 ```
 
-Output:
-```
-✓ Loaded component: TradingComponent
-  Machines: 2
-    - OrderEntry (5 states, 6 transitions)
-    - Settlement (4 states, 4 transitions)
+Ou créez votre propre projet :
+```bash
+xcomponent-ai init my-project
+cd my-project
 ```
 
-### Run FSM with Events
+### 2. Démarrer le Runtime + Dashboard
+
+**C'est LA commande principale** - elle démarre :
+- ✅ Le runtime FSM (pour créer et gérer les instances)
+- ✅ L'API REST (pour envoyer des événements)
+- ✅ Le dashboard web (pour visualiser en temps réel)
 
 ```bash
-xcomponent-ai run examples/payment.yaml Payment \
-  --context '{"accountBalance": 5000}' \
-  --events '[
-    {"type":"AUTHORIZE_PAYMENT","payload":{"amount":100},"timestamp":1234567890}
-  ]'
+xcomponent-ai serve examples/trading.yaml
 ```
 
-### Simulate FSM Path
+**Sortie attendue :**
+```
+🚀 xcomponent-ai Runtime Started
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 Component: TradingComponent
+   Machines:
+   - OrderEntry (5 states, 7 transitions)
+   - Settlement (3 states, 3 transitions)
+
+🌐 API Server:    http://localhost:3000
+📊 Dashboard:     http://localhost:3000/dashboard
+📡 WebSocket:     ws://localhost:3000
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Press Ctrl+C to stop
+```
+
+### 3. Visualiser dans le Dashboard
+
+Ouvrez votre navigateur sur **http://localhost:3000/dashboard**
+
+Vous verrez :
+- 📊 **Toutes les instances** actives (tableau en temps réel)
+- 🔄 **Les transitions** d'état en direct
+- 📈 **Statistiques** (nombre d'instances par état)
+- 🎨 **Graphe visuel** des FSM
+
+### 4. Interagir avec le Runtime
+
+**Option A : Via l'API REST (curl)**
 
 ```bash
-xcomponent-ai simulate examples/kyc.yaml Onboarding \
-  --events '[
-    {"type":"DOCUMENTS_RECEIVED","payload":{"documentType":"passport"},"timestamp":123}
-  ]'
+# Créer une nouvelle instance
+curl -X POST http://localhost:3000/api/instances \
+  -H "Content-Type: application/json" \
+  -d '{
+    "machineName": "OrderEntry",
+    "context": {
+      "orderId": "ORD-001",
+      "amount": 1000,
+      "symbol": "AAPL"
+    }
+  }'
+
+# Réponse : {"instanceId": "abc-123"}
+
+# Envoyer un événement
+curl -X POST http://localhost:3000/api/instances/abc-123/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "VALIDATE",
+    "payload": {}
+  }'
+
+# Voir l'état d'une instance
+curl http://localhost:3000/api/instances/abc-123
+
+# Lister toutes les instances
+curl http://localhost:3000/api/instances
 ```
 
-### AI-Powered FSM Creation
+**Option B : Via le CLI (mode interactif)**
 
 ```bash
-export OPENAI_API_KEY=your_key
+# Démarrer le mode REPL
+xcomponent-ai repl examples/trading.yaml
 
-xcomponent-ai ai-create \
-  "Trading order with compliance guards for amounts over 100k" \
-  -o my-trading.yaml
+# Puis tapez des commandes :
+> create OrderEntry { orderId: "ORD-001", amount: 1000 }
+Instance created: abc-123
+
+> send abc-123 VALIDATE
+Transition: Pending → Validated
+
+> list
+Instances:
+- abc-123 (OrderEntry) : Validated
+
+> inspect abc-123
+Instance: abc-123
+Machine: OrderEntry
+State: Validated
+Context: { orderId: "ORD-001", amount: 1000, symbol: "AAPL" }
 ```
 
-### Generate UI Code
+**Option C : Via le Dashboard Web**
+
+1. Ouvrez http://localhost:3000/dashboard
+2. Cliquez sur **"+ New Instance"**
+3. Sélectionnez la machine : `OrderEntry`
+4. Entrez le contexte : `{ "orderId": "ORD-001", "amount": 1000 }`
+5. Cliquez sur **"Create"**
+6. Voyez l'instance apparaître dans le tableau
+7. Cliquez sur l'instance pour envoyer des événements
+
+## 🔍 Monitorer les FSM
+
+### Voir les logs en temps réel
+
+Dans le terminal où tourne `xcomponent-ai serve` :
+```
+[14:32:15] Instance abc-123 created (OrderEntry)
+[14:32:18] abc-123: Pending → Validated (event: VALIDATE)
+[14:32:20] abc-123: Validated → Executed (event: EXECUTE)
+```
+
+### Analyser les logs
 
 ```bash
-xcomponent-ai generate-ui examples/trading.yaml --type api -o routes.ts
-xcomponent-ai generate-ui examples/trading.yaml --type react -o Widget.tsx
+# Dans un autre terminal
+xcomponent-ai logs --component TradingComponent
+
+# Filtrer par instance
+xcomponent-ai logs --instance abc-123
+
+# Voir les statistiques
+xcomponent-ai stats
 ```
 
-### Analyze Logs
+## 🧪 Tester un Scénario Complet
 
 ```bash
-xcomponent-ai ai-analyze TradingComponent
+# 1. Démarrer le runtime
+xcomponent-ai serve examples/trading.yaml &
+
+# 2. Créer une instance
+INSTANCE=$(curl -s -X POST http://localhost:3000/api/instances \
+  -H "Content-Type: application/json" \
+  -d '{"machineName": "OrderEntry", "context": {"orderId": "ORD-001"}}' \
+  | jq -r '.instanceId')
+
+# 3. Envoyer des événements en séquence
+curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
+  -H "Content-Type: application/json" \
+  -d '{"type": "VALIDATE"}'
+
+sleep 1
+
+curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
+  -H "Content-Type: application/json" \
+  -d '{"type": "EXECUTE"}'
+
+# 4. Vérifier l'état final
+curl http://localhost:3000/api/instances/$INSTANCE
 ```
 
----
-
-## 🏗️ Framework Usage (Recommended for Projects)
-
-Use xcomponent-ai as a **framework** to structure complete applications with sanctuarized business logic.
-
-### 1. Initialize New Project
+## 📝 Créer Votre Propre FSM
 
 ```bash
-npx xcomponent-ai init my-fintech-app
-cd my-fintech-app
-npm install
+# Créer un nouveau projet
+xcomponent-ai init loan-approval
+
+cd loan-approval
+
+# Éditer fsm/LoanApprovalComponent.yaml
+# (Ajouter vos états, transitions, guards)
+
+# Tester votre FSM
+xcomponent-ai serve fsm/LoanApprovalComponent.yaml
 ```
 
-This creates:
-```
-my-fintech-app/
-├── fsm/              # 🔒 Business logic (sanctuarized)
-├── src/
-│   ├── runtime/     # FSM runtime
-│   ├── api/         # HTTP → FSM wrappers
-│   └── ui/          # Frontend
-└── tests/fsm/       # FSM tests
-```
+## 🎓 Prochaines Étapes
 
-### 2. Define Business Logic
+- 📖 Lire le [Framework Guide](./LLM_FRAMEWORK_GUIDE.md) pour comprendre les concepts
+- 🔧 Voir [PERSISTENCE.md](./PERSISTENCE.md) pour l'event sourcing et la persistance
+- 💡 Consulter [examples/](./examples/) pour des cas d'usage avancés
 
-Edit `fsm/main-workflow.yaml`:
+## ❓ FAQ
 
-```yaml
-name: LendingComponent
-version: 1.0.0
-metadata:
-  domain: fintech
-  compliance:
-    - Fair Lending Act
-    - Equal Credit Opportunity Act
+**Q: Combien de temps les instances restent en mémoire ?**
+R: Tant que le serveur `xcomponent-ai serve` tourne. Pour la persistance, voir PERSISTENCE.md
 
-stateMachines:
-  - name: LoanApplication
-    initialState: Submitted
-    states:
-      - name: Submitted
-        type: entry
-      - name: CreditCheck
-        type: regular
-      - name: Approved
-        type: final
-      - name: Rejected
-        type: error
-    transitions:
-      - from: Submitted
-        to: CreditCheck
-        event: START_CHECK
-        guards:
-          - keys: [applicantId, requestedAmount]
-      - from: CreditCheck
-        to: Approved
-        event: CREDIT_PASSED
-        guards:
-          - customFunction: "event.payload.creditScore >= 650"
-      - from: CreditCheck
-        to: Rejected
-        event: CREDIT_FAILED
-```
+**Q: Comment arrêter le runtime ?**
+R: Ctrl+C dans le terminal où tourne `xcomponent-ai serve`
 
-### 3. Initialize Runtime
+**Q: Puis-je déployer en production ?**
+R: Oui, mais utilisez le mode programmatique (voir examples/full-project-structure.md)
 
-Edit `src/runtime/index.ts`:
+**Q: Le dashboard fonctionne-t-il avec plusieurs composants ?**
+R: Pas encore avec `xcomponent-ai serve`, mais oui en mode programmatique
 
-```typescript
-import { FSMRuntime } from 'xcomponent-ai';
-import * as yaml from 'yaml';
-import * as fs from 'fs';
-
-const loanFSM = yaml.parse(
-  fs.readFileSync('./fsm/main-workflow.yaml', 'utf-8')
-);
-
-export const loanRuntime = new FSMRuntime(loanFSM);
-
-loanRuntime.on('state_change', (data) => {
-  console.log(`[${data.instanceId}] ${data.previousState} → ${data.newState}`);
-});
-```
-
-### 4. Create API Layer
-
-Create `src/api/loan-routes.ts`:
-
-```typescript
-import express from 'express';
-import { loanRuntime } from '../runtime';
-
-const router = express.Router();
-
-// Create loan application (HTTP → FSM event)
-router.post('/loans', async (req, res) => {
-  const { applicantId, requestedAmount } = req.body;
-
-  // Create FSM instance
-  const loanId = loanRuntime.createInstance('LoanApplication', {
-    applicantId,
-    requestedAmount,
-  });
-
-  // Trigger event
-  await loanRuntime.sendEvent(loanId, {
-    type: 'START_CHECK',
-    payload: { applicantId, requestedAmount },
-    timestamp: Date.now(),
-  });
-
-  res.json({ loanId, status: 'submitted' });
-});
-
-// Get loan status
-router.get('/loans/:loanId', async (req, res) => {
-  const instance = loanRuntime.getInstance(req.params.loanId);
-  res.json({
-    loanId: instance?.id,
-    currentState: instance?.currentState,
-    status: instance?.status,
-  });
-});
-
-export default router;
-```
-
-### 5. Build UI
-
-Create `src/ui/LoanForm.tsx`:
-
-```typescript
-import React, { useState } from 'react';
-import axios from 'axios';
-
-export const LoanForm: React.FC = () => {
-  const [applicantId, setApplicantId] = useState('');
-  const [amount, setAmount] = useState(0);
-  const [loanId, setLoanId] = useState<string | null>(null);
-
-  const handleSubmit = async () => {
-    const response = await axios.post('/api/loans', {
-      applicantId,
-      requestedAmount: amount,
-    });
-    setLoanId(response.data.loanId);
-  };
-
-  return (
-    <div>
-      <h2>Apply for Loan</h2>
-      <input
-        placeholder="Applicant ID"
-        value={applicantId}
-        onChange={(e) => setApplicantId(e.target.value)}
-      />
-      <input
-        type="number"
-        placeholder="Amount"
-        value={amount}
-        onChange={(e) => setAmount(Number(e.target.value))}
-      />
-      <button onClick={handleSubmit}>Submit</button>
-      {loanId && <p>Application submitted! Loan ID: {loanId}</p>}
-    </div>
-  );
-};
-```
-
-### 6. Test Business Logic
-
-Create `tests/fsm/loan-application.test.ts`:
-
-```typescript
-import { loanRuntime } from '../../src/runtime';
-
-describe('Loan Application FSM', () => {
-  it('should approve loan with good credit', () => {
-    const result = loanRuntime.simulatePath('LoanApplication', [
-      { type: 'START_CHECK', payload: { creditScore: 750 }, timestamp: Date.now() },
-      { type: 'CREDIT_PASSED', payload: { creditScore: 750 }, timestamp: Date.now() },
-    ]);
-
-    expect(result.success).toBe(true);
-    expect(result.path).toEqual(['Submitted', 'CreditCheck', 'Approved']);
-  });
-});
-```
-
----
-
-## 🤖 Using with LLMs (Claude/GPT)
-
-When asking Claude/GPT to build an application:
-
-### Option 1: Use System Prompt
-
-Copy the system prompt from [SYSTEM_PROMPT_TEMPLATE.md](SYSTEM_PROMPT_TEMPLATE.md) and paste it at the start of your conversation.
-
-### Option 2: Explicit Instructions
-
-```
-User: Build a payment processing system
-
-You: Use xcomponent-ai framework. Start with FSM definition...
-```
-
-### Option 3: Claude Code Settings
-
-Add to `.claude/settings.json`:
-
-```json
-{
-  "systemPrompt": "Use xcomponent-ai framework to sanctuarize business logic..."
-}
-```
-
-See [.claude/settings.example.json](.claude/settings.example.json) for full template.
-
----
-
-## 📚 Next Steps
-
-### Learn More
-- **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage for LLMs
-- **[Full Project Example](examples/full-project-structure.md)** - E-commerce platform
-- **[System Prompt Template](SYSTEM_PROMPT_TEMPLATE.md)** - Configure LLMs
-
-### Examples
-- **Trading workflow**: `examples/trading.yaml`
-- **KYC onboarding**: `examples/kyc.yaml`
-- **Payment processing**: `examples/payment.yaml`
-
-### Concepts
-- **Sanctuarization**: Business logic in YAML, not code
-- **Guards**: Enforce business rules at FSM level
-- **Compliance**: Metadata for audit trails
-- **Separation**: FSM (business) vs API/UI (technical)
-
----
-
-## ⚡ Quick Commands Cheat Sheet
-
-```bash
-# Initialize project
-npx xcomponent-ai init my-app
-
-# Load FSM
-xcomponent-ai load fsm/workflow.yaml
-
-# Run with events
-xcomponent-ai run fsm/workflow.yaml Machine --events '[...]'
-
-# Simulate path
-xcomponent-ai simulate fsm/workflow.yaml Machine --events '[...]'
-
-# AI: Create FSM
-xcomponent-ai ai-create "description" -o output.yaml
-
-# AI: Analyze logs
-xcomponent-ai ai-analyze ComponentName
-
-# Generate UI
-xcomponent-ai generate-ui fsm/workflow.yaml --type api
-xcomponent-ai generate-ui fsm/workflow.yaml --type react
-```
-
----
-
-## 💡 Tips
-
-### ✅ DO
-- Define business logic in `fsm/*.yaml` first
-- Keep API routes as thin HTTP → FSM wrappers
-- Add compliance metadata to FSM definitions
-- Test FSM paths with `simulatePath()` before integration tests
-- Version FSM files in Git with clear commit messages
-
-### ❌ DON'T
-- Put business logic in API routes or UI components
-- Modify FSM definitions at runtime
-- Skip guards for critical business rules
-- Hardcode state transitions in application code
-- Mix technical concerns (DB, API) with business logic
-
----
-
-**Get started now**: `npx xcomponent-ai init my-project` 🚀

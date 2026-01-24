@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-01-24
+
+### Added
+- **QUICKSTART.md** - Comprehensive 5-minute quick start guide
+- **`serve` command** - Start runtime with API server and dashboard (`xcomponent-ai serve examples/trading.yaml`)
+- Clear workflow documentation: load → serve → interact → monitor
+- Real-time logging with timestamps for state transitions and instance creation
+
+### Changed
+- Updated README with prominent Quick Start section and `serve` command example
+- Included QUICKSTART.md in npm package files
+
+### Fixed
+- CLI now provides clear workflow instead of confusing standalone `load` command
+- Users can now visualize and interact with FSM through web dashboard
+
 ## [0.1.5] - 2026-01-24
 
 ### Fixed

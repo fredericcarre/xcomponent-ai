@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-01-24
+
+### Changed
+- Consolidated all recent fixes and improvements into stable release
+
+### Fixed
+- Workflow authentication using NPM_TOKEN (removed conflicting --provenance flag)
+
 ## [0.1.3] - 2026-01-24
 
 ### Added

@@ -10,14 +10,14 @@
     /* Reset & Base */
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    /* Animated Gradient Background */
+    /* Dark Background */
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #4facfe);
+      background: linear-gradient(-45deg, #0a0a0a, #1a1a1a, #2d2d2d, #1f1f1f);
       background-size: 400% 400%;
       animation: gradientShift 15s ease infinite;
       min-height: 100vh;
-      color: #1a202c;
+      color: #e0e0e0;
     }
 
     @keyframes gradientShift {
@@ -143,7 +143,7 @@
       left: 0;
       right: 0;
       height: 4px;
-      background: linear-gradient(90deg, #667eea, #764ba2);
+      background: linear-gradient(90deg, #fbbf24, #f59e0b);
       transform: scaleX(0);
       transition: transform 0.3s ease;
     }
@@ -160,7 +160,7 @@
     .stat-value {
       font-size: 36px;
       font-weight: 800;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -209,7 +209,7 @@
       left: 50%;
       width: 0;
       height: 3px;
-      background: linear-gradient(90deg, #667eea, #764ba2);
+      background: linear-gradient(90deg, #fbbf24, #f59e0b);
       transform: translateX(-50%);
       transition: width 0.3s ease;
     }
@@ -316,8 +316,8 @@
     .form-group textarea:focus {
       outline: none;
       background: rgba(255, 255, 255, 0.2);
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+      border-color: #fbbf24;
+      box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2);
     }
 
     .form-help {
@@ -360,13 +360,13 @@
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      color: #1a1a1a;
     }
 
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 25px 0 rgba(102, 126, 234, 0.4);
+      box-shadow: 0 8px 25px 0 rgba(251, 191, 36, 0.4);
     }
 
     .btn-success {
@@ -437,14 +437,14 @@
       left: 0;
       width: 4px;
       height: 100%;
-      background: linear-gradient(180deg, #667eea, #764ba2);
+      background: linear-gradient(180deg, #fbbf24, #f59e0b);
       opacity: 0;
       transition: opacity 0.3s ease;
     }
 
     .instance-item:hover {
       background: rgba(255, 255, 255, 0.15);
-      box-shadow: 0 8px 30px rgba(102, 126, 234, 0.2);
+      box-shadow: 0 8px 30px rgba(251, 191, 36, 0.2);
       transform: translateY(-3px) translateX(4px);
     }
 
@@ -453,9 +453,9 @@
     }
 
     .instance-item.selected {
-      border-color: #667eea;
-      background: rgba(102, 126, 234, 0.2);
-      box-shadow: 0 8px 30px rgba(102, 126, 234, 0.3);
+      border-color: #fbbf24;
+      background: rgba(251, 191, 36, 0.2);
+      box-shadow: 0 8px 30px rgba(251, 191, 36, 0.3);
     }
 
     .instance-header {
@@ -519,7 +519,7 @@
     }
 
     .blotter-item {
-      border-left: 4px solid #667eea;
+      border-left: 4px solid #fbbf24;
       background: rgba(255, 255, 255, 0.05);
       padding: 12px 16px;
       margin-bottom: 10px;
@@ -638,14 +638,13 @@
     </div>
     
     <div class="tabs">
-      <div class="tab active" onclick="switchTab('overview')">Overview</div>
-      <div class="tab" onclick="switchTab('diagram')">FSM Diagram</div>
-      <div class="tab" onclick="switchTab('blotter')">Event Blotter</div>
-      <div class="tab" onclick="switchTab('traceability')">Traceability</div>
-      <div class="tab" onclick="switchTab('create')">Create Instance</div>
+      <div class="tab active" onclick="switchTab('diagram')">🎨 FSM Diagram</div>
+      <div class="tab" onclick="switchTab('overview')">📋 Instances</div>
+      <div class="tab" onclick="switchTab('blotter')">📊 Event Blotter</div>
+      <div class="tab" onclick="switchTab('traceability')">🔍 Traceability</div>
     </div>
     
-    <div class="tab-content active" id="tab-overview">
+    <div class="tab-content" id="tab-overview">
       <div class="filter-bar">
         <input type="text" id="filter-instance" placeholder="Filter by instance ID..." oninput="filterInstances()">
         <select id="filter-machine" onchange="filterInstances()">
@@ -658,22 +657,48 @@
       <div class="instance-list" id="instance-list">
         <div class="empty-state">
           <div class="empty-state-icon">📭</div>
-          <div>No instances yet. Create one in the "Create Instance" tab.</div>
+          <div>No instances yet. Go to the "FSM Diagram" tab to create one!</div>
         </div>
       </div>
     </div>
     
-    <div class="tab-content" id="tab-diagram">
-      <div class="form-group">
-        <label for="diagram-machine">State Machine:</label>
-        <select id="diagram-machine" onchange="renderDiagram()">
-          <option value="">Select a state machine...</option>
-        </select>
-      </div>
-      <div class="mermaid-container" id="diagram-container">
-        <div class="empty-state">
-          <div class="empty-state-icon">🎨</div>
-          <div>Select a state machine to view its diagram</div>
+    <div class="tab-content active" id="tab-diagram">
+      <div class="grid-2">
+        <div>
+          <div class="form-group">
+            <label for="diagram-machine">State Machine:</label>
+            <select id="diagram-machine" onchange="renderDiagram()">
+              <option value="">Select a state machine...</option>
+            </select>
+          </div>
+          <div class="mermaid-container" id="diagram-container">
+            <div class="empty-state">
+              <div class="empty-state-icon">🎨</div>
+              <div>Select a state machine to view its diagram</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <h2>Create New Instance</h2>
+            <div id="diagram-create-form">
+              <div class="empty-state" style="padding: 40px 20px;">
+                <div class="empty-state-icon">👈</div>
+                <div>Select a state machine to create an instance</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 20px;" id="diagram-instances-card">
+            <h2>Active Instances</h2>
+            <div id="diagram-instances-list">
+              <div class="empty-state" style="padding: 20px;">
+                <div class="empty-state-icon">📭</div>
+                <div>No instances for this state machine</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -710,19 +735,6 @@
       </div>
     </div>
     
-    <div class="tab-content" id="tab-create">
-      <div class="card">
-        <h2>Create New Instance</h2>
-        <div class="form-group">
-          <label for="create-machine">State Machine *</label>
-          <select id="create-machine" onchange="updateCreateForm()">
-            <option value="">Select a state machine...</option>
-          </select>
-        </div>
-        <div id="create-form-fields"></div>
-        <button class="btn btn-primary" onclick="createInstance()">Create Instance</button>
-      </div>
-    </div>
   </div>
   
   <script>
@@ -798,6 +810,12 @@
       updateStats();
       renderInstances();
       updateTraceSelector();
+
+      // Update diagram instances list if a machine is selected
+      const selectedMachine = document.getElementById('diagram-machine')?.value;
+      if (selectedMachine) {
+        updateDiagramInstancesList(selectedMachine);
+      }
     }
     
     function updateStats() {
@@ -811,7 +829,7 @@
     function renderInstances() {
       const container = document.getElementById('instance-list');
       if (instances.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div>No instances yet. Create one in the "Create Instance" tab.</div></div>';
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div>No instances yet. Go to the "FSM Diagram" tab to create one!</div></div>';
         return;
       }
       
@@ -896,7 +914,11 @@
     async function renderDiagram() {
       const machineName = document.getElementById('diagram-machine').value;
       const component = getCurrentComponent();
-      if (!machineName || !component) return;
+      if (!machineName || !component) {
+        document.getElementById('diagram-create-form').innerHTML = '<div class="empty-state" style="padding: 40px 20px;"><div class="empty-state-icon">👈</div><div>Select a state machine to create an instance</div></div>';
+        document.getElementById('diagram-instances-list').innerHTML = '<div class="empty-state" style="padding: 20px;"><div class="empty-state-icon">📭</div><div>No instances for this state machine</div></div>';
+        return;
+      }
 
       const machine = component.stateMachines.find(m => m.name === machineName);
       if (!machine) return;
@@ -906,15 +928,136 @@
       const data = await res.json();
 
       if (data.diagram) {
-        // Use Mermaid v10 API
-        const container = document.getElementById('diagram-container');
-        container.innerHTML = '<pre class="mermaid">' + data.diagram + '</pre>';
+        try {
+          // Use Mermaid v10 API
+          const container = document.getElementById('diagram-container');
+          container.innerHTML = '<div class="mermaid">' + data.diagram + '</div>';
 
-        // Re-render mermaid diagrams
-        await mermaid.run({
-          querySelector: '#diagram-container .mermaid'
-        });
+          // Re-render mermaid diagrams
+          await mermaid.run({
+            querySelector: '#diagram-container .mermaid'
+          });
+        } catch (error) {
+          console.error('Mermaid rendering error:', error);
+          const container = document.getElementById('diagram-container');
+          container.innerHTML = `
+            <div style="color: #ef4444; padding: 20px; background: rgba(239, 68, 68, 0.1); border-radius: 8px; border: 1px solid #ef4444;">
+              <strong>Diagram Rendering Error:</strong> ${error.message || 'Unknown error'}<br><br>
+              <details style="margin-top: 10px;">
+                <summary style="cursor: pointer;">Show diagram source</summary>
+                <pre style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow-x: auto;">${data.diagram}</pre>
+              </details>
+            </div>
+          `;
+        }
       }
+
+      // Populate create instance form for this machine
+      updateDiagramCreateForm(machine);
+
+      // Show instances for this machine
+      updateDiagramInstancesList(machineName);
+    }
+
+    function updateDiagramCreateForm(machine) {
+      let html = '';
+
+      if (!machine.contextSchema) {
+        html = `
+          <div class="form-group">
+            <label>Context (JSON)</label>
+            <textarea id="diagram-context-json" rows="6" placeholder='{"property": "value"}'></textarea>
+            <div class="form-help">Enter a JSON object with the context properties for this instance</div>
+          </div>
+          <button class="btn btn-primary" onclick="createInstanceFromDiagram()">Create Instance</button>
+        `;
+      } else {
+        html = '<div style="background: rgba(251, 191, 36, 0.1); border-left: 3px solid #fbbf24; padding: 12px; margin-bottom: 20px; border-radius: 4px; color: rgba(255,255,255,0.9);"><strong>📝 Context Properties:</strong> Fill in the fields below</div>';
+
+        for (const [key, field] of Object.entries(machine.contextSchema)) {
+          html += `<div class="form-group">`;
+          html += `<label for="diagram_ctx_${key}">${field.label || key}${field.required ? ' *' : ''}</label>`;
+          if (field.type === 'select') {
+            html += `<select id="diagram_ctx_${key}">`;
+            field.options.forEach(opt => html += `<option value="${opt.value}">${opt.label}</option>`);
+            html += `</select>`;
+          } else {
+            html += `<input type="${field.type || 'text'}" id="diagram_ctx_${key}" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''}>`;
+          }
+          if (field.description) html += `<div class="form-help">${field.description}</div>`;
+          html += `</div>`;
+        }
+        html += `<button class="btn btn-primary" onclick="createInstanceFromDiagram()">Create Instance</button>`;
+      }
+
+      document.getElementById('diagram-create-form').innerHTML = html;
+    }
+
+    function updateDiagramInstancesList(machineName) {
+      const machineInstances = instances.filter(i => i.machineName === machineName);
+
+      if (machineInstances.length === 0) {
+        document.getElementById('diagram-instances-list').innerHTML = '<div class="empty-state" style="padding: 20px;"><div class="empty-state-icon">📭</div><div>No instances yet. Create one above!</div></div>';
+        return;
+      }
+
+      const html = machineInstances.map(inst => `
+        <div class="instance-item" onclick="selectInstance('${inst.id}'); switchTab('overview');" style="margin-bottom: 10px;">
+          <div class="instance-header">
+            <span class="instance-id">${inst.id.substring(0, 8)}</span>
+            <span class="badge ${inst.status}">${inst.currentState}</span>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('diagram-instances-list').innerHTML = html;
+    }
+
+    async function createInstanceFromDiagram() {
+      const machineName = document.getElementById('diagram-machine').value;
+      const component = getCurrentComponent();
+      if (!machineName || !component) return alert('Please select a state machine');
+
+      const machine = component.stateMachines.find(m => m.name === machineName);
+      let context = {};
+
+      if (machine?.contextSchema) {
+        for (const key of Object.keys(machine.contextSchema)) {
+          const input = document.getElementById('diagram_ctx_' + key);
+          if (input && input.value) {
+            context[key] = input.type === 'number' ? parseFloat(input.value) : input.value;
+          }
+        }
+      } else {
+        const json = document.getElementById('diagram-context-json')?.value;
+        if (json) {
+          try {
+            context = JSON.parse(json);
+          } catch (e) {
+            return alert('Invalid JSON: ' + e.message);
+          }
+        }
+      }
+
+      await fetch(`/api/components/${component.name}/instances`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({machineName, context})
+      });
+
+      // Clear form
+      if (machine?.contextSchema) {
+        for (const key of Object.keys(machine.contextSchema)) {
+          const input = document.getElementById('diagram_ctx_' + key);
+          if (input) input.value = '';
+        }
+      } else {
+        const textarea = document.getElementById('diagram-context-json');
+        if (textarea) textarea.value = '';
+      }
+
+      // Reload instances to update the list
+      loadInstances();
     }
     
     // Traceability
@@ -932,75 +1075,6 @@
         instances.map(i => `<option value="${i.id}">${i.id.substring(0, 8)} - ${i.machineName}</option>`).join('');
     }
     
-    // Create Instance
-    function updateCreateForm() {
-      const machineName = document.getElementById('create-machine').value;
-      const component = getCurrentComponent();
-      if (!machineName || !component) return;
-
-      const machine = component.stateMachines.find(m => m.name === machineName);
-      if (!machine || !machine.contextSchema) {
-        document.getElementById('create-form-fields').innerHTML = '<div class="form-group"><label>Context (JSON)</label><textarea id="context-json" rows="4"></textarea></div>';
-        return;
-      }
-      
-      // Generate form from schema
-      let html = '';
-      for (const [key, field] of Object.entries(machine.contextSchema)) {
-        html += `<div class="form-group">`;
-        html += `<label for="ctx_${key}">${field.label || key}${field.required ? ' *' : ''}</label>`;
-        if (field.type === 'select') {
-          html += `<select id="ctx_${key}">`;
-          field.options.forEach(opt => html += `<option value="${opt.value}">${opt.label}</option>`);
-          html += `</select>`;
-        } else {
-          html += `<input type="${field.type || 'text'}" id="ctx_${key}" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''}>`;
-        }
-        if (field.description) html += `<div class="form-help">${field.description}</div>`;
-        html += `</div>`;
-      }
-      document.getElementById('create-form-fields').innerHTML = html;
-    }
-    
-    async function createInstance() {
-      const machineName = document.getElementById('create-machine').value;
-      const component = getCurrentComponent();
-      if (!machineName) return alert('Please select a state machine');
-      if (!component) return alert('No component loaded');
-
-      const machine = component.stateMachines.find(m => m.name === machineName);
-      let context = {};
-
-      if (machine?.contextSchema) {
-        for (const key of Object.keys(machine.contextSchema)) {
-          const input = document.getElementById('ctx_' + key);
-          if (input && input.value) {
-            context[key] = input.type === 'number' ? parseFloat(input.value) : input.value;
-          }
-        }
-      } else {
-        const json = document.getElementById('context-json')?.value;
-        if (json) context = JSON.parse(json);
-      }
-
-
-      await fetch(`/api/components/${component.name}/instances`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({machineName, context})
-      });
-      
-      // Clear form
-      if (machine?.contextSchema) {
-        for (const key of Object.keys(machine.contextSchema)) {
-          const input = document.getElementById('ctx_' + key);
-          if (input) input.value = '';
-        }
-      }
-      
-      switchTab('overview');
-      loadInstances();
-    }
     
     function populateSelectors() {
       if (!componentsData || componentsData.length === 0) return;
@@ -1017,7 +1091,6 @@
         const machines = component.stateMachines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
         document.getElementById('filter-machine').innerHTML = '<option value="">All Machines</option>' + machines;
         document.getElementById('diagram-machine').innerHTML = '<option value="">Select...</option>' + machines;
-        document.getElementById('create-machine').innerHTML = '<option value="">Select...</option>' + machines;
       }
     }
 
@@ -1027,8 +1100,8 @@
       console.log('Component selected:', selected);
       // Refresh selectors for the new component
       populateSelectors();
-      // Clear create form when switching components
-      document.getElementById('create-form-fields').innerHTML = '';
+      // Clear diagram create form when switching components
+      document.getElementById('diagram-create-form').innerHTML = '<div class="empty-state" style="padding: 40px 20px;"><div class="empty-state-icon">👈</div><div>Select a state machine to create an instance</div></div>';
     }
     
     function exportState() {

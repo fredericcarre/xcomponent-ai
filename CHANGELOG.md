@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2] - 2026-01-24
+
+### Fixed
+- **Critical**: Fix dashboard component data structure (stateMachines vs machines property)
+- Fix WebSocket data extraction (data.component instead of data directly)
+- Resolved "Cannot read properties of undefined (reading 'map')" error in dashboard
+
 ## [0.2.1] - 2026-01-24
 
 ### Fixed

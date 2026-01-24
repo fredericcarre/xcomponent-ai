@@ -16,6 +16,8 @@
     "examples/",
     "README.md",
     "QUICKSTART.md",
+    "LLM-GUIDE.md",
+    "SCALABILITY.md",
     "ROADMAP.md",
     "PERSISTENCE.md",
     "CONTRIBUTING.md",

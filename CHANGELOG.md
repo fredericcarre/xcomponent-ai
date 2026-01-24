@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-01-24
+
+### Fixed
+- CLI now correctly resolves `examples/` paths to package installation directory
+- `xcomponent-ai load examples/trading.yaml` now works after global install
+- Added path resolution helper function for package-installed files
+
 ## [0.1.4] - 2026-01-24
 
 ### Changed

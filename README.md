@@ -28,7 +28,7 @@ npm install -g xcomponent-ai
 # Start runtime with dashboard
 xcomponent-ai serve examples/trading.yaml
 
-# Open browser → http://localhost:3000/dashboard
+# Open browser → http://localhost:3000/dashboard.html
 # Create instances, send events, visualize FSM in real-time!
 ```
 
@@ -177,7 +177,7 @@ console.log(result.data.yaml);
 # Start API server
 npm run api
 
-# Visit dashboard: http://localhost:3000/dashboard
+# Visit dashboard: http://localhost:3000/dashboard.html
 # WebSocket: ws://localhost:3000
 ```
 
@@ -368,7 +368,7 @@ socket.on('instance_error', (error) => { ... });
 
 ### Dashboard
 
-Visit `http://localhost:3000/dashboard` for:
+Visit `http://localhost:3000/dashboard.html` for:
 - Active instances table
 - Real-time event stream
 - State visualizations

@@ -535,8 +535,6 @@ stateMachines:
 ✅ **Decoupled**: External systems don't need runtime internals
 ✅ **Scalable**: Handles 100-10,000 instances per state efficiently
 
-**For complete documentation**, see [Property Matching Guide](docs/PROPERTY_MATCHING.md).
-
 ## 🔐 Open-Core Model
 
 ### Free (Apache 2.0)
@@ -580,7 +578,7 @@ npm run doc
 
 **Guides**:
 - **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage for LLMs (Claude/GPT)
-- **[Property Matching Guide](docs/PROPERTY_MATCHING.md)** - Multi-instance routing patterns
+- **[Persistence Guide](PERSISTENCE.md)** - Database configuration and event sourcing
 - **[Quick Start](QUICKSTART.md)** - Getting started guide
 - **[Full Project Example](examples/full-project-structure.md)** - E-commerce application
 

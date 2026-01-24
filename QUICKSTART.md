@@ -1,6 +1,6 @@
 # 🚀 Quick Start Guide
 
-Ce guide vous montre comment utiliser xcomponent-ai en 5 minutes.
+This guide shows you how to use xcomponent-ai in 5 minutes.
 
 ## 📦 Installation
 
@@ -8,37 +8,37 @@ Ce guide vous montre comment utiliser xcomponent-ai en 5 minutes.
 npm install -g xcomponent-ai
 ```
 
-## 🎯 Workflow en 4 étapes
+## 🎯 Workflow in 4 Steps
 
-### 1. Créer ou Utiliser un FSM
+### 1. Create or Use an FSM
 
-Utilisez un exemple fourni :
+Use a provided example:
 ```bash
-# Voir la liste des exemples
+# List available examples
 ls $(npm root -g)/xcomponent-ai/examples/
 
-# Charger un exemple pour voir sa structure
+# Load an example to see its structure
 xcomponent-ai load examples/trading.yaml
 ```
 
-Ou créez votre propre projet :
+Or create your own project:
 ```bash
 xcomponent-ai init my-project
 cd my-project
 ```
 
-### 2. Démarrer le Runtime + Dashboard
+### 2. Start Runtime + Dashboard
 
-**C'est LA commande principale** - elle démarre :
-- ✅ Le runtime FSM (pour créer et gérer les instances)
-- ✅ L'API REST (pour envoyer des événements)
-- ✅ Le dashboard web (pour visualiser en temps réel)
+**This is THE main command** - it starts:
+- ✅ FSM runtime (to create and manage instances)
+- ✅ REST API (to send events)
+- ✅ Web dashboard (for real-time visualization)
 
 ```bash
 xcomponent-ai serve examples/trading.yaml
 ```
 
-**Sortie attendue :**
+**Expected output:**
 ```
 🚀 xcomponent-ai Runtime Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -56,22 +56,22 @@ xcomponent-ai serve examples/trading.yaml
 Press Ctrl+C to stop
 ```
 
-### 3. Visualiser dans le Dashboard
+### 3. Visualize in the Dashboard
 
-Ouvrez votre navigateur sur **http://localhost:3000/dashboard**
+Open your browser to **http://localhost:3000/dashboard**
 
-Vous verrez :
-- 📊 **Toutes les instances** actives (tableau en temps réel)
-- 🔄 **Les transitions** d'état en direct
-- 📈 **Statistiques** (nombre d'instances par état)
-- 🎨 **Graphe visuel** des FSM
+You'll see:
+- 📊 **All active instances** (real-time table)
+- 🔄 **State transitions** in real-time
+- 📈 **Statistics** (instance count per state)
+- 🎨 **Visual FSM graph**
 
-### 4. Interagir avec le Runtime
+### 4. Interact with the Runtime
 
-**Option A : Via l'API REST (curl)**
+**Option A: Via REST API (curl)**
 
 ```bash
-# Créer une nouvelle instance
+# Create a new instance
 curl -X POST http://localhost:3000/api/instances \
   -H "Content-Type: application/json" \
   -d '{
@@ -83,9 +83,9 @@ curl -X POST http://localhost:3000/api/instances \
     }
   }'
 
-# Réponse : {"instanceId": "abc-123"}
+# Response: {"instanceId": "abc-123"}
 
-# Envoyer un événement
+# Send an event
 curl -X POST http://localhost:3000/api/instances/abc-123/events \
   -H "Content-Type: application/json" \
   -d '{
@@ -93,20 +93,20 @@ curl -X POST http://localhost:3000/api/instances/abc-123/events \
     "payload": {}
   }'
 
-# Voir l'état d'une instance
+# Check instance state
 curl http://localhost:3000/api/instances/abc-123
 
-# Lister toutes les instances
+# List all instances
 curl http://localhost:3000/api/instances
 ```
 
-**Option B : Via le CLI (mode interactif)**
+**Option B: Via CLI (interactive mode)**
 
 ```bash
-# Démarrer le mode REPL
+# Start REPL mode
 xcomponent-ai repl examples/trading.yaml
 
-# Puis tapez des commandes :
+# Then type commands:
 > create OrderEntry { orderId: "ORD-001", amount: 1000 }
 Instance created: abc-123
 
@@ -124,53 +124,53 @@ State: Validated
 Context: { orderId: "ORD-001", amount: 1000, symbol: "AAPL" }
 ```
 
-**Option C : Via le Dashboard Web**
+**Option C: Via Web Dashboard**
 
-1. Ouvrez http://localhost:3000/dashboard
-2. Cliquez sur **"+ New Instance"**
-3. Sélectionnez la machine : `OrderEntry`
-4. Entrez le contexte : `{ "orderId": "ORD-001", "amount": 1000 }`
-5. Cliquez sur **"Create"**
-6. Voyez l'instance apparaître dans le tableau
-7. Cliquez sur l'instance pour envoyer des événements
+1. Open http://localhost:3000/dashboard
+2. Click **"Create Instance"** button
+3. Select machine: `OrderEntry`
+4. Enter context: `{ "orderId": "ORD-001", "amount": 1000 }`
+5. Click **"Create"**
+6. Watch the instance appear in the table
+7. Click on instance to send events
 
-## 🔍 Monitorer les FSM
+## 🔍 Monitor FSM
 
-### Voir les logs en temps réel
+### View real-time logs
 
-Dans le terminal où tourne `xcomponent-ai serve` :
+In the terminal where `xcomponent-ai serve` is running:
 ```
 [14:32:15] Instance abc-123 created (OrderEntry)
 [14:32:18] abc-123: Pending → Validated (event: VALIDATE)
 [14:32:20] abc-123: Validated → Executed (event: EXECUTE)
 ```
 
-### Analyser les logs
+### Analyze logs
 
 ```bash
-# Dans un autre terminal
+# In another terminal
 xcomponent-ai logs --component TradingComponent
 
-# Filtrer par instance
+# Filter by instance
 xcomponent-ai logs --instance abc-123
 
-# Voir les statistiques
+# View statistics
 xcomponent-ai stats
 ```
 
-## 🧪 Tester un Scénario Complet
+## 🧪 Test Complete Scenario
 
 ```bash
-# 1. Démarrer le runtime
+# 1. Start runtime
 xcomponent-ai serve examples/trading.yaml &
 
-# 2. Créer une instance
+# 2. Create instance
 INSTANCE=$(curl -s -X POST http://localhost:3000/api/instances \
   -H "Content-Type: application/json" \
   -d '{"machineName": "OrderEntry", "context": {"orderId": "ORD-001"}}' \
   | jq -r '.instanceId')
 
-# 3. Envoyer des événements en séquence
+# 3. Send events in sequence
 curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
   -H "Content-Type: application/json" \
   -d '{"type": "VALIDATE"}'
@@ -181,42 +181,41 @@ curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
   -H "Content-Type: application/json" \
   -d '{"type": "EXECUTE"}'
 
-# 4. Vérifier l'état final
+# 4. Check final state
 curl http://localhost:3000/api/instances/$INSTANCE
 ```
 
-## 📝 Créer Votre Propre FSM
+## 📝 Create Your Own FSM
 
 ```bash
-# Créer un nouveau projet
+# Create new project
 xcomponent-ai init loan-approval
 
 cd loan-approval
 
-# Éditer fsm/LoanApprovalComponent.yaml
-# (Ajouter vos états, transitions, guards)
+# Edit fsm/LoanApprovalComponent.yaml
+# (Add your states, transitions, guards)
 
-# Tester votre FSM
+# Test your FSM
 xcomponent-ai serve fsm/LoanApprovalComponent.yaml
 ```
 
-## 🎓 Prochaines Étapes
+## 🎓 Next Steps
 
-- 📖 Lire le [Framework Guide](./LLM_FRAMEWORK_GUIDE.md) pour comprendre les concepts
-- 🔧 Voir [PERSISTENCE.md](./PERSISTENCE.md) pour l'event sourcing et la persistance
-- 💡 Consulter [examples/](./examples/) pour des cas d'usage avancés
+- 📖 Read the [Framework Guide](./LLM_FRAMEWORK_GUIDE.md) to understand concepts
+- 🔧 See [PERSISTENCE.md](./PERSISTENCE.md) for event sourcing and persistence
+- 💡 Check [examples/](./examples/) for advanced use cases
 
 ## ❓ FAQ
 
-**Q: Combien de temps les instances restent en mémoire ?**
-R: Tant que le serveur `xcomponent-ai serve` tourne. Pour la persistance, voir PERSISTENCE.md
+**Q: How long do instances stay in memory?**
+A: As long as the `xcomponent-ai serve` server is running. For persistence, see PERSISTENCE.md
 
-**Q: Comment arrêter le runtime ?**
-R: Ctrl+C dans le terminal où tourne `xcomponent-ai serve`
+**Q: How to stop the runtime?**
+A: Press Ctrl+C in the terminal where `xcomponent-ai serve` is running
 
-**Q: Puis-je déployer en production ?**
-R: Oui, mais utilisez le mode programmatique (voir examples/full-project-structure.md)
+**Q: Can I deploy to production?**
+A: Yes, but use programmatic mode (see examples/full-project-structure.md)
 
-**Q: Le dashboard fonctionne-t-il avec plusieurs composants ?**
-R: Pas encore avec `xcomponent-ai serve`, mais oui en mode programmatique
-
+**Q: Does the dashboard work with multiple components?**
+A: Not yet with `xcomponent-ai serve`, but yes in programmatic mode

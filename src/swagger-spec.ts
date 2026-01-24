@@ -9,7 +9,7 @@ export function generateSwaggerSpec(component: Component, port: number) {
     openapi: '3.0.0',
     info: {
       title: 'xcomponent-ai REST API',
-      version: '0.2.0',
+      version: '0.2.1',
       description: `REST API for ${component.name} FSM runtime. 
       
 Manage state machine instances, send events, and monitor execution in real-time.`,

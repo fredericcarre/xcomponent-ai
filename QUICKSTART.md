@@ -49,7 +49,8 @@ xcomponent-ai serve examples/trading.yaml
    - Settlement (3 states, 3 transitions)
 
 🌐 API Server:    http://localhost:3000
-📊 Dashboard:     http://localhost:3000/dashboard
+📊 Dashboard:     http://localhost:3000/dashboard.html
+📚 API Docs:      http://localhost:3000/api-docs
 📡 WebSocket:     ws://localhost:3000
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,7 +59,7 @@ Press Ctrl+C to stop
 
 ### 3. Visualize in the Dashboard
 
-Open your browser to **http://localhost:3000/dashboard**
+Open your browser to **http://localhost:3000/dashboard.html**
 
 You'll see:
 - 📊 **All active instances** (real-time table)
@@ -126,7 +127,7 @@ Context: { orderId: "ORD-001", amount: 1000, symbol: "AAPL" }
 
 **Option C: Via Web Dashboard**
 
-1. Open http://localhost:3000/dashboard
+1. Open http://localhost:3000/dashboard.html
 2. Click **"Create Instance"** button
 3. Select machine: `OrderEntry`
 4. Enter context: `{ "orderId": "ORD-001", "amount": 1000 }`

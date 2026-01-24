@@ -454,22 +454,50 @@ program
  * Serve FSM with runtime, API, and dashboard
  */
 program
-  .command('serve <file>')
-  .description('Start runtime with API server and dashboard')
+  .command('serve <files...>')
+  .description('Start runtime with API server and dashboard (supports multiple YAML files)')
   .option('-p, --port <port>', 'Port number', '3000')
-  .action(async (file: string, options: any) => {
+  .action(async (files: string[], options: any) => {
     try {
-      const resolvedPath = resolveFilePath(file);
-      const content = await fs.readFile(resolvedPath, 'utf-8');
-      const component = yaml.parse(content) as Component;
-      
+      // Import ComponentRegistry
+      const { ComponentRegistry } = await import('./component-registry');
+      const registry = new ComponentRegistry();
+
       console.log('🚀 xcomponent-ai Runtime Started');
       console.log('━'.repeat(40));
-      console.log(`\n📦 Component: ${component.name}`);
-      console.log(`   Machines:`);
-      component.stateMachines.forEach(machine => {
-        console.log(`   - ${machine.name} (${machine.states.length} states, ${machine.transitions.length} transitions)`);
-      });
+
+      // Load all component files
+      for (const file of files) {
+        const resolvedPath = resolveFilePath(file);
+        const content = await fs.readFile(resolvedPath, 'utf-8');
+        const component = yaml.parse(content) as Component;
+
+        // Create runtime for this component
+        const runtime = new FSMRuntime(component);
+        registry.registerComponent(component, runtime);
+
+        console.log(`\n📦 Component: ${component.name}`);
+        console.log(`   Machines:`);
+        component.stateMachines.forEach(machine => {
+          console.log(`   - ${machine.name} (${machine.states.length} states, ${machine.transitions.length} transitions)`);
+        });
+
+        // Setup logging for each runtime
+        runtime.on('state_change', (data) => {
+          const timestamp = new Date().toLocaleTimeString();
+          console.log(`[${timestamp}] [${component.name}] ${data.instanceId}: ${data.previousState} → ${data.newState} (event: ${data.event.type})`);
+        });
+
+        runtime.on('instance_created', (data) => {
+          const timestamp = new Date().toLocaleTimeString();
+          console.log(`[${timestamp}] [${component.name}] Instance ${data.instanceId} created (${data.machineName})`);
+        });
+
+        runtime.on('instance_error', (data) => {
+          const timestamp = new Date().toLocaleTimeString();
+          console.error(`[${timestamp}] [${component.name}] ✗ Error in ${data.instanceId}: ${data.error}`);
+        });
+      }
       
       const port = parseInt(options.port);
       console.log(`\n🌐 API Server:    http://localhost:${port}`);
@@ -478,26 +506,7 @@ program
       console.log(`📡 WebSocket:     ws://localhost:${port}`);
       console.log('\n' + '━'.repeat(40));
       console.log('Press Ctrl+C to stop\n');
-      
-      // Create runtime
-      const runtime = new FSMRuntime(component);
-      
-      // Setup logging
-      runtime.on('state_change', (data) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] ${data.instanceId}: ${data.previousState} → ${data.newState} (event: ${data.event.type})`);
-      });
-      
-      runtime.on('instance_created', (data) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] Instance ${data.instanceId} created (${data.machineName})`);
-      });
-      
-      runtime.on('instance_error', (data) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.error(`[${timestamp}] ✗ Error in ${data.instanceId}: ${data.error}`);
-      });
-      
+
       // Create Express server
       const express = await import('express');
       const { createServer } = await import('http');
@@ -516,63 +525,120 @@ program
       const publicPath = path.join(__dirname, '..', 'public');
       app.use(express.default.static(publicPath));
 
-      // Generate and serve Swagger documentation
+      // Generate and serve Swagger documentation (for first component)
       const { generateSwaggerSpec } = await import('./swagger-spec');
-      const swaggerSpec = generateSwaggerSpec(component, port);
-      app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+      const firstComponent = registry.getAllComponentInfo()[0];
+      if (firstComponent) {
+        const swaggerSpec = generateSwaggerSpec(registry.getComponent(firstComponent.name)!, port);
+        app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+      }
 
-      // API Routes
-      app.post('/api/instances', (req: any, res: any) => {
-        try {
-          const { machineName, context } = req.body;
-          const instanceId = runtime.createInstance(machineName, context || {});
-          res.json({ instanceId });
-        } catch (error: any) {
-          res.status(400).json({ error: error.message });
+      // API Routes - Multi-component support
+      // List all components
+      app.get('/api/components', (_req: any, res: any) => {
+        const components = registry.getAllComponentInfo().map(info => ({
+          name: info.name,
+          version: info.version,
+          machineCount: info.machineCount,
+          instanceCount: info.instanceCount
+        }));
+        res.json({ components });
+      });
+
+      // Get component definition
+      app.get('/api/components/:componentName', (req: any, res: any) => {
+        const component = registry.getComponent(req.params.componentName);
+        if (!component) {
+          return res.status(404).json({ error: 'Component not found' });
         }
-      });
-
-      app.get('/api/instances', (_req: any, res: any) => {
-        const instances = runtime.getAllInstances();
-        res.json({ instances });
-      });
-
-      app.get('/api/instances/:id', (req: any, res: any) => {
-        const instance = runtime.getInstance(req.params.id);
-        if (!instance) {
-          return res.status(404).json({ error: 'Instance not found' });
-        }
-        res.json({ instance });
-      });
-
-      app.post('/api/instances/:id/events', async (req: any, res: any) => {
-        try {
-          await runtime.sendEvent(req.params.id, req.body);
-          res.json({ success: true });
-        } catch (error: any) {
-          res.status(400).json({ error: error.message });
-        }
-      });
-
-      app.get('/api/instances/:id/history', async (req: any, res: any) => {
-        try {
-          const history = await runtime.getInstanceHistory(req.params.id);
-          res.json({ history });
-        } catch (error: any) {
-          res.status(400).json({ error: error.message });
-        }
-      });
-
-      // Component data endpoint
-      app.get('/api/component', (_req: any, res: any) => {
         res.json({ component });
       });
 
-      // Mermaid diagram endpoint
-      app.get('/api/diagrams/:machineName', (req: any, res: any) => {
-        const machineName = req.params.machineName;
-        const machine = component.stateMachines.find(m => m.name === machineName);
+      // Create instance in a component
+      app.post('/api/components/:componentName/instances', (req: any, res: any) => {
+        try {
+          const runtime = registry.getRuntime(req.params.componentName);
+          if (!runtime) {
+            return res.status(404).json({ error: 'Component not found' });
+          }
+          const { machineName, context } = req.body;
+          const instanceId = runtime.createInstance(machineName, context || {});
+          res.json({ instanceId, componentName: req.params.componentName });
+        } catch (error: any) {
+          res.status(400).json({ error: error.message });
+        }
+      });
 
+      // Get all instances across all components
+      app.get('/api/instances', (_req: any, res: any) => {
+        const allInstances: any[] = [];
+        for (const componentName of registry.getComponentNames()) {
+          const runtime = registry.getRuntime(componentName);
+          if (runtime) {
+            const instances = runtime.getAllInstances().map(i => ({
+              ...i,
+              componentName
+            }));
+            allInstances.push(...instances);
+          }
+        }
+        res.json({ instances: allInstances });
+      });
+
+      // Get specific instance (searches all components)
+      app.get('/api/instances/:id', (req: any, res: any) => {
+        for (const componentName of registry.getComponentNames()) {
+          const runtime = registry.getRuntime(componentName);
+          if (runtime) {
+            const instance = runtime.getInstance(req.params.id);
+            if (instance) {
+              return res.json({ instance: { ...instance, componentName } });
+            }
+          }
+        }
+        res.status(404).json({ error: 'Instance not found' });
+      });
+
+      // Send event to instance (auto-detects component)
+      app.post('/api/instances/:id/events', async (req: any, res: any) => {
+        try {
+          for (const componentName of registry.getComponentNames()) {
+            const runtime = registry.getRuntime(componentName);
+            if (runtime && runtime.getInstance(req.params.id)) {
+              await runtime.sendEvent(req.params.id, req.body);
+              return res.json({ success: true });
+            }
+          }
+          res.status(404).json({ error: 'Instance not found' });
+        } catch (error: any) {
+          res.status(400).json({ error: error.message });
+        }
+      });
+
+      // Get instance history
+      app.get('/api/instances/:id/history', async (req: any, res: any) => {
+        try {
+          for (const componentName of registry.getComponentNames()) {
+            const runtime = registry.getRuntime(componentName);
+            if (runtime && runtime.getInstance(req.params.id)) {
+              const history = await runtime.getInstanceHistory(req.params.id);
+              return res.json({ history });
+            }
+          }
+          res.status(404).json({ error: 'Instance not found' });
+        } catch (error: any) {
+          res.status(400).json({ error: error.message });
+        }
+      });
+
+      // Mermaid diagram endpoint
+      app.get('/api/components/:componentName/diagrams/:machineName', (req: any, res: any) => {
+        const component = registry.getComponent(req.params.componentName);
+        if (!component) {
+          return res.status(404).json({ error: 'Component not found' });
+        }
+
+        const machine = component.stateMachines.find(m => m.name === req.params.machineName);
         if (!machine) {
           return res.status(404).json({ error: 'State machine not found' });
         }
@@ -586,26 +652,32 @@ program
       io.on('connection', (socket) => {
         console.log(`[WebSocket] Client connected: ${socket.id}`);
 
-        // Send component data on connection
-        socket.emit('component_data', { component });
+        // Send all components data on connection
+        const components = registry.getComponentNames().map(name => registry.getComponent(name));
+        socket.emit('components_data', { components });
 
         socket.on('disconnect', () => {
           console.log(`[WebSocket] Client disconnected: ${socket.id}`);
         });
       });
 
-      // Broadcast runtime events to all connected WebSocket clients
-      runtime.on('state_change', (data) => {
-        io.emit('state_change', data);
-      });
+      // Broadcast runtime events from all components to WebSocket clients
+      for (const componentName of registry.getComponentNames()) {
+        const runtime = registry.getRuntime(componentName);
+        if (runtime) {
+          runtime.on('state_change', (data) => {
+            io.emit('state_change', { ...data, componentName });
+          });
 
-      runtime.on('instance_created', (data) => {
-        io.emit('instance_created', data);
-      });
+          runtime.on('instance_created', (data) => {
+            io.emit('instance_created', { ...data, componentName });
+          });
 
-      runtime.on('instance_error', (data) => {
-        io.emit('instance_error', data);
-      });
+          runtime.on('instance_error', (data) => {
+            io.emit('instance_error', { ...data, componentName });
+          });
+        }
+      }
       
       // Start server
       httpServer.listen(port);
@@ -613,7 +685,12 @@ program
       // Keep process alive
       process.on('SIGINT', () => {
         console.log('\n\n👋 Shutting down gracefully...');
-        runtime.dispose();
+        for (const componentName of registry.getComponentNames()) {
+          const runtime = registry.getRuntime(componentName);
+          if (runtime) {
+            runtime.dispose();
+          }
+        }
         process.exit(0);
       });
       

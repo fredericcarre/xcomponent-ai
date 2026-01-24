@@ -111,7 +111,7 @@ export class TimerWheel {
     if (!task) return false;
 
     // Remove from wheel (scan all buckets - could be optimized with reverse index)
-    for (const [_, tasks] of this.wheel) {
+    for (const tasks of this.wheel.values()) {
       const index = tasks.indexOf(task);
       if (index >= 0) {
         tasks.splice(index, 1);
@@ -141,7 +141,7 @@ export class TimerWheel {
     currentTick: number;
   } {
     let bucketsUsed = 0;
-    for (const [_, tasks] of this.wheel) {
+    for (const tasks of this.wheel.values()) {
       if (tasks.length > 0) bucketsUsed++;
     }
 
@@ -198,7 +198,7 @@ export class TimerWheel {
    * Clear all timeouts
    */
   clear(): void {
-    for (const [_, tasks] of this.wheel) {
+    for (const tasks of this.wheel.values()) {
       tasks.length = 0;
     }
     this.taskMap.clear();

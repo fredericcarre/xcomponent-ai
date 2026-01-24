@@ -253,11 +253,23 @@ export class FSMRuntime extends EventEmitter {
       // Emit state change
       this.emit('state_change', {
         instanceId,
+        machineName: instance.machineName,
         previousState,
         newState: transition.to,
         event,
         eventId,
         timestamp: Date.now(),
+        // Include instance data for external subscribers
+        instance: {
+          id: instance.id,
+          machineName: instance.machineName,
+          currentState: transition.to,
+          context: instance.context,
+          publicMember: instance.publicMember,
+          status: instance.status,
+          createdAt: instance.createdAt,
+          updatedAt: Date.now(),
+        },
       });
 
       // Save snapshot if needed
@@ -301,7 +313,19 @@ export class FSMRuntime extends EventEmitter {
       // Remove from indexes before deleting
       this.removeFromIndex(instance);
 
-      this.emit('instance_error', { instanceId, error: error.message });
+      this.emit('instance_error', {
+        instanceId,
+        machineName: instance.machineName,
+        error: error.message,
+        instance: {
+          id: instance.id,
+          machineName: instance.machineName,
+          currentState: instance.currentState,
+          context: instance.context,
+          publicMember: instance.publicMember,
+          status: instance.status,
+        },
+      });
       this.instances.delete(instanceId);
     }
   }

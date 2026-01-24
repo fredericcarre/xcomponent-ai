@@ -115,6 +115,10 @@ xcomponent-ai serve order.yaml \
 
 ### Event Message Format
 
+#### state_change Event
+
+Emitted when an instance transitions between states.
+
 ```json
 {
   "type": "state_change",
@@ -126,7 +130,109 @@ xcomponent-ai serve order.yaml \
     "newState": "Validated",
     "event": {
       "type": "VALIDATE",
-      "payload": {}
+      "payload": {
+        "approvedBy": "user@example.com"
+      }
+    },
+    "eventId": "evt-456",
+    "timestamp": 1706280000000,
+    "instance": {
+      "id": "abc-123",
+      "machineName": "Order",
+      "currentState": "Validated",
+      "context": {
+        "orderId": "ORD-001",
+        "amount": 1000,
+        "customerId": "CUST-001",
+        "approvedBy": "user@example.com"
+      },
+      "publicMember": {
+        "status": "validated",
+        "totalAmount": 1000
+      },
+      "status": "active",
+      "createdAt": 1706279000000,
+      "updatedAt": 1706280000000
+    }
+  },
+  "timestamp": 1706280000000
+}
+```
+
+**Key fields:**
+- ✅ `componentName` - Component name (e.g., "OrderComponent")
+- ✅ `data.machineName` - State machine name (e.g., "Order")
+- ✅ `data.instanceId` - Instance ID
+- ✅ `data.instance` - **Complete instance object** with:
+  - `context` - Full instance context (business data)
+  - `publicMember` - Public member data (if defined in YAML)
+  - `currentState` - Current state after transition
+  - `status` - Instance status (active, completed, error)
+  - `createdAt`, `updatedAt` - Timestamps
+
+#### instance_created Event
+
+```json
+{
+  "type": "instance_created",
+  "componentName": "OrderComponent",
+  "data": {
+    "id": "abc-123",
+    "machineName": "Order",
+    "currentState": "Created",
+    "context": {
+      "orderId": "ORD-001",
+      "amount": 1000
+    },
+    "publicMember": {},
+    "status": "active",
+    "createdAt": 1706279000000,
+    "updatedAt": 1706279000000
+  },
+  "timestamp": 1706279000000
+}
+```
+
+#### instance_disposed Event
+
+```json
+{
+  "type": "instance_disposed",
+  "componentName": "OrderComponent",
+  "data": {
+    "id": "abc-123",
+    "machineName": "Order",
+    "currentState": "Completed",
+    "context": {
+      "orderId": "ORD-001",
+      "amount": 1000
+    },
+    "status": "completed",
+    "createdAt": 1706279000000,
+    "updatedAt": 1706280000000
+  },
+  "timestamp": 1706280000000
+}
+```
+
+#### instance_error Event
+
+```json
+{
+  "type": "instance_error",
+  "componentName": "OrderComponent",
+  "data": {
+    "instanceId": "abc-123",
+    "machineName": "Order",
+    "error": "Guard validation failed",
+    "instance": {
+      "id": "abc-123",
+      "machineName": "Order",
+      "currentState": "Pending",
+      "context": {
+        "orderId": "ORD-001"
+      },
+      "status": "error"
     }
   },
   "timestamp": 1706280000000

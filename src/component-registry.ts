@@ -69,6 +69,23 @@ export class ComponentRegistry extends EventEmitter {
     // Set registry reference in runtime for cross-component communication
     runtime.setRegistry(this);
 
+    // Forward runtime events to registry (for ExternalBrokerAPI and monitoring)
+    runtime.on('state_change', (data: any) => {
+      this.emit('state_change', { ...data, componentName: component.name });
+    });
+
+    runtime.on('instance_created', (data: any) => {
+      this.emit('instance_created', { ...data, componentName: component.name });
+    });
+
+    runtime.on('instance_disposed', (data: any) => {
+      this.emit('instance_disposed', { ...data, componentName: component.name });
+    });
+
+    runtime.on('error', (data: any) => {
+      this.emit('instance_error', { ...data, componentName: component.name });
+    });
+
     // Subscribe to messages for this component via message broker
     this.broker.subscribe(component.name, async (message: CrossComponentMessage) => {
       try {

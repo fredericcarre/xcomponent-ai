@@ -71,6 +71,7 @@ export interface MessageBroker {
  */
 export class InMemoryMessageBroker extends EventEmitter implements MessageBroker {
   private handlers: Map<string, (message: CrossComponentMessage) => void> = new Map();
+  private channelHandlers: Map<string, Set<(message: any) => void>> = new Map();
   private connected = false;
 
   async connect(): Promise<void> {
@@ -79,6 +80,7 @@ export class InMemoryMessageBroker extends EventEmitter implements MessageBroker
 
   async disconnect(): Promise<void> {
     this.handlers.clear();
+    this.channelHandlers.clear();
     this.connected = false;
   }
 
@@ -86,21 +88,50 @@ export class InMemoryMessageBroker extends EventEmitter implements MessageBroker
     return this.connected;
   }
 
-  async publish(_channel: string, message: CrossComponentMessage): Promise<void> {
-    // In-memory: directly invoke the handler
-    const handler = this.handlers.get(message.targetComponent);
-    if (handler) {
-      // Async invocation to simulate network behavior
-      setImmediate(() => handler(message));
+  async publish(channel: string, message: CrossComponentMessage | any): Promise<void> {
+    // Check if this is a cross-component message (has targetComponent field)
+    if (message.targetComponent) {
+      // Cross-component message: use component-based routing
+      const handler = this.handlers.get(message.targetComponent);
+      if (handler) {
+        // Async invocation to simulate network behavior
+        setImmediate(() => handler(message));
+      }
+    } else {
+      // General channel-based message (e.g., xcomponent:events:state_change)
+      const handlers = this.channelHandlers.get(channel);
+      if (handlers && handlers.size > 0) {
+        // Async invocation to simulate network behavior
+        setImmediate(() => {
+          handlers.forEach(handler => handler(message));
+        });
+      }
     }
   }
 
-  subscribe(componentName: string, handler: (message: CrossComponentMessage) => void): void {
-    this.handlers.set(componentName, handler);
+  subscribe(channelOrComponent: string, handler: (message: any) => void): void {
+    // If contains ':', treat as channel subscription (e.g., 'xcomponent:events:state_change')
+    // Otherwise, treat as component name for cross-component messages
+    if (channelOrComponent.includes(':')) {
+      // Channel-based subscription
+      if (!this.channelHandlers.has(channelOrComponent)) {
+        this.channelHandlers.set(channelOrComponent, new Set());
+      }
+      this.channelHandlers.get(channelOrComponent)!.add(handler);
+    } else {
+      // Component-based subscription (backward compatibility)
+      this.handlers.set(channelOrComponent, handler);
+    }
   }
 
-  unsubscribe(componentName: string): void {
-    this.handlers.delete(componentName);
+  unsubscribe(channelOrComponent: string): void {
+    if (channelOrComponent.includes(':')) {
+      // Channel-based unsubscription
+      this.channelHandlers.delete(channelOrComponent);
+    } else {
+      // Component-based unsubscription
+      this.handlers.delete(channelOrComponent);
+    }
   }
 }
 

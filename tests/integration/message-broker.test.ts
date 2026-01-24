@@ -198,15 +198,11 @@ describe('Message Broker Integration', () => {
       });
 
       // Simulate external command via broker
-      await broker.publish('xcomponent:external:commands', {
-        sourceComponent: 'external',
-        targetComponent: 'external:commands',
-        targetMachine: '',
-        targetState: '',
-        event: { type: 'VALIDATE', payload: {}, timestamp: Date.now() },
+      await broker.publish('external:commands', {
         componentName: 'OrderComponent',
         instanceId: orderId,
-      } as any);
+        event: { type: 'VALIDATE', payload: {}, timestamp: Date.now() },
+      });
 
       // Wait for processing
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -237,7 +233,7 @@ describe('Message Broker Integration', () => {
 
       // Subscribe to state_change events
       const receivedEvents: any[] = [];
-      broker.subscribe('events:state_change', (message: any) => {
+      broker.subscribe('xcomponent:events:state_change', (message: any) => {
         receivedEvents.push(message);
       });
 

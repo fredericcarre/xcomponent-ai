@@ -371,12 +371,16 @@ describe('Cross-Component Communication', () => {
 
   describe('Cross-Component Events', () => {
     it('should forward runtime events with component context', (done) => {
-      registry.on('state_change', (data) => {
-        expect(data.componentName).toBe('OrderComponent');
-        expect(data.previousState).toBe('Pending');
-        expect(data.newState).toBe('Confirmed');
-        done();
-      });
+      let called = false;
+      const handler = (data: any) => {
+        if (!called && data.previousState === 'Pending' && data.newState === 'Confirmed') {
+          called = true;
+          expect(data.componentName).toBe('OrderComponent');
+          registry.off('state_change', handler);
+          done();
+        }
+      };
+      registry.on('state_change', handler);
 
       const orderId = orderRuntime.createInstance('Order', { Id: 'ORD-001' });
       orderRuntime.sendEvent(orderId, {

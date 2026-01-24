@@ -194,12 +194,14 @@ describe('Cross-Component Communication', () => {
         const result = await registry.broadcastToComponent(
           'ShippingComponent',
           'Shipment',
-          'Created',
           {
             type: 'SHIP',
             payload: { shipmentId: id },
             timestamp: Date.now(),
-          }
+          },
+          'OrderComponent',
+          undefined,
+          'Created'
         );
         count += result;
       }
@@ -214,11 +216,18 @@ describe('Cross-Component Communication', () => {
 
     it('should throw error for non-existent component', async () => {
       await expect(
-        registry.broadcastToComponent('NonExistentComponent', 'Order', 'Pending', {
-          type: 'CONFIRM',
-          payload: {},
-          timestamp: Date.now(),
-        })
+        registry.broadcastToComponent(
+          'NonExistentComponent',
+          'Order',
+          {
+            type: 'CONFIRM',
+            payload: {},
+            timestamp: Date.now(),
+          },
+          'OrderComponent',
+          undefined,
+          'Pending'
+        )
       ).rejects.toThrow('Component NonExistentComponent not found');
     });
   });
@@ -362,12 +371,16 @@ describe('Cross-Component Communication', () => {
 
   describe('Cross-Component Events', () => {
     it('should forward runtime events with component context', (done) => {
-      registry.on('state_change', (data) => {
-        expect(data.componentName).toBe('OrderComponent');
-        expect(data.previousState).toBe('Pending');
-        expect(data.newState).toBe('Confirmed');
-        done();
-      });
+      let called = false;
+      const handler = (data: any) => {
+        if (!called && data.previousState === 'Pending' && data.newState === 'Confirmed') {
+          called = true;
+          expect(data.componentName).toBe('OrderComponent');
+          registry.off('state_change', handler);
+          done();
+        }
+      };
+      registry.on('state_change', handler);
 
       const orderId = orderRuntime.createInstance('Order', { Id: 'ORD-001' });
       orderRuntime.sendEvent(orderId, {

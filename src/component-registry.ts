@@ -15,6 +15,7 @@
 import { EventEmitter } from 'events';
 import { FSMRuntime } from './fsm-runtime';
 import { Component, FSMEvent, FSMInstance } from './types';
+import { MessageBroker, InMemoryMessageBroker, CrossComponentMessage, PropertyFilter } from './message-broker';
 
 export interface ComponentInfo {
   name: string;
@@ -30,11 +31,25 @@ export interface ComponentInfo {
 export class ComponentRegistry extends EventEmitter {
   private runtimes: Map<string, FSMRuntime>;
   private components: Map<string, Component>;
+  private broker: MessageBroker;
 
-  constructor() {
+  /**
+   * Create a ComponentRegistry
+   *
+   * @param broker Message broker for cross-component communication (defaults to InMemoryMessageBroker)
+   */
+  constructor(broker?: MessageBroker) {
     super();
     this.runtimes = new Map();
     this.components = new Map();
+    this.broker = broker || new InMemoryMessageBroker();
+  }
+
+  /**
+   * Initialize the registry and connect the message broker
+   */
+  async initialize(): Promise<void> {
+    await this.broker.connect();
   }
 
   /**
@@ -50,6 +65,72 @@ export class ComponentRegistry extends EventEmitter {
 
     this.runtimes.set(component.name, runtime);
     this.components.set(component.name, component);
+
+    // Set registry reference in runtime for cross-component communication
+    runtime.setRegistry(this);
+
+    // Forward runtime events to registry (for ExternalBrokerAPI and monitoring)
+    runtime.on('state_change', (data: any) => {
+      this.emit('state_change', { ...data, componentName: component.name });
+    });
+
+    runtime.on('instance_created', (data: any) => {
+      this.emit('instance_created', { ...data, componentName: component.name });
+    });
+
+    runtime.on('instance_disposed', (data: any) => {
+      this.emit('instance_disposed', { ...data, componentName: component.name });
+    });
+
+    runtime.on('error', (data: any) => {
+      this.emit('instance_error', { ...data, componentName: component.name });
+    });
+
+    // Subscribe to messages for this component via message broker
+    this.broker.subscribe(component.name, async (message: CrossComponentMessage) => {
+      try {
+        // Get instances of the target machine
+        let instances: FSMInstance[];
+
+        if (!message.targetState || message.targetState === '*') {
+          // Broadcast to all instances of this machine (any state)
+          instances = runtime.getAllInstances().filter(
+            inst => inst.machineName === message.targetMachine
+          );
+        } else {
+          // Filter by specific state
+          instances = runtime.getAllInstances().filter(
+            inst =>
+              inst.machineName === message.targetMachine &&
+              inst.currentState === message.targetState
+          );
+        }
+
+        // Apply property filters if specified
+        if (message.filters && message.filters.length > 0) {
+          instances = instances.filter(inst => this.matchesFilters(inst, message.filters!));
+        }
+
+        // Send event to each matching instance
+        for (const instance of instances) {
+          try {
+            await runtime.sendEvent(instance.id, message.event);
+          } catch (error) {
+            this.emit('broadcast_error', {
+              componentName: component.name,
+              instanceId: instance.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } catch (error) {
+        this.emit('message_error', {
+          componentName: component.name,
+          message,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
 
     // Forward runtime events
     this.forwardRuntimeEvents(component.name, runtime);
@@ -177,24 +258,90 @@ export class ComponentRegistry extends EventEmitter {
   /**
    * Broadcast event to instances in a specific component
    *
+   * Uses the configured message broker (in-memory or distributed)
+   *
    * @param componentName Target component name
    * @param machineName Target machine name
-   * @param currentState Current state filter
    * @param event Event to broadcast
+   * @param sourceComponent Source component name (for tracing)
+   * @param filters Optional property filters to target specific instances
+   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
    * @returns Number of instances processed
    */
   async broadcastToComponent(
     componentName: string,
     machineName: string,
-    currentState: string,
-    event: FSMEvent
+    event: FSMEvent,
+    sourceComponent?: string,
+    filters?: PropertyFilter[],
+    currentState?: string
   ): Promise<number> {
-    const runtime = this.runtimes.get(componentName);
-    if (!runtime) {
-      throw new Error(`Component ${componentName} not found`);
+    // Check if target component exists (only for in-memory broker)
+    if (this.broker instanceof InMemoryMessageBroker) {
+      const runtime = this.runtimes.get(componentName);
+      if (!runtime) {
+        throw new Error(`Component ${componentName} not found`);
+      }
     }
 
-    return await runtime.broadcastEvent(machineName, currentState, event);
+    // Publish message via broker (works for both in-memory and distributed)
+    const message: CrossComponentMessage = {
+      sourceComponent: sourceComponent || 'unknown',
+      targetComponent: componentName,
+      targetMachine: machineName,
+      targetState: currentState || '*',
+      event,
+      filters, // Include filters for distributed mode
+    };
+
+    const channel = `xcomponent:${componentName}`;
+
+    // For in-memory broker, we can directly process instances and return the count
+    // For distributed broker, we publish to Redis and can't know the count
+    if (this.broker instanceof InMemoryMessageBroker) {
+      const runtime = this.runtimes.get(componentName)!;
+
+      // Get instances of the target machine
+      let instances: FSMInstance[];
+
+      if (!currentState || currentState === '*') {
+        // Broadcast to all instances of this machine (any state)
+        instances = runtime.getAllInstances().filter(
+          inst => inst.machineName === machineName
+        );
+      } else {
+        // Filter by specific state
+        instances = runtime.getAllInstances().filter(
+          inst => inst.machineName === machineName && inst.currentState === currentState
+        );
+      }
+
+      // Apply property filters if specified
+      if (filters && filters.length > 0) {
+        instances = instances.filter(inst => this.matchesFilters(inst, filters));
+      }
+
+      // Send event to each matching instance
+      let count = 0;
+      for (const instance of instances) {
+        try {
+          await runtime.sendEvent(instance.id, event);
+          count++;
+        } catch (error) {
+          this.emit('broadcast_error', {
+            componentName,
+            instanceId: instance.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      return count;
+    } else {
+      // Distributed mode: publish to broker (the handler will process it)
+      await this.broker.publish(channel, message);
+      return 0; // Count not available in distributed mode
+    }
   }
 
   /**
@@ -216,7 +363,7 @@ export class ComponentRegistry extends EventEmitter {
 
     for (const [componentName, runtime] of this.runtimes) {
       try {
-        const count = await runtime.broadcastEvent(machineName, currentState, event);
+        const count = await runtime.broadcastEvent(machineName, event, currentState);
         total += count;
       } catch (error) {
         this.emit('broadcast_error', {
@@ -410,6 +557,59 @@ export class ComponentRegistry extends EventEmitter {
   }
 
   /**
+   * Check if an instance matches all property filters
+   *
+   * @param instance FSM instance to check
+   * @param filters Property filters to apply
+   * @returns true if instance matches ALL filters (AND logic)
+   */
+  private matchesFilters(instance: FSMInstance, filters: PropertyFilter[]): boolean {
+    for (const filter of filters) {
+      const value = this.getNestedProperty(instance.context, filter.property);
+      const operator = filter.operator || '===';
+
+      let matches = false;
+      switch (operator) {
+        case '===':
+          matches = value === filter.value;
+          break;
+        case '!==':
+          matches = value !== filter.value;
+          break;
+        case '>':
+          matches = value > filter.value;
+          break;
+        case '<':
+          matches = value < filter.value;
+          break;
+        case '>=':
+          matches = value >= filter.value;
+          break;
+        case '<=':
+          matches = value <= filter.value;
+          break;
+      }
+
+      if (!matches) {
+        return false; // AND logic: all filters must match
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Get nested property value from object using dot notation
+   *
+   * @param obj Object to get property from
+   * @param path Property path (e.g., "customer.id", "amount")
+   * @returns Property value or undefined
+   */
+  private getNestedProperty(obj: any, path: string): any {
+    return path.split('.').reduce((current, prop) => current?.[prop], obj);
+  }
+
+  /**
    * Forward runtime events to registry
    */
   private forwardRuntimeEvents(componentName: string, runtime: FSMRuntime): void {
@@ -437,7 +637,17 @@ export class ComponentRegistry extends EventEmitter {
   /**
    * Dispose all components and cleanup
    */
-  dispose(): void {
+  async dispose(): Promise<void> {
+    // Unsubscribe from all component messages
+    for (const componentName of this.components.keys()) {
+      try {
+        this.broker.unsubscribe(componentName);
+      } catch (error) {
+        console.error(`Error unsubscribing component ${componentName}:`, error);
+      }
+    }
+
+    // Dispose all runtimes
     for (const [componentName, runtime] of this.runtimes) {
       try {
         runtime.dispose();
@@ -445,6 +655,9 @@ export class ComponentRegistry extends EventEmitter {
         console.error(`Error disposing component ${componentName}:`, error);
       }
     }
+
+    // Disconnect broker
+    await this.broker.disconnect();
 
     this.runtimes.clear();
     this.components.clear();

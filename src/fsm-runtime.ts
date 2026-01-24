@@ -13,7 +13,6 @@ import {
   FSMInstance,
   StateType,
   TransitionType,
-  Guard,
   Sender,
   PersistenceConfig,
 } from './types';
@@ -30,8 +29,14 @@ import type { ComponentRegistry } from './component-registry';
 class SenderImpl implements Sender {
   constructor(
     private runtime: FSMRuntime,
+    private currentInstanceId: string,
     private registry?: ComponentRegistry
   ) {}
+
+  async sendToSelf(event: FSMEvent): Promise<void> {
+    // Queue event asynchronously to avoid race conditions
+    return this.runtime.sendEvent(this.currentInstanceId, event);
+  }
 
   async sendTo(instanceId: string, event: FSMEvent): Promise<void> {
     return this.runtime.sendEvent(instanceId, event);
@@ -44,20 +49,30 @@ class SenderImpl implements Sender {
     return this.registry.sendEventToComponent(componentName, instanceId, event);
   }
 
-  async broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number> {
-    return this.runtime.broadcastEvent(machineName, currentState, event);
-  }
-
-  async broadcastToComponent(
-    componentName: string,
+  async broadcast(
     machineName: string,
-    currentState: string,
-    event: FSMEvent
+    event: FSMEvent,
+    currentState?: string,
+    componentName?: string
   ): Promise<number> {
-    if (!this.registry) {
-      throw new Error('Cross-component communication requires ComponentRegistry');
+    // Unified broadcast: intra-component OR cross-component
+    if (componentName) {
+      // Cross-component
+      if (!this.registry) {
+        throw new Error('Cross-component communication requires ComponentRegistry');
+      }
+      return this.registry.broadcastToComponent(
+        componentName,
+        machineName,
+        event,
+        this.runtime.getComponentName(),
+        undefined, // No PropertyFilter
+        currentState
+      );
+    } else {
+      // Intra-component
+      return this.runtime.broadcastEvent(machineName, event, currentState);
     }
-    return this.registry.broadcastToComponent(componentName, machineName, currentState, event);
   }
 
   createInstance(machineName: string, initialContext: Record<string, any>): string {
@@ -186,6 +201,9 @@ export class FSMRuntime extends EventEmitter {
 
   /**
    * Send event to an instance
+   *
+   * Supports multiple transitions from same state with same event.
+   * When multiple transitions exist with guards, uses "first matching guard wins" semantics.
    */
   async sendEvent(instanceId: string, event: FSMEvent): Promise<void> {
     const instance = this.instances.get(instanceId);
@@ -205,16 +223,11 @@ export class FSMRuntime extends EventEmitter {
     // Use publicMember if available (XComponent pattern), otherwise fallback to context
     const instanceContext = instance.publicMember || instance.context;
 
-    // Find applicable transition
+    // Find transition using XComponent-style disambiguation (specificTriggeringRule, matchingRules)
     const transition = this.findTransition(machine, instance.currentState, event, instanceContext);
+
     if (!transition) {
       this.emit('event_ignored', { instanceId, event, currentState: instance.currentState });
-      return;
-    }
-
-    // Check guards
-    if (transition.guards && !this.evaluateGuards(transition.guards, event, instanceContext)) {
-      this.emit('guard_failed', { instanceId, event, transition });
       return;
     }
 
@@ -247,17 +260,37 @@ export class FSMRuntime extends EventEmitter {
         this.persistence.setCurrentEventId(eventId);
       }
 
-      // Clear old timeouts
-      this.clearTimeouts(instanceId);
+      // Handle timeouts based on whether this is a self-loop
+      const isSelfLoop = previousState === transition.to;
+
+      if (isSelfLoop) {
+        // Self-loop: only reset timeouts with resetOnTransition !== false
+        this.clearTimeoutsForSelfLoop(instanceId, transition.to);
+      } else {
+        // State change: clear all timeouts
+        this.clearTimeouts(instanceId);
+      }
 
       // Emit state change
       this.emit('state_change', {
         instanceId,
+        machineName: instance.machineName,
         previousState,
         newState: transition.to,
         event,
         eventId,
         timestamp: Date.now(),
+        // Include instance data for external subscribers
+        instance: {
+          id: instance.id,
+          machineName: instance.machineName,
+          currentState: transition.to,
+          context: instance.context,
+          publicMember: instance.publicMember,
+          status: instance.status,
+          createdAt: instance.createdAt,
+          updatedAt: Date.now(),
+        },
       });
 
       // Save snapshot if needed
@@ -281,7 +314,13 @@ export class FSMRuntime extends EventEmitter {
       }
 
       // Setup new timeouts
-      this.setupTimeouts(instanceId, transition.to);
+      if (isSelfLoop) {
+        // Self-loop: only setup timeouts that were cleared (resetOnTransition !== false)
+        this.setupTimeoutsForSelfLoop(instanceId, transition.to);
+      } else {
+        // State change: setup all timeouts for new state
+        this.setupTimeouts(instanceId, transition.to);
+      }
 
       // Setup auto-transitions
       this.setupAutoTransitions(instanceId, transition.to);
@@ -301,97 +340,171 @@ export class FSMRuntime extends EventEmitter {
       // Remove from indexes before deleting
       this.removeFromIndex(instance);
 
-      this.emit('instance_error', { instanceId, error: error.message });
+      this.emit('instance_error', {
+        instanceId,
+        machineName: instance.machineName,
+        error: error.message,
+        instance: {
+          id: instance.id,
+          machineName: instance.machineName,
+          currentState: instance.currentState,
+          context: instance.context,
+          publicMember: instance.publicMember,
+          status: instance.status,
+        },
+      });
       this.instances.delete(instanceId);
     }
   }
 
   /**
-   * Broadcast event to all matching instances (XComponent-style property matching)
+   * Broadcast event to all matching instances
    *
-   * This method implements XComponent's property-based instance routing:
-   * - Finds all instances of the target machine in the specified state
-   * - Evaluates matching rules (property equality checks)
-   * - Routes event to ALL instances where matching rules pass
+   * Two modes:
+   * 1. Simple broadcast - send to all instances (any state or specific state)
+   * 2. MatchingRules - XComponent-style routing based on event payload
    *
-   * Example:
-   *   // 100 Order instances exist
-   *   // Event: ExecutionInput { OrderId: 42, Quantity: 500 }
-   *   // Matching rule: ExecutionInput.OrderId = Order.Id
-   *   // → Automatically routes to Order instance with Id=42
+   * Filtering via matchingRules in YAML, not in code.
    *
    * @param machineName Target state machine name
-   * @param currentState Current state filter (only instances in this state)
    * @param event Event to broadcast
+   * @param currentState Optional state filter. Omit to broadcast to all states
    * @returns Number of instances that received the event
+   *
+   * @example
+   * // Broadcast to all Orders (any state)
+   * await runtime.broadcastEvent('Order', {type: 'ALERT', payload: {}});
+   *
+   * @example
+   * // Broadcast to Orders in Pending state only
+   * await runtime.broadcastEvent('Order', {type: 'TIMEOUT', payload: {}}, 'Pending');
+   *
+   * @example
+   * // Filtering via matchingRules in YAML:
+   * // transitions:
+   * //   - from: Monitoring
+   * //     to: Monitoring
+   * //     event: ORDER_UPDATE
+   * //     matchingRules:
+   * //       - eventProperty: payload.customerId
+   * //         instanceProperty: customerId
    */
   async broadcastEvent(
     machineName: string,
-    currentState: string,
-    event: FSMEvent
+    event: FSMEvent,
+    currentState?: string
   ): Promise<number> {
     const machine = this.machines.get(machineName);
     if (!machine) {
       throw new Error(`Machine ${machineName} not found`);
     }
 
-    // Find ALL transitions with matching rules for this state/event combination
+    // Find ALL transitions with matching rules for this event (any state or specific state)
     const transitionsWithMatchingRules = machine.transitions.filter(
-      t => t.from === currentState && t.event === event.type && t.matchingRules && t.matchingRules.length > 0
+      t =>
+        t.event === event.type &&
+        t.matchingRules &&
+        t.matchingRules.length > 0 &&
+        (!currentState || currentState === '*' || t.from === currentState)
     );
 
-    if (transitionsWithMatchingRules.length === 0) {
-      throw new Error(
-        `No transition with matching rules found for ${machineName}.${currentState} on event ${event.type}`
-      );
+    // MODE 1: Property-based routing (XComponent pattern)
+    // If ANY transition has matchingRules, use property-based routing
+    if (transitionsWithMatchingRules.length > 0) {
+      let processedCount = 0;
+      const processedInstances = new Set<string>();
+
+      // For each transition with matching rules, find and process matching instances
+      for (const transition of transitionsWithMatchingRules) {
+        // Get state filter for this transition
+        const stateFilter = transition.from;
+
+        // Find all instances that match this transition's rules
+        const matchingInstances = this.findMatchingInstances(
+          machineName,
+          stateFilter,
+          event,
+          transition.matchingRules!
+        );
+
+        // Send event to each matching instance (only once per instance)
+        for (const instance of matchingInstances) {
+          if (processedInstances.has(instance.id)) {
+            continue; // Already processed by another transition
+          }
+
+          try {
+            const stateBefore = instance.currentState;
+            await this.sendEvent(instance.id, event);
+
+            // Check if state actually changed (or instance was disposed)
+            const instanceAfter = this.instances.get(instance.id);
+            const transitioned = !instanceAfter || instanceAfter.currentState !== stateBefore;
+
+            if (transitioned) {
+              processedInstances.add(instance.id);
+              processedCount++;
+            }
+          } catch (error: any) {
+            this.emit('broadcast_error', {
+              instanceId: instance.id,
+              event,
+              error: error.message,
+            });
+          }
+        }
+      }
+
+      this.emit('broadcast_completed', {
+        machineName,
+        currentState: currentState || '*',
+        event,
+        matchedCount: processedInstances.size,
+        processedCount,
+      });
+
+      return processedCount;
+    }
+
+    // MODE 2: Simple broadcast - send to all instances (or in specific state)
+    // No matchingRules - just send the event to all instances
+    let instances: FSMInstance[];
+
+    if (!currentState || currentState === '*') {
+      // Broadcast to ALL instances of this machine
+      const machineIds = this.machineIndex.get(machineName) || new Set();
+      instances = Array.from(machineIds)
+        .map(id => this.instances.get(id))
+        .filter((inst): inst is FSMInstance => inst !== undefined);
+    } else {
+      // Broadcast to instances in specific state
+      const stateKey = `${machineName}:${currentState}`;
+      const candidateIds = this.stateIndex.get(stateKey) || new Set();
+      instances = Array.from(candidateIds)
+        .map(id => this.instances.get(id))
+        .filter((inst): inst is FSMInstance => inst !== undefined && inst.status === 'active');
     }
 
     let processedCount = 0;
-    const processedInstances = new Set<string>();
 
-    // For each transition with matching rules, find and process matching instances
-    for (const transition of transitionsWithMatchingRules) {
-      // Find all instances that match this transition's rules
-      const matchingInstances = this.findMatchingInstances(
-        machineName,
-        currentState,
-        event,
-        transition.matchingRules!
-      );
-
-      // Send event to each matching instance (only once per instance)
-      for (const instance of matchingInstances) {
-        if (processedInstances.has(instance.id)) {
-          continue; // Already processed by another transition
-        }
-
-        try {
-          const stateBefore = instance.currentState;
-          await this.sendEvent(instance.id, event);
-
-          // Check if state actually changed (or instance was disposed)
-          const instanceAfter = this.instances.get(instance.id);
-          const transitioned = !instanceAfter || instanceAfter.currentState !== stateBefore;
-
-          if (transitioned) {
-            processedInstances.add(instance.id);
-            processedCount++;
-          }
-        } catch (error: any) {
-          this.emit('broadcast_error', {
-            instanceId: instance.id,
-            event,
-            error: error.message,
-          });
-        }
+    for (const instance of instances) {
+      try {
+        await this.sendEvent(instance.id, event);
+        processedCount++;
+      } catch (error: any) {
+        this.emit('broadcast_error', {
+          instanceId: instance.id,
+          event,
+          error: error.message,
+        });
       }
     }
 
     this.emit('broadcast_completed', {
       machineName,
-      currentState,
+      currentState: currentState || '*',
       event,
-      matchedCount: processedInstances.size,
+      matchedCount: instances.length,
       processedCount,
     });
 
@@ -599,34 +712,6 @@ export class FSMRuntime extends EventEmitter {
     return candidates[0];
   }
 
-  /**
-   * Evaluate guards
-   */
-  private evaluateGuards(guards: Guard[], event: FSMEvent, context: Record<string, any>): boolean {
-    return guards.every(guard => {
-      // Key matching
-      if (guard.keys) {
-        return guard.keys.every(key => event.payload[key] !== undefined);
-      }
-
-      // Contains check
-      if (guard.contains) {
-        return JSON.stringify(event.payload).includes(guard.contains);
-      }
-
-      // Custom function (evaluate as string - in production, use sandboxed eval)
-      if (guard.customFunction) {
-        try {
-          const func = new Function('event', 'context', `return ${guard.customFunction}`);
-          return func(event, context);
-        } catch {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }
 
   /**
    * Execute transition
@@ -637,7 +722,7 @@ export class FSMRuntime extends EventEmitter {
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
     // In production, execute triggered methods here
     if (transition.triggeredMethod) {
-      const sender = new SenderImpl(this, this.registry);
+      const sender = new SenderImpl(this, instance.id, this.registry);
       const instanceContext = instance.publicMember || instance.context;
 
       this.emit('triggered_method', {
@@ -706,6 +791,59 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
+   * Setup timeout transitions for self-loop
+   *
+   * Only sets up timeouts that should reset (resetOnTransition !== false).
+   * Timeouts with resetOnTransition: false are already running and shouldn't be recreated.
+   */
+  private setupTimeoutsForSelfLoop(instanceId: string, stateName: string): void {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) return;
+
+    const timeoutTransitions = machine.transitions.filter(
+      t => t.from === stateName && t.type === TransitionType.TIMEOUT
+    );
+
+    timeoutTransitions.forEach(transition => {
+      // Only setup timeout if it should reset on self-loop (default behavior)
+      if (transition.timeoutMs && transition.resetOnTransition !== false) {
+        const taskId = `${instanceId}-${stateName}-${transition.event}`;
+
+        // Track task for cleanup
+        if (!this.timeoutTasks.has(instanceId)) {
+          this.timeoutTasks.set(instanceId, []);
+        }
+        this.timeoutTasks.get(instanceId)!.push(taskId);
+
+        // Use timer wheel instead of setTimeout
+        this.timerWheel.addTimeout(taskId, transition.timeoutMs, () => {
+          // Check if instance still exists and is in the same state
+          const currentInstance = this.instances.get(instanceId);
+          if (currentInstance && currentInstance.currentState === stateName) {
+            this.sendEvent(instanceId, {
+              type: transition.event,
+              payload: { reason: 'timeout' },
+              timestamp: Date.now(),
+            }).catch(error => {
+              console.error(`Timeout event failed for ${instanceId}:`, error);
+            });
+          }
+
+          // Remove taskId from tracking
+          const tasks = this.timeoutTasks.get(instanceId);
+          if (tasks) {
+            const index = tasks.indexOf(taskId);
+            if (index >= 0) tasks.splice(index, 1);
+          }
+        });
+      }
+    });
+  }
+
+  /**
    * Setup auto-transitions (XComponent-style automatic transitions)
    *
    * Auto-transitions are triggered automatically when entering a state,
@@ -730,16 +868,6 @@ export class FSMRuntime extends EventEmitter {
     );
 
     autoTransitions.forEach(transition => {
-      // Use publicMember if available (XComponent pattern), otherwise fallback to context
-      const instanceContext = instance.publicMember || instance.context;
-
-      // Check guards before scheduling auto-transition
-      if (transition.guards && !this.evaluateGuards(transition.guards,
-        { type: transition.event, payload: {}, timestamp: Date.now() },
-        instanceContext)) {
-        return; // Guard failed, skip this auto-transition
-      }
-
       const delay = transition.timeoutMs || 0; // Default to immediate (0ms)
       const taskId = `${instanceId}-${stateName}-auto-${transition.event}`;
 
@@ -914,42 +1042,71 @@ export class FSMRuntime extends EventEmitter {
 
     let processedCount = 0;
 
-    if (rule.matchingRules && rule.matchingRules.length > 0) {
-      // Use property-based routing
-      processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
-    } else {
-      // No matching rules - send to ALL instances in target state
-      // Performance: Use state index instead of iterating all instances
-      const stateKey = `${rule.targetMachine}:${rule.targetState}`;
-      const candidateIds = this.stateIndex.get(stateKey);
+    // CROSS-COMPONENT communication: delegate to ComponentRegistry
+    if (rule.targetComponent) {
+      if (!this.registry) {
+        throw new Error(`Cross-component cascading rule requires a ComponentRegistry. Target: ${rule.targetComponent}.${rule.targetMachine}`);
+      }
 
-      if (candidateIds) {
-        for (const instanceId of candidateIds) {
-          const instance = this.instances.get(instanceId);
-          if (!instance || instance.status !== 'active') continue;
+      // Use registry (ComponentRegistry) to broadcast to another component
+      processedCount = await this.registry.broadcastToComponent(
+        rule.targetComponent,
+        rule.targetMachine,
+        event,
+        this.componentDef.name, // Pass source component name
+        undefined, // No filters
+        rule.targetState
+      );
 
-          try {
-            await this.sendEvent(instance.id, event);
-            processedCount++;
-          } catch (error: any) {
-            // Continue processing other instances even if one fails
-            this.emit('cascade_error', {
-              sourceInstanceId: sourceInstance.id,
-              targetInstanceId: instance.id,
-              error: error.message,
-            });
+      this.emit('cross_component_cascade', {
+        sourceInstanceId: sourceInstance.id,
+        sourceComponent: this.componentDef.name,
+        targetComponent: rule.targetComponent,
+        targetMachine: rule.targetMachine,
+        targetState: rule.targetState,
+        event: rule.event,
+        processedCount,
+      });
+    }
+    // INTRA-COMPONENT communication: use local broadcastEvent
+    else {
+      if (rule.matchingRules && rule.matchingRules.length > 0) {
+        // Use property-based routing
+        processedCount = await this.broadcastEvent(rule.targetMachine, event, rule.targetState);
+      } else {
+        // No matching rules - send to ALL instances in target state
+        // Performance: Use state index instead of iterating all instances
+        const stateKey = `${rule.targetMachine}:${rule.targetState}`;
+        const candidateIds = this.stateIndex.get(stateKey);
+
+        if (candidateIds) {
+          for (const instanceId of candidateIds) {
+            const instance = this.instances.get(instanceId);
+            if (!instance || instance.status !== 'active') continue;
+
+            try {
+              await this.sendEvent(instance.id, event);
+              processedCount++;
+            } catch (error: any) {
+              // Continue processing other instances even if one fails
+              this.emit('cascade_error', {
+                sourceInstanceId: sourceInstance.id,
+                targetInstanceId: instance.id,
+                error: error.message,
+              });
+            }
           }
         }
       }
-    }
 
-    this.emit('cascade_completed', {
-      sourceInstanceId: sourceInstance.id,
-      targetMachine: rule.targetMachine,
-      targetState: rule.targetState,
-      event: rule.event,
-      processedCount,
-    });
+      this.emit('cascade_completed', {
+        sourceInstanceId: sourceInstance.id,
+        targetMachine: rule.targetMachine,
+        targetState: rule.targetState,
+        event: rule.event,
+        processedCount,
+      });
+    }
   }
 
   /**
@@ -1000,6 +1157,65 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
+   * Clear timeouts for self-loop transition
+   *
+   * Only clears timeouts that should be reset on self-loop (resetOnTransition !== false).
+   * Timeouts with resetOnTransition: false continue running.
+   */
+  private clearTimeoutsForSelfLoop(instanceId: string, stateName: string): void {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) return;
+
+    // Find timeout transitions from this state
+    const timeoutTransitions = machine.transitions.filter(
+      t => t.from === stateName && t.type === TransitionType.TIMEOUT
+    );
+
+    const taskIds = this.timeoutTasks.get(instanceId);
+    if (!taskIds) return;
+
+    // Clear only timeouts that should reset (resetOnTransition !== false)
+    const remainingTaskIds: string[] = [];
+
+    taskIds.forEach(taskId => {
+      // Parse state and event from taskId format: "{instanceId}-{stateName}-{eventType}"
+      const parts = taskId.split('-');
+      const taskState = parts[parts.length - 2]; // Second to last is state name
+      const taskEvent = parts[parts.length - 1]; // Last is event type
+
+      if (taskState === stateName) {
+        // Find corresponding transition
+        const transition = timeoutTransitions.find(t => t.event === taskEvent);
+
+        if (transition) {
+          // If resetOnTransition is false, keep the timeout running
+          if (transition.resetOnTransition === false) {
+            remainingTaskIds.push(taskId);
+          } else {
+            // Default behavior: reset on self-loop
+            this.timerWheel.removeTimeout(taskId);
+          }
+        } else {
+          // Unknown transition, remove it
+          this.timerWheel.removeTimeout(taskId);
+        }
+      } else {
+        // Different state, keep it
+        remainingTaskIds.push(taskId);
+      }
+    });
+
+    if (remainingTaskIds.length > 0) {
+      this.timeoutTasks.set(instanceId, remainingTaskIds);
+    } else {
+      this.timeoutTasks.delete(instanceId);
+    }
+  }
+
+  /**
    * Get instance
    */
   getInstance(instanceId: string): FSMInstance | undefined {
@@ -1037,10 +1253,6 @@ export class FSMRuntime extends EventEmitter {
       const transition = this.findTransition(machine, currentState, event, context);
       if (!transition) {
         return { success: false, path, error: `No transition from ${currentState} for event ${event.type}` };
-      }
-
-      if (transition.guards && !this.evaluateGuards(transition.guards, event, context)) {
-        return { success: false, path, error: `Guard failed for transition from ${currentState}` };
       }
 
       currentState = transition.to;
@@ -1207,16 +1419,6 @@ export class FSMRuntime extends EventEmitter {
       );
 
       for (const transition of autoTransitions) {
-        // Use publicMember if available (XComponent pattern), otherwise fallback to context
-        const instanceContext = instance.publicMember || instance.context;
-
-        // Check guards before scheduling auto-transition
-        if (transition.guards && !this.evaluateGuards(transition.guards,
-          { type: transition.event, payload: {}, timestamp: Date.now() },
-          instanceContext)) {
-          continue; // Guard failed, skip this auto-transition
-        }
-
         const delay = transition.timeoutMs || 0;
 
         // Calculate elapsed time
@@ -1303,6 +1505,13 @@ export class FSMRuntime extends EventEmitter {
    */
   getComponent(): Component {
     return this.componentDef;
+  }
+
+  /**
+   * Get component name
+   */
+  getComponentName(): string {
+    return this.componentDef.name;
   }
 
   /**

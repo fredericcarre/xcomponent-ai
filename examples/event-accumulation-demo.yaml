@@ -1,0 +1,172 @@
+# Event Accumulation Demo
+# Shows how to accumulate multiple events and use EXPLICIT CONTROL for transitions
+#
+# Use Case: Trading Order that receives multiple execution notifications
+# and transitions to "Fully Executed" only when all quantity is executed
+#
+# Key Pattern: sender.sendToSelf() for explicit transition control
+
+name: TradingComponent
+version: 1.0.0
+metadata:
+  description: Trading order with partial executions and explicit control
+
+# Define triggered methods that accumulate data and EXPLICITLY control transitions
+triggeredMethods:
+  # Accumulates execution data and EXPLICITLY decides when to transition
+  accumulateExecution: |
+    async function(event, context, sender) {
+      // Initialize if first execution
+      if (!context.executedQuantity) {
+        context.executedQuantity = 0;
+      }
+      if (!context.executions) {
+        context.executions = [];
+      }
+
+      // Add executed quantity from event
+      const executedQty = event.payload.quantity || 0;
+      context.executedQuantity += executedQty;
+
+      // Track individual executions for audit
+      context.executions.push({
+        quantity: executedQty,
+        price: event.payload.price,
+        timestamp: event.timestamp,
+        executionId: event.payload.executionId
+      });
+
+      console.log(`Accumulated: ${context.executedQuantity}/${context.totalQuantity}`);
+
+      // EXPLICIT CONTROL: Decide when to transition to FullyExecuted
+      if (context.executedQuantity >= context.totalQuantity) {
+        console.log(`Order ${context.orderId} is now fully executed!`);
+        // Send event to self to trigger transition to FullyExecuted
+        await sender.sendToSelf({
+          type: 'FULLY_EXECUTED',
+          payload: {
+            totalExecuted: context.executedQuantity,
+            executionCount: context.executions.length,
+            averagePrice: context.executions.reduce((sum, e) => sum + e.price, 0) / context.executions.length
+          },
+          timestamp: Date.now()
+        });
+      }
+    }
+
+  # Handle completion
+  handleCompletion: |
+    async function(event, context, sender) {
+      console.log(`Order ${context.orderId} completed!`);
+      console.log(`  Total executed: ${event.payload.totalExecuted}`);
+      console.log(`  Executions: ${event.payload.executionCount}`);
+      console.log(`  Average price: ${event.payload.averagePrice}`);
+
+      context.completedAt = Date.now();
+      context.stats = event.payload;
+    }
+
+stateMachines:
+  - name: TradingOrder
+    initialState: Created
+
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+      symbol:
+        type: text
+        label: Symbol (e.g., AAPL)
+        required: true
+      totalQuantity:
+        type: number
+        label: Total Quantity to Execute
+        required: true
+        min: 1
+      side:
+        type: select
+        label: Side
+        options:
+          - BUY
+          - SELL
+        required: true
+
+    states:
+      - name: Created
+        type: entry
+        description: Order created, waiting for market submission
+
+      - name: Submitted
+        type: regular
+        description: Order submitted to market
+
+      - name: PartiallyExecuted
+        type: regular
+        description: Order partially executed, waiting for more fills
+
+      - name: FullyExecuted
+        type: regular
+        description: Order fully executed
+
+      - name: Completed
+        type: final
+        description: Order completed (settlement done)
+
+      - name: Cancelled
+        type: error
+        description: Order cancelled
+
+    transitions:
+      # Submit order to market
+      - from: Created
+        to: Submitted
+        event: SUBMIT
+        type: triggerable
+
+      # First execution notification (Submitted → PartiallyExecuted)
+      - from: Submitted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # SELF-LOOP: Subsequent execution notifications (PartiallyExecuted → PartiallyExecuted)
+      # Triggered method decides when to send FULLY_EXECUTED event
+      - from: PartiallyExecuted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # EXPLICIT TRANSITION: Triggered by sender.sendToSelf() in accumulateExecution
+      # No guards! The business logic is in the triggered method
+      - from: PartiallyExecuted
+        to: FullyExecuted
+        event: FULLY_EXECUTED
+        type: triggerable
+        triggeredMethod: handleCompletion
+
+      # Also handle direct full execution from Submitted (single large fill)
+      - from: Submitted
+        to: FullyExecuted
+        event: FULLY_EXECUTED
+        type: triggerable
+        triggeredMethod: handleCompletion
+
+      # Settlement
+      - from: FullyExecuted
+        to: Completed
+        event: SETTLE
+        type: triggerable
+
+      # Cancellation
+      - from: Submitted
+        to: Cancelled
+        event: CANCEL
+        type: triggerable
+
+      - from: PartiallyExecuted
+        to: Cancelled
+        event: CANCEL
+        type: triggerable

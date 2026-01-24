@@ -1,0 +1,56 @@
+# Payment Component - Receives cross-component events from OrderComponent
+
+name: PaymentComponent
+version: 1.0.0
+metadata:
+  description: Payment processing triggered by order validation
+
+stateMachines:
+  - name: Payment
+    initialState: Pending
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+      amount:
+        type: number
+        label: Amount
+        required: true
+      customerId:
+        type: text
+        label: Customer ID
+        required: true
+    states:
+      - name: Pending
+        type: entry
+        description: Payment awaiting processing
+
+      - name: Processing
+        type: regular
+        description: Payment being processed
+
+      - name: Completed
+        type: final
+        description: Payment completed successfully
+
+      - name: Failed
+        type: error
+        description: Payment failed
+
+    transitions:
+      - from: Pending
+        to: Processing
+        event: PROCESS
+        type: triggerable
+        description: Start payment processing (triggered by OrderComponent)
+
+      - from: Processing
+        to: Completed
+        event: CONFIRM
+        type: triggerable
+
+      - from: Processing
+        to: Failed
+        event: FAIL
+        type: triggerable

@@ -235,7 +235,7 @@ describe('Cross-Component Traceability', () => {
       inventoryRuntime.createInstance('Stock', { Id: 'PROD-001' });
 
       // Trigger workflow
-      await orderRuntime.broadcastEvent('Order', 'Pending', {
+      await orderRuntime.broadcastEvent('Order', {
         type: 'CONFIRM',
         payload: { orderId: 'ORD-001' },
         timestamp: Date.now(),
@@ -313,7 +313,7 @@ describe('Cross-Component Traceability', () => {
       inventoryRuntime.createInstance('Stock', { Id: 'PROD-001' });
 
       // Trigger workflow
-      await orderRuntime.broadcastEvent('Order', 'Pending', {
+      await orderRuntime.broadcastEvent('Order', {
         type: 'CONFIRM',
         payload: { orderId: 'ORD-001' },
         timestamp: Date.now(),
@@ -345,13 +345,13 @@ describe('Cross-Component Traceability', () => {
     it.skip('should get instance history across components', async () => {
       const orderId = orderRuntime.createInstance('Order', { Id: 'ORD-001' });
 
-      await orderRuntime.broadcastEvent('Order', 'Pending', {
+      await orderRuntime.broadcastEvent('Order', {
         type: 'CONFIRM',
         payload: { orderId: 'ORD-001' },
         timestamp: Date.now(),
       });
 
-      await orderRuntime.broadcastEvent('Order', 'Confirmed', {
+      await orderRuntime.broadcastEvent('Order', {
         type: 'SHIP',
         payload: { orderId: 'ORD-001' },
         timestamp: Date.now(),

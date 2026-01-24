@@ -219,4 +219,4 @@ A: Press Ctrl+C in the terminal where `xcomponent-ai serve` is running
 A: Yes, but use programmatic mode (see examples/full-project-structure.md)
 
 **Q: Does the dashboard work with multiple components?**
-A: Not yet with `xcomponent-ai serve`, but yes in programmatic mode
+A: Yes! Use `xcomponent-ai serve file1.yaml file2.yaml file3.yaml` to load multiple components. The dashboard has a component selector to switch between them.

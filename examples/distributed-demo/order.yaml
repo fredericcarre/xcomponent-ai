@@ -1,0 +1,71 @@
+# Order Component - Process 1
+# This component runs in its own process and communicates with PaymentComponent via Redis
+
+name: OrderComponent
+version: 1.0.0
+metadata:
+  description: Order management system (distributed process 1)
+
+stateMachines:
+  - name: Order
+    initialState: Created
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+        placeholder: ORD-001
+      amount:
+        type: number
+        label: Total Amount
+        required: true
+        min: 1
+      customerId:
+        type: text
+        label: Customer ID
+        required: true
+        placeholder: CUST-001
+
+    states:
+      - name: Created
+        type: entry
+        description: Order created and awaiting validation
+
+      - name: Validated
+        type: regular
+        description: Order validated, payment triggered via Redis
+        # DISTRIBUTED CROSS-COMPONENT: Trigger payment in PaymentComponent (different process!)
+        cascadingRules:
+          - targetComponent: PaymentComponent
+            targetMachine: Payment
+            targetState: Pending
+            event: PROCESS
+            payload:
+              orderId: "{{orderId}}"
+              amount: "{{amount}}"
+              customerId: "{{customerId}}"
+
+      - name: Completed
+        type: final
+        description: Order completed successfully
+
+      - name: Cancelled
+        type: error
+        description: Order cancelled
+
+    transitions:
+      - from: Created
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+        description: Validate order and trigger payment
+
+      - from: Validated
+        to: Completed
+        event: COMPLETE
+        type: triggerable
+
+      - from: Created
+        to: Cancelled
+        event: CANCEL
+        type: triggerable

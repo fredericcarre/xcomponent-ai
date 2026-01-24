@@ -1,0 +1,68 @@
+# Cross-Component Communication Demo
+# This example shows how OrderComponent triggers PaymentComponent via cascadingRules
+
+name: OrderComponent
+version: 1.0.0
+metadata:
+  description: Order management that triggers payment processing in another component
+
+stateMachines:
+  - name: Order
+    initialState: Created
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+        placeholder: ORD-001
+      amount:
+        type: number
+        label: Total Amount
+        required: true
+        min: 1
+      customerId:
+        type: text
+        label: Customer ID
+        required: true
+    states:
+      - name: Created
+        type: entry
+        description: Order created and awaiting validation
+
+      - name: Validated
+        type: regular
+        description: Order validated, ready for payment
+        # CROSS-COMPONENT: Trigger payment in PaymentComponent
+        cascadingRules:
+          - targetComponent: PaymentComponent  # ← Cross-component!
+            targetMachine: Payment
+            targetState: Pending
+            event: PROCESS
+            payload:
+              orderId: "{{orderId}}"
+              amount: "{{amount}}"
+              customerId: "{{customerId}}"
+
+      - name: Completed
+        type: final
+        description: Order completed successfully
+
+      - name: Cancelled
+        type: error
+        description: Order cancelled
+
+    transitions:
+      - from: Created
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+
+      - from: Validated
+        to: Completed
+        event: COMPLETE
+        type: triggerable
+
+      - from: Created
+        to: Cancelled
+        event: CANCEL
+        type: triggerable

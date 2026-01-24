@@ -1,0 +1,339 @@
+# Advanced Patterns Demo
+# Shows:
+# 1. Transition looping on itself (self-loop)
+# 2. Triggered method updating publicMember
+# 3. Explicit transition control with sender.sendToSelf()
+# 4. Sending broadcasts with matchingRules from YAML
+# 5. Parallel timeout transition
+
+name: AdvancedPatternsComponent
+version: 1.0.0
+metadata:
+  description: Demonstrates advanced FSM patterns with explicit control
+
+# Triggered methods use sender.sendToSelf() for explicit control
+triggeredMethods:
+  # Accumulates execution data and EXPLICITLY decides when to complete
+  accumulateExecution: |
+    async function(event, context, sender) {
+      // Initialize counters
+      if (!context.executedQuantity) {
+        context.executedQuantity = 0;
+      }
+      if (!context.executions) {
+        context.executions = [];
+      }
+
+      // Accumulate quantity from event
+      const qty = event.payload.quantity || 0;
+      context.executedQuantity += qty;
+
+      // Track individual executions
+      context.executions.push({
+        quantity: qty,
+        price: event.payload.price,
+        executionId: event.payload.executionId,
+        timestamp: event.timestamp
+      });
+
+      console.log(`[Order ${context.orderId}] Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+
+      // EXPLICIT CONTROL: Decide when to transition to FullyExecuted
+      if (context.executedQuantity >= context.totalQuantity) {
+        // Send event to self to trigger completion
+        await sender.sendToSelf({
+          type: 'FULLY_EXECUTED',
+          payload: {
+            totalExecuted: context.executedQuantity,
+            executionDuration: Date.now() - context.createdAt,
+            executionCount: context.executions.length
+          },
+          timestamp: Date.now()
+        });
+      }
+
+      // Broadcast to RiskMonitor instances
+      // Filtering is done via matchingRules in RiskMonitor's transition
+      await sender.broadcast(
+        'RiskMonitor',
+        {
+          type: 'ORDER_EXECUTION_UPDATE',
+          payload: {
+            orderId: context.orderId,
+            customerId: context.customerId,
+            executedQuantity: context.executedQuantity,
+            totalQuantity: context.totalQuantity,
+            percentage: (context.executedQuantity / context.totalQuantity) * 100
+          },
+          timestamp: Date.now()
+        }
+      );
+    }
+
+  # Triggered when order expires (timeout transition)
+  handleExpiration: |
+    async function(event, context, sender) {
+      console.log(`[Order ${context.orderId}] EXPIRED after ${Date.now() - context.createdAt}ms`);
+      context.expirationReason = 'timeout';
+
+      // Notify risk monitors that order expired
+      // Filtering via matchingRules in RiskMonitor's transition
+      await sender.broadcast(
+        'RiskMonitor',
+        {
+          type: 'ORDER_EXPIRED',
+          payload: {
+            orderId: context.orderId,
+            customerId: context.customerId,
+            executedQuantity: context.executedQuantity || 0,
+            totalQuantity: context.totalQuantity
+          },
+          timestamp: Date.now()
+        }
+      );
+    }
+
+  # Handle completion
+  handleCompletion: |
+    async function(event, context, sender) {
+      console.log(`[Order ${context.orderId}] COMPLETED`)
+      console.log(`  - Total executed: ${event.payload.totalExecuted}`);
+      console.log(`  - Duration: ${event.payload.executionDuration}ms`);
+      console.log(`  - Executions: ${event.payload.executionCount}`);
+
+      context.completedAt = Date.now();
+      context.stats = event.payload;
+    }
+
+  # Final notification on settlement
+  notifyCompletion: |
+    async function(event, context, sender) {
+      // Broadcast to all risk monitors for this customer (any state)
+      // Filtering via matchingRules in RiskMonitor's transition
+      await sender.broadcast(
+        'RiskMonitor',
+        {
+          type: 'ORDER_COMPLETED',
+          payload: {
+            orderId: context.orderId,
+            customerId: context.customerId,
+            totalQuantity: context.totalQuantity,
+            executionDuration: context.executionDuration
+          },
+          timestamp: Date.now()
+        }
+      );
+    }
+
+  # Risk monitor receives updates
+  updateRiskMetrics: |
+    async function(event, context, sender) {
+      if (!context.orderUpdates) {
+        context.orderUpdates = [];
+      }
+
+      context.orderUpdates.push({
+        orderId: event.payload.orderId,
+        executedQuantity: event.payload.executedQuantity,
+        totalQuantity: event.payload.totalQuantity,
+        timestamp: event.timestamp
+      });
+
+      context.lastUpdateAt = event.timestamp;
+
+      console.log(`[Risk Monitor ${context.customerId}] Received update for order ${event.payload.orderId}`);
+    }
+
+stateMachines:
+  # Trading Order - demonstrates explicit control with sender.sendToSelf()
+  - name: TradingOrder
+    initialState: Created
+
+    contextSchema:
+      orderId:
+        type: text
+        required: true
+      customerId:
+        type: text
+        required: true
+      symbol:
+        type: text
+        required: true
+      totalQuantity:
+        type: number
+        required: true
+        min: 1
+      side:
+        type: select
+        options:
+          - BUY
+          - SELL
+        required: true
+      createdAt:
+        type: number
+        default: 0
+
+    states:
+      - name: Created
+        type: entry
+        description: Order created, not yet submitted
+
+      - name: Submitted
+        type: regular
+        description: Order submitted to market
+
+      - name: PartiallyExecuted
+        type: regular
+        description: Order partially executed, waiting for more fills
+
+      - name: FullyExecuted
+        type: regular
+        description: Order fully executed
+
+      - name: Completed
+        type: final
+        description: Order completed (settlement done)
+
+      - name: Expired
+        type: error
+        description: Order expired before full execution
+
+    transitions:
+      # Submit order
+      - from: Created
+        to: Submitted
+        event: SUBMIT
+        type: triggerable
+
+      # First execution
+      - from: Submitted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # SELF-LOOP: Stay in PartiallyExecuted
+      # Triggered method decides when to send FULLY_EXECUTED event
+      - from: PartiallyExecuted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # EXPLICIT TRANSITION: Triggered by sender.sendToSelf() in accumulateExecution
+      # No guards! Logic is in the triggered method
+      - from: PartiallyExecuted
+        to: FullyExecuted
+        event: FULLY_EXECUTED
+        type: triggerable
+        triggeredMethod: handleCompletion
+
+      # Also handle direct full execution from Submitted
+      - from: Submitted
+        to: FullyExecuted
+        event: FULLY_EXECUTED
+        type: triggerable
+        triggeredMethod: handleCompletion
+
+      # Complete order
+      - from: FullyExecuted
+        to: Completed
+        event: SETTLE
+        type: triggerable
+        triggeredMethod: notifyCompletion
+
+      # PARALLEL TIMEOUT TRANSITION
+      # Can expire from PartiallyExecuted if execution takes too long
+      # resetOnTransition: false means timer does NOT reset on self-loop
+      # Timer starts when entering PartiallyExecuted and runs for total time in state
+      - from: PartiallyExecuted
+        to: Expired
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000  # 30 seconds
+        resetOnTransition: false  # Don't reset on self-loop
+        triggeredMethod: handleExpiration
+
+      # Can also expire from Submitted
+      - from: Submitted
+        to: Expired
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+        triggeredMethod: handleExpiration
+
+  # Risk Monitor - receives broadcasts from orders
+  - name: RiskMonitor
+    initialState: Created
+
+    contextSchema:
+      customerId:
+        type: text
+        required: true
+        label: Customer ID to monitor
+      exposureLimit:
+        type: number
+        required: true
+        min: 0
+        label: Maximum exposure allowed
+
+    states:
+      - name: Created
+        type: entry
+
+      - name: Monitoring
+        type: regular
+        description: Actively monitoring customer risk
+
+      - name: AlertTriggered
+        type: regular
+        description: Risk alert triggered
+
+      - name: Stopped
+        type: final
+        description: Monitoring stopped
+
+    transitions:
+      - from: Created
+        to: Monitoring
+        event: START_MONITORING
+        type: triggerable
+
+      # Receive execution updates from orders
+      # Filtering via matchingRules - only for this customer
+      - from: Monitoring
+        to: Monitoring
+        event: ORDER_EXECUTION_UPDATE
+        type: triggerable
+        triggeredMethod: updateRiskMetrics
+        matchingRules:
+          - eventProperty: payload.customerId
+            instanceProperty: customerId
+
+      # Receive expiration notifications
+      # Filtering via matchingRules - only for this customer
+      - from: Monitoring
+        to: Monitoring
+        event: ORDER_EXPIRED
+        type: triggerable
+        triggeredMethod: updateRiskMetrics
+        matchingRules:
+          - eventProperty: payload.customerId
+            instanceProperty: customerId
+
+      # Receive completion notifications
+      # Filtering via matchingRules - only for this customer
+      - from: Monitoring
+        to: Monitoring
+        event: ORDER_COMPLETED
+        type: triggerable
+        triggeredMethod: updateRiskMetrics
+        matchingRules:
+          - eventProperty: payload.customerId
+            instanceProperty: customerId
+
+      # Stop monitoring
+      - from: Monitoring
+        to: Stopped
+        event: STOP
+        type: triggerable

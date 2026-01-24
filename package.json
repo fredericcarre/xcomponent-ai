@@ -1,6 +1,6 @@
 {
   "name": "xcomponent-ai",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "LLM-first framework for AI agents (Claude, GPT) to build apps with sanctuarized business logic. Event-driven FSM runtime with multi-instance state machines, cross-component communication, event sourcing, and production-ready persistence (PostgreSQL, MongoDB)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,6 +16,10 @@
     "examples/",
     "README.md",
     "QUICKSTART.md",
+    "LLM-GUIDE.md",
+    "SCALABILITY.md",
+    "EXTERNAL-API.md",
+    "EVENT-ACCUMULATION-GUIDE.md",
     "ROADMAP.md",
     "PERSISTENCE.md",
     "CONTRIBUTING.md",
@@ -92,6 +96,9 @@
     "xstate": "^5.20.0",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"
+  },
+  "optionalDependencies": {
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

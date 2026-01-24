@@ -457,11 +457,51 @@ program
   .command('serve <files...>')
   .description('Start runtime with API server and dashboard (supports multiple YAML files)')
   .option('-p, --port <port>', 'Port number', '3000')
+  .option('-b, --broker <url>', 'Message broker URL (memory, redis://...)', process.env.XCOMPONENT_BROKER_URL || 'memory')
+  .option('--external-api', 'Enable external API for sending events via message broker')
+  .option('--publish-events', 'Publish FSM events to message broker for external subscribers')
   .action(async (files: string[], options: any) => {
     try {
-      // Import ComponentRegistry
+      // Import ComponentRegistry and MessageBroker
       const { ComponentRegistry } = await import('./component-registry');
-      const registry = new ComponentRegistry();
+      const { createMessageBroker } = await import('./message-broker');
+      const { ExternalBrokerAPI } = await import('./external-broker-api');
+
+      // Create message broker based on option
+      const brokerUrl = options.broker;
+      const broker = createMessageBroker(brokerUrl);
+
+      // Create registry with broker
+      const registry = new ComponentRegistry(broker);
+
+      // Initialize broker connection
+      await registry.initialize();
+
+      // Log broker mode
+      if (brokerUrl === 'memory' || brokerUrl === 'in-memory') {
+        console.log('📡 Mode: In-Memory (single process)');
+      } else {
+        console.log(`📡 Mode: Distributed (broker: ${brokerUrl})`);
+      }
+
+      // Setup external broker API if enabled
+      let externalAPI: typeof ExternalBrokerAPI.prototype | null = null;
+      if (options.externalApi || options.publishEvents) {
+        externalAPI = new ExternalBrokerAPI({
+          broker,
+          registry,
+          handleCommands: options.externalApi ?? false,
+          publishEvents: options.publishEvents ?? false,
+        });
+        await externalAPI.initialize();
+
+        if (options.externalApi) {
+          console.log('🌐 External API: Enabled (listening for commands on broker)');
+        }
+        if (options.publishEvents) {
+          console.log('📢 Event Publishing: Enabled (publishing FSM events to broker)');
+        }
+      }
 
       console.log('🚀 xcomponent-ai Runtime Started');
       console.log('━'.repeat(40));
@@ -683,14 +723,12 @@ program
       httpServer.listen(port);
       
       // Keep process alive
-      process.on('SIGINT', () => {
+      process.on('SIGINT', async () => {
         console.log('\n\n👋 Shutting down gracefully...');
-        for (const componentName of registry.getComponentNames()) {
-          const runtime = registry.getRuntime(componentName);
-          if (runtime) {
-            runtime.dispose();
-          }
+        if (externalAPI) {
+          await externalAPI.dispose();
         }
+        await registry.dispose();
         process.exit(0);
       });
       

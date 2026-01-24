@@ -31,7 +31,6 @@ describe('FSMRuntime', () => {
             to: 'Success',
             event: 'COMPLETE',
             type: TransitionType.REGULAR,
-            guards: [{ keys: ['result'] }],
           },
           {
             from: 'Processing',
@@ -157,56 +156,6 @@ describe('FSMRuntime', () => {
     });
   });
 
-  describe('Guards', () => {
-    it('should evaluate guards correctly', async () => {
-      const runtime = new FSMRuntime(testComponent);
-      const instanceId = runtime.createInstance('SimpleFlow');
-
-      await runtime.sendEvent(instanceId, {
-        type: 'BEGIN',
-        payload: {},
-        timestamp: Date.now(),
-      });
-
-      // Event with guard key should succeed
-      await runtime.sendEvent(instanceId, {
-        type: 'COMPLETE',
-        payload: { result: 'success' },
-        timestamp: Date.now(),
-      });
-
-      const instance = runtime.getInstance(instanceId);
-      expect(instance).toBeUndefined(); // Disposed after final state
-    });
-
-    it('should fail on missing guard keys', async () => {
-      const runtime = new FSMRuntime(testComponent);
-      const instanceId = runtime.createInstance('SimpleFlow');
-
-      let guardFailed = false;
-      runtime.on('guard_failed', () => {
-        guardFailed = true;
-      });
-
-      await runtime.sendEvent(instanceId, {
-        type: 'BEGIN',
-        payload: {},
-        timestamp: Date.now(),
-      });
-
-      // Event without guard key should fail
-      await runtime.sendEvent(instanceId, {
-        type: 'COMPLETE',
-        payload: {},
-        timestamp: Date.now(),
-      });
-
-      expect(guardFailed).toBe(true);
-
-      const instance = runtime.getInstance(instanceId);
-      expect(instance?.currentState).toBe('Processing');
-    });
-  });
 
   describe('Timeouts', () => {
     it('should trigger timeout transition', async () => {

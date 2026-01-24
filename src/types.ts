@@ -41,6 +41,19 @@ export enum TransitionType {
 export type GuardFunction = (event: FSMEvent, context: any) => boolean;
 
 /**
+ * Property filter for targeted broadcasts
+ * Allows filtering instances based on context properties
+ */
+export interface PropertyFilter {
+  /** Property path to check (supports dot notation: "customer.tier") */
+  property: string;
+  /** Comparison operator (default: '===') */
+  operator?: '===' | '!==' | '>' | '<' | '>=' | '<=' | 'contains' | 'in';
+  /** Value to compare against */
+  value: any;
+}
+
+/**
  * Sender interface for triggered methods
  * Allows state machines to send events to other instances (XComponent pattern)
  *
@@ -48,6 +61,34 @@ export type GuardFunction = (event: FSMEvent, context: any) => boolean;
  * cross-component (between different components) communication
  */
 export interface Sender {
+  /**
+   * Send event to current instance (self)
+   *
+   * Allows triggered methods to explicitly control state transitions.
+   * Event is queued and processed asynchronously to avoid race conditions.
+   *
+   * @param event Event to send to self
+   *
+   * @example
+   * // Triggered method decides when to transition
+   * async function(event, context, sender) {
+   *   context.executedQuantity += event.payload.quantity;
+   *
+   *   if (context.executedQuantity >= context.totalQuantity) {
+   *     // Explicitly trigger transition to next state
+   *     await sender.sendToSelf({
+   *       type: 'FULLY_EXECUTED',
+   *       payload: {
+   *         totalExecuted: context.executedQuantity,
+   *         executionDuration: Date.now() - context.startTime
+   *       },
+   *       timestamp: Date.now()
+   *     });
+   *   }
+   * }
+   */
+  sendToSelf(event: FSMEvent): Promise<void>;
+
   /**
    * Send event to specific instance by ID (intra-component)
    */
@@ -59,18 +100,44 @@ export interface Sender {
   sendToComponent(componentName: string, instanceId: string, event: FSMEvent): Promise<void>;
 
   /**
-   * Broadcast event to instances matching property rules (intra-component)
+   * Broadcast event to instances
+   *
+   * Unified broadcast method for both intra-component and cross-component communication.
+   * Filtering is done via matchingRules in YAML, not in code.
+   *
+   * @param machineName Target state machine name
+   * @param event Event to broadcast
+   * @param currentState Optional state filter. Omit to broadcast to all states
+   * @param componentName Optional component name. Omit for intra-component
+   * @returns Number of instances that received the event
+   *
+   * @example
+   * // Broadcast to all Orders in current component (any state)
+   * await sender.broadcast('Order', {type: 'SYSTEM_ALERT', payload: {}});
+   *
+   * @example
+   * // Broadcast to Orders in Pending state only
+   * await sender.broadcast('Order', {type: 'TIMEOUT', payload: {}}, 'Pending');
+   *
+   * @example
+   * // Cross-component broadcast
+   * await sender.broadcast('Payment', {type: 'ORDER_COMPLETED', payload: {...}}, undefined, 'PaymentComponent');
+   *
+   * @example
+   * // Filtering via matchingRules in YAML:
+   * // transitions:
+   * //   - from: Monitoring
+   * //     to: Monitoring
+   * //     event: ORDER_UPDATE
+   * //     matchingRules:
+   * //       - eventProperty: payload.customerId
+   * //         instanceProperty: customerId
    */
-  broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number>;
-
-  /**
-   * Broadcast event to instances in another component (cross-component)
-   */
-  broadcastToComponent(
-    componentName: string,
+  broadcast(
     machineName: string,
-    currentState: string,
-    event: FSMEvent
+    event: FSMEvent,
+    currentState?: string,
+    componentName?: string
   ): Promise<number>;
 
   /**
@@ -95,18 +162,6 @@ export interface Sender {
 export type TriggeredMethod = (event: FSMEvent, context: any, sender: Sender) => Promise<void>;
 
 /**
- * Guard configuration
- */
-export interface Guard {
-  /** Matching keys */
-  keys?: string[];
-  /** Contains check */
-  contains?: string;
-  /** Custom JavaScript function */
-  customFunction?: string;
-}
-
-/**
  * Property matching rule for instance routing
  * Enables XComponent-style event routing: ExecutionInput.OrderId = Order.Id
  */
@@ -126,6 +181,8 @@ export interface MatchingRule {
  * Example: When Order reaches Confirmed, start Shipment workflow
  */
 export interface CascadingRule {
+  /** Target component name (for cross-component communication). If omitted, targets the same component */
+  targetComponent?: string;
   /** Target machine name */
   targetMachine: string;
   /** Target state filter (only instances in this state) */
@@ -168,10 +225,26 @@ export interface Transition {
   event: string;
   /** Transition type */
   type: TransitionType;
-  /** Guards for conditional execution */
-  guards?: Guard[];
   /** Timeout in milliseconds (for TIMEOUT type) */
   timeoutMs?: number;
+  /**
+   * Reset timeout on any transition to this state (for TIMEOUT type)
+   *
+   * false (default): Timer runs for total time in state (doesn't reset on self-loop)
+   * true: Timer resets every time instance enters this state (including self-loops)
+   *
+   * Example with resetOnTransition: false (default):
+   *   - Enter PartiallyExecuted at T=0, timeout=30s
+   *   - Self-loop at T=10s (PartiallyExecuted → PartiallyExecuted)
+   *   - Timeout fires at T=30s (total time in state)
+   *
+   * Example with resetOnTransition: true:
+   *   - Enter PartiallyExecuted at T=0, timeout=30s
+   *   - Self-loop at T=10s → timer RESETS to 30s
+   *   - Self-loop at T=25s → timer RESETS to 30s again
+   *   - Timeout fires at T=55s (30s after last transition)
+   */
+  resetOnTransition?: boolean;
   /** Target machine for inter-machine transitions */
   targetMachine?: string;
   /** Triggered method name */

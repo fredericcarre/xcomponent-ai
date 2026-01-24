@@ -111,7 +111,14 @@ transitions:
 **How it works:**
 1. Event arrives → `accumulateExecution` method executes → context.executedQuantity updated
 2. Guards are evaluated **after** triggered method
-3. Transition occurs based on which guard passes
+3. **Multiple transitions are tried in order** - first matching guard wins
+4. Transition occurs based on which guard passes first
+
+**Important:** When multiple transitions from the same state use the same event:
+- Triggered method runs **once** (before evaluating any guards)
+- Guards are evaluated in the order transitions are defined
+- The **first transition with passing guards** is used
+- Define transitions in your desired evaluation order
 
 ---
 
@@ -363,6 +370,86 @@ curl http://localhost:3000/api/instances/{instanceId}
     {"quantity": 300, "price": 150.40, "executionId": "EXEC-003"}
   ]
 }
+```
+
+---
+
+## 📤 Sending Events from Triggered Methods
+
+Triggered methods can send events to other instances using the `sender` parameter.
+
+### Send to Specific Instance
+
+```yaml
+triggeredMethods:
+  notifyPayment: |
+    async function(event, context, sender) {
+      // Send event to specific payment instance
+      await sender.sendTo(context.paymentInstanceId, {
+        type: 'ORDER_CONFIRMED',
+        payload: { orderId: context.orderId },
+        timestamp: Date.now()
+      });
+    }
+```
+
+### Broadcast with Property Filters
+
+Send events to **multiple instances** matching specific criteria:
+
+```yaml
+triggeredMethods:
+  accumulateExecution: |
+    async function(event, context, sender) {
+      // Update context...
+      context.executedQuantity += event.payload.quantity;
+
+      // BROADCAST to risk monitors for this customer
+      const count = await sender.broadcast(
+        'RiskMonitor',           // Target machine
+        'Monitoring',            // Target state
+        {
+          type: 'ORDER_UPDATE',
+          payload: {
+            orderId: context.orderId,
+            executedQuantity: context.executedQuantity
+          },
+          timestamp: Date.now()
+        },
+        [
+          // FILTERS: Only instances for this customer
+          { property: 'customerId', value: context.customerId },
+          { property: 'assetClass', value: 'EQUITY' }
+        ]
+      );
+
+      console.log(`Notified ${count} risk monitor(s)`);
+    }
+```
+
+**Filter operators:** `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
+
+**Multiple filters use AND logic** (all must match).
+
+### Cross-Component Broadcasts
+
+```yaml
+triggeredMethods:
+  cascadeToOtherComponent: |
+    async function(event, context, sender) {
+      // Broadcast to instances in another component
+      await sender.broadcastToComponent(
+        'PaymentComponent',      // Target component
+        'Payment',               // Target machine
+        'Pending',               // Target state
+        {
+          type: 'ORDER_COMPLETED',
+          payload: { orderId: context.orderId },
+          timestamp: Date.now()
+        },
+        [{ property: 'orderId', value: context.orderId }]
+      );
+    }
 ```
 
 ---

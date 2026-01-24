@@ -41,6 +41,19 @@ export enum TransitionType {
 export type GuardFunction = (event: FSMEvent, context: any) => boolean;
 
 /**
+ * Property filter for targeted broadcasts
+ * Allows filtering instances based on context properties
+ */
+export interface PropertyFilter {
+  /** Property path to check (supports dot notation: "customer.tier") */
+  property: string;
+  /** Comparison operator (default: '===') */
+  operator?: '===' | '!==' | '>' | '<' | '>=' | '<=' | 'contains' | 'in';
+  /** Value to compare against */
+  value: any;
+}
+
+/**
  * Sender interface for triggered methods
  * Allows state machines to send events to other instances (XComponent pattern)
  *
@@ -59,18 +72,47 @@ export interface Sender {
   sendToComponent(componentName: string, instanceId: string, event: FSMEvent): Promise<void>;
 
   /**
-   * Broadcast event to instances matching property rules (intra-component)
+   * Broadcast event to instances (intra-component)
+   *
+   * @param machineName Target state machine name
+   * @param currentState Current state filter (only instances in this state)
+   * @param event Event to broadcast
+   * @param filters Optional property filters to target specific instances
+   * @returns Number of instances that received the event
+   *
+   * @example
+   * // Broadcast to all Orders in Pending state
+   * await sender.broadcast('Order', 'Pending', {type: 'TIMEOUT', payload: {}});
+   *
+   * @example
+   * // Broadcast only to orders for a specific customer
+   * await sender.broadcast('Order', 'Pending', {type: 'TIMEOUT', payload: {}}, [
+   *   {property: 'customerId', value: 'CUST-001'}
+   * ]);
    */
-  broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number>;
+  broadcast(
+    machineName: string,
+    currentState: string,
+    event: FSMEvent,
+    filters?: PropertyFilter[]
+  ): Promise<number>;
 
   /**
    * Broadcast event to instances in another component (cross-component)
+   *
+   * @param componentName Target component name
+   * @param machineName Target state machine name
+   * @param currentState Current state filter
+   * @param event Event to broadcast
+   * @param filters Optional property filters to target specific instances
+   * @returns Number of instances that received the event
    */
   broadcastToComponent(
     componentName: string,
     machineName: string,
     currentState: string,
-    event: FSMEvent
+    event: FSMEvent,
+    filters?: PropertyFilter[]
   ): Promise<number>;
 
   /**

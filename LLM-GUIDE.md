@@ -235,6 +235,96 @@ When Order transitions to "Validated" in Process 1, Redis automatically delivers
 
 See: `examples/distributed-demo/` for complete working example.
 
+### 7. Broadcast with Property Filters (from Triggered Methods)
+
+Triggered methods can send events to **specific instances** using property filters:
+
+```yaml
+triggeredMethods:
+  notifyRiskMonitors: |
+    async function(event, context, sender) {
+      // Update local context
+      context.executedQuantity += event.payload.quantity;
+
+      // BROADCAST to risk monitors for THIS CUSTOMER ONLY
+      const count = await sender.broadcast(
+        'RiskMonitor',           // Target machine
+        'Monitoring',            // Target state
+        {
+          type: 'ORDER_UPDATE',
+          payload: {
+            orderId: context.orderId,
+            executedQuantity: context.executedQuantity
+          },
+          timestamp: Date.now()
+        },
+        [
+          // FILTERS: Property-based targeting
+          { property: 'customerId', value: context.customerId },
+          { property: 'assetClass', operator: '===', value: 'EQUITY' }
+        ]
+      );
+
+      console.log(`Notified ${count} risk monitor(s)`);
+    }
+```
+
+**Available sender methods:**
+- `sender.sendTo(instanceId, event)` - Send to specific instance
+- `sender.broadcast(machine, state, event, filters?)` - Broadcast with optional filters
+- `sender.broadcastToComponent(component, machine, state, event, filters?)` - Cross-component broadcast
+- `sender.createInstance(machine, context)` - Create new instance
+
+**Filter operators:** `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
+
+**Multiple filters = AND logic** (all must match).
+
+See: `examples/advanced-patterns-demo.yaml`
+
+### 8. Multiple Transitions with Guards (First Matching Wins)
+
+When multiple transitions from the same state use the same event, **guards differentiate them**.
+
+The **first transition with passing guards wins**:
+
+```yaml
+transitions:
+  # TRANSITION 1: Stay in PartiallyExecuted
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    triggeredMethod: accumulateExecution
+    guards:
+      - type: custom
+        condition: "context.executedQuantity < context.totalQuantity"
+
+  # TRANSITION 2: Move to FullyExecuted
+  - from: PartiallyExecuted
+    to: FullyExecuted
+    event: EXECUTION_NOTIFICATION
+    triggeredMethod: accumulateExecution
+    guards:
+      - type: context
+        property: executedQuantity
+        operator: ">="
+        value: "{{totalQuantity}}"
+```
+
+**Execution order:**
+1. Event arrives
+2. Triggered method runs **once** (updates context)
+3. Guards evaluated **in YAML order**
+4. First matching guard → transition fires
+5. Other transitions skipped
+
+**Key points:**
+- Triggered method runs **before** guards (can update context)
+- Transitions defined in YAML are evaluated in order
+- First match wins - other transitions not tried
+- Useful for accumulation patterns (partial vs. full execution)
+
+See: `EVENT-ACCUMULATION-GUIDE.md` for complete guide.
+
 ---
 
 ## 📚 Key Concepts for LLMs

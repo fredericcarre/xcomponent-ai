@@ -1,0 +1,119 @@
+name: TradingComponent
+version: 1.0.0
+metadata:
+  domain: fintech
+  compliance:
+    - MiFID II
+    - Best Execution
+  description: Trading order and settlement workflow with compliance guards
+
+stateMachines:
+  - name: OrderEntry
+    initialState: Pending
+    metadata:
+      description: Order validation and execution workflow
+      riskLevel: high
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+        placeholder: ORD-001
+      symbol:
+        type: text
+        label: Symbol
+        required: true
+        placeholder: AAPL
+      amount:
+        type: number
+        label: Amount
+        required: true
+        placeholder: 1000
+      clientId:
+        type: text
+        label: Client ID
+        required: false
+        placeholder: CLIENT-123
+    states:
+      - name: Pending
+        type: entry
+        entryMethod: logOrderReceived
+        metadata:
+          description: Initial order received, awaiting validation
+      - name: Validated
+        type: regular
+        entryMethod: performComplianceCheck
+        metadata:
+          description: Order passed validation checks
+      - name: Executed
+        type: regular
+        entryMethod: executeOrder
+        metadata:
+          description: Order executed on market
+      - name: Settled
+        type: final
+        metadata:
+          description: Order fully settled
+      - name: Rejected
+        type: error
+        metadata:
+          description: Order rejected due to compliance or limit breach
+    transitions:
+      - from: Pending
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+        guards:
+          - keys:
+              - amount
+              - symbol
+              - clientId
+          - customFunction: "event.payload.amount <= 100000"
+      - from: Validated
+        to: Executed
+        event: EXECUTE
+        type: triggerable
+      - from: Executed
+        to: Settled
+        event: SETTLE
+        type: triggerable
+      - from: Pending
+        to: Rejected
+        event: REJECT
+        type: triggerable
+      - from: Validated
+        to: Rejected
+        event: REJECT
+        type: triggerable
+
+  - name: Settlement
+    initialState: Created
+    metadata:
+      description: Post-trade settlement workflow
+    contextSchema:
+      settlementId:
+        type: text
+        label: Settlement ID
+        required: true
+        placeholder: SETTLE-001
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+        placeholder: ORD-001
+    states:
+      - name: Created
+        type: entry
+      - name: Cleared
+        type: regular
+      - name: Complete
+        type: final
+    transitions:
+      - from: Created
+        to: Cleared
+        event: CLEAR
+        type: triggerable
+      - from: Cleared
+        to: Complete
+        event: FINALIZE
+        type: triggerable

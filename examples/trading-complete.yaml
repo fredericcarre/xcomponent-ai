@@ -1,0 +1,236 @@
+name: TradingComponent
+version: 1.0.0
+metadata:
+  domain: fintech
+  compliance:
+    - MiFID II
+    - Best Execution
+  description: |
+    Complete trading order and settlement workflow with compliance guards.
+    Demonstrates all xcomponent-ai features including contextSchema,
+    cross-component communication, and event sourcing.
+
+stateMachines:
+  - name: OrderEntry
+    initialState: Pending
+    description: Order validation and execution workflow with compliance checks
+    metadata:
+      description: Handles the complete lifecycle of a trading order from receipt to settlement
+      riskLevel: high
+      complianceRequired: true
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        description: Unique identifier for the trading order
+        required: true
+        placeholder: ORD-20260124-001
+        pattern: "^ORD-\\d{8}-\\d{3}$"
+      symbol:
+        type: text
+        label: Symbol/Ticker
+        description: Trading instrument symbol (e.g. AAPL, MSFT)
+        required: true
+        placeholder: AAPL
+      amount:
+        type: number
+        label: Order Amount
+        description: Number of shares or units to trade
+        required: true
+        placeholder: 1000
+        min: 1
+        max: 1000000
+      price:
+        type: number
+        label: Limit Price
+        description: Maximum price per unit (optional for market orders)
+        required: false
+        placeholder: 150.50
+      clientId:
+        type: text
+        label: Client ID
+        description: Client account identifier
+        required: true
+        placeholder: CLIENT-12345
+      orderType:
+        type: select
+        label: Order Type
+        description: Type of order execution
+        required: true
+        options:
+          - value: MARKET
+            label: Market Order
+          - value: LIMIT
+            label: Limit Order
+          - value: STOP
+            label: Stop Order
+    states:
+      - name: Pending
+        type: entry
+        entryMethod: logOrderReceived
+        description: Initial state when order is received
+        metadata:
+          description: Order has been received and is awaiting validation
+          displayColor: "#FFA500"
+          transitions: "Can transition to Validated (on successful checks) or Rejected (on failure)"
+
+      - name: Validated
+        type: regular
+        entryMethod: performComplianceCheck
+        description: Order passed initial validation checks
+        metadata:
+          description: |
+            Order has passed validation including:
+            - Client authorization check
+            - Position limits verification
+            - Regulatory compliance (MiFID II)
+          displayColor: "#3498db"
+          nextSteps: "Ready for market execution"
+
+      - name: Executed
+        type: regular
+        entryMethod: executeOrder
+        description: Order executed on the market
+        metadata:
+          description: Order has been filled on the exchange
+          displayColor: "#9B59B6"
+          fillDetails: "Execution price and time recorded"
+
+      - name: Settled
+        type: final
+        description: Order fully settled and complete
+        metadata:
+          description: All settlement obligations fulfilled
+          displayColor: "#27ae60"
+          outcome: "Success"
+
+      - name: Rejected
+        type: error
+        description: Order rejected due to compliance or limit breach
+        metadata:
+          description: |
+            Order was rejected for one of:
+            - Compliance violation
+            - Position limit exceeded
+            - Insufficient funds
+            - Invalid instrument
+          displayColor: "#e74c3c"
+          outcome: "Failure - requires manual review"
+
+    transitions:
+      - from: Pending
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+        description: Validate order against compliance rules
+        guards:
+          - keys:
+              - amount
+              - symbol
+              - clientId
+            description: "Ensure required fields are present"
+          - customFunction: "event.payload.amount <= 100000"
+            description: "Enforce position limit: max 100,000 units per order"
+        metadata:
+          triggeredBy: "Compliance system or manual approval"
+          averageTime: "2-5 seconds"
+
+      - from: Validated
+        to: Executed
+        event: EXECUTE
+        type: triggerable
+        description: Execute order on the market
+        metadata:
+          triggeredBy: "Order management system"
+          sideEffects: "Sends order to exchange, receives fill confirmation"
+
+      - from: Executed
+        to: Settled
+        event: SETTLE
+        type: triggerable
+        description: Settle the executed trade
+        metadata:
+          triggeredBy: "Settlement system (T+2)"
+          sideEffects: "Updates client portfolio, confirms with clearinghouse"
+
+      - from: Pending
+        to: Rejected
+        event: REJECT
+        type: triggerable
+        description: Reject order during initial validation
+        metadata:
+          reason: "Failed validation or compliance checks"
+
+      - from: Validated
+        to: Rejected
+        event: REJECT
+        type: triggerable
+        description: Reject order after validation (e.g. market conditions changed)
+        metadata:
+          reason: "Post-validation rejection (market halt, client request)"
+
+  - name: Settlement
+    initialState: Created
+    description: Post-trade settlement workflow (T+2)
+    metadata:
+      description: Manages settlement obligations after trade execution
+      settlementCycle: "T+2"
+    contextSchema:
+      settlementId:
+        type: text
+        label: Settlement ID
+        description: Unique settlement transaction identifier
+        required: true
+        placeholder: SETTLE-20260124-001
+      orderId:
+        type: text
+        label: Related Order ID
+        description: Reference to the original order
+        required: true
+        placeholder: ORD-20260124-001
+      counterparty:
+        type: text
+        label: Counterparty
+        description: Settlement counterparty identifier
+        required: false
+        placeholder: BROKER-XYZ
+    states:
+      - name: Created
+        type: entry
+        description: Settlement instruction created
+        metadata:
+          description: Settlement process initiated, awaiting clearing
+          displayColor: "#FFA500"
+
+      - name: Cleared
+        type: regular
+        description: Trade cleared by clearinghouse
+        metadata:
+          description: Clearinghouse has validated and accepted the trade
+          displayColor: "#3498db"
+
+      - name: Complete
+        type: final
+        description: Settlement completed successfully
+        metadata:
+          description: Securities and cash have been exchanged
+          displayColor: "#27ae60"
+
+    transitions:
+      - from: Created
+        to: Cleared
+        event: CLEAR
+        type: triggerable
+        description: Clearinghouse clears the trade
+        metadata:
+          triggeredBy: "Clearinghouse system"
+          timeframe: "Within 24 hours"
+
+      - from: Cleared
+        to: Complete
+        event: FINALIZE
+        type: triggerable
+        description: Complete the settlement
+        metadata:
+          triggeredBy: "Settlement system (T+2)"
+          finality: "Irrevocable"

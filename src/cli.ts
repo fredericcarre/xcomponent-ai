@@ -31,7 +31,7 @@ const program = new Command();
 program
   .name('xcomponent-ai')
   .description('Agentic FSM tool for fintech workflows')
-  .version('0.1.6');
+  .version('0.2.0');
 
 /**
  * Initialize new project
@@ -473,7 +473,8 @@ program
       
       const port = parseInt(options.port);
       console.log(`\n🌐 API Server:    http://localhost:${port}`);
-      console.log(`📊 Dashboard:     http://localhost:${port}/dashboard`);
+      console.log(`📊 Dashboard:     http://localhost:${port}/dashboard.html`);
+      console.log(`📚 API Docs:      http://localhost:${port}/api-docs`);
       console.log(`📡 WebSocket:     ws://localhost:${port}`);
       console.log('\n' + '━'.repeat(40));
       console.log('Press Ctrl+C to stop\n');
@@ -500,12 +501,26 @@ program
       // Create Express server
       const express = await import('express');
       const { createServer } = await import('http');
+      const { Server } = await import('socket.io');
+      const swaggerUi = await import('swagger-ui-express');
+      const path = await import('path');
+
       const app = express.default();
       const httpServer = createServer(app);
-      
+      const io = new Server(httpServer);
+
       // Middleware
       app.use(express.default.json());
-      
+
+      // Serve static files from public directory
+      const publicPath = path.join(__dirname, '..', 'public');
+      app.use(express.default.static(publicPath));
+
+      // Generate and serve Swagger documentation
+      const { generateSwaggerSpec } = await import('./swagger-spec');
+      const swaggerSpec = generateSwaggerSpec(component, port);
+      app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
       // API Routes
       app.post('/api/instances', (req: any, res: any) => {
         try {
@@ -516,12 +531,12 @@ program
           res.status(400).json({ error: error.message });
         }
       });
-      
+
       app.get('/api/instances', (_req: any, res: any) => {
         const instances = runtime.getAllInstances();
         res.json({ instances });
       });
-      
+
       app.get('/api/instances/:id', (req: any, res: any) => {
         const instance = runtime.getInstance(req.params.id);
         if (!instance) {
@@ -529,7 +544,7 @@ program
         }
         res.json({ instance });
       });
-      
+
       app.post('/api/instances/:id/events', async (req: any, res: any) => {
         try {
           await runtime.sendEvent(req.params.id, req.body);
@@ -538,76 +553,58 @@ program
           res.status(400).json({ error: error.message });
         }
       });
-      
-      // Simple dashboard HTML
-      app.get('/dashboard', (_req: any, res: any) => {
-        res.send(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>xcomponent-ai Dashboard</title>
-            <style>
-              body { font-family: sans-serif; margin: 20px; background: #f5f5f5; }
-              h1 { color: #333; }
-              .instance { background: white; border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
-              .instance strong { color: #0066cc; }
-              .create-form { background: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
-              input, select, button { padding: 8px; margin: 5px; }
-              button { background: #0066cc; color: white; border: none; cursor: pointer; }
-              button:hover { background: #0052a3; }
-            </style>
-          </head>
-          <body>
-            <h1>📊 xcomponent-ai Dashboard</h1>
-            <p><strong>Component:</strong> ${component.name}</p>
-            
-            <div class="create-form">
-              <h2>Create Instance</h2>
-              <select id="machine">
-                ${component.stateMachines.map(m => `<option value="${m.name}">${m.name}</option>`).join('')}
-              </select>
-              <input type="text" id="context" placeholder='{"key": "value"}' />
-              <button onclick="createInstance()">Create</button>
-            </div>
-            
-            <h2>Instances</h2>
-            <div id="instances">Loading...</div>
-            
-            <script>
-              async function createInstance() {
-                const machine = document.getElementById('machine').value;
-                const contextStr = document.getElementById('context').value;
-                const context = contextStr ? JSON.parse(contextStr) : {};
-                await fetch('/api/instances', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ machineName: machine, context })
-                });
-                document.getElementById('context').value = '';
-                loadInstances();
-              }
-              
-              async function loadInstances() {
-                const res = await fetch('/api/instances');
-                const data = await res.json();
-                document.getElementById('instances').innerHTML = data.instances.length === 0
-                  ? '<p>No instances yet. Create one above!</p>'
-                  : data.instances.map(i => 
-                      \`<div class="instance">
-                        <strong>\${i.id}</strong><br/>
-                        Machine: \${i.machineName}<br/>
-                        State: <strong>\${i.currentState}</strong><br/>
-                        Status: \${i.status}
-                      </div>\`
-                    ).join('');
-              }
-              
-              setInterval(loadInstances, 1000);
-              loadInstances();
-            </script>
-          </body>
-          </html>
-        `);
+
+      app.get('/api/instances/:id/history', async (req: any, res: any) => {
+        try {
+          const history = await runtime.getInstanceHistory(req.params.id);
+          res.json({ history });
+        } catch (error: any) {
+          res.status(400).json({ error: error.message });
+        }
+      });
+
+      // Component data endpoint
+      app.get('/api/component', (_req: any, res: any) => {
+        res.json({ component });
+      });
+
+      // Mermaid diagram endpoint
+      app.get('/api/diagrams/:machineName', (req: any, res: any) => {
+        const machineName = req.params.machineName;
+        const machine = component.stateMachines.find(m => m.name === machineName);
+
+        if (!machine) {
+          return res.status(404).json({ error: 'State machine not found' });
+        }
+
+        const { generateStyledMermaidDiagram } = require('./mermaid-generator');
+        const diagram = generateStyledMermaidDiagram(machine);
+        res.json({ diagram });
+      });
+
+      // WebSocket Integration
+      io.on('connection', (socket) => {
+        console.log(`[WebSocket] Client connected: ${socket.id}`);
+
+        // Send component data on connection
+        socket.emit('component_data', { component });
+
+        socket.on('disconnect', () => {
+          console.log(`[WebSocket] Client disconnected: ${socket.id}`);
+        });
+      });
+
+      // Broadcast runtime events to all connected WebSocket clients
+      runtime.on('state_change', (data) => {
+        io.emit('state_change', data);
+      });
+
+      runtime.on('instance_created', (data) => {
+        io.emit('instance_created', data);
+      });
+
+      runtime.on('instance_error', (data) => {
+        io.emit('instance_error', data);
       });
       
       // Start server

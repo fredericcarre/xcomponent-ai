@@ -220,19 +220,16 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${instance.machineName} not found`);
     }
 
-    // Find ALL candidate transitions from current state with matching event
-    const candidates = machine.transitions.filter(
-      t => t.from === instance.currentState && t.event === event.type
-    );
+    // Use publicMember if available (XComponent pattern), otherwise fallback to context
+    const instanceContext = instance.publicMember || instance.context;
 
-    if (candidates.length === 0) {
+    // Find transition using XComponent-style disambiguation (specificTriggeringRule, matchingRules)
+    const transition = this.findTransition(machine, instance.currentState, event, instanceContext);
+
+    if (!transition) {
       this.emit('event_ignored', { instanceId, event, currentState: instance.currentState });
       return;
     }
-
-    // Use first matching transition
-    // For multiple candidates with same event, use specificTriggeringRule or matchingRules
-    const transition: Transition = candidates[0];
 
     const previousState = instance.currentState;
 
@@ -402,100 +399,112 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${machineName} not found`);
     }
 
-    // MODE 1: Simple broadcast - send to all instances (or in specific state)
-    // No matchingRules - just send the event to all instances
-    if (!currentState || currentState === '*') {
-      // Broadcast to ALL instances of this machine
-      const machineIds = this.machineIndex.get(machineName) || new Set();
-      const instances = Array.from(machineIds)
-        .map(id => this.instances.get(id))
-        .filter((inst): inst is FSMInstance => inst !== undefined);
+    // Find ALL transitions with matching rules for this event (any state or specific state)
+    const transitionsWithMatchingRules = machine.transitions.filter(
+      t =>
+        t.event === event.type &&
+        t.matchingRules &&
+        t.matchingRules.length > 0 &&
+        (!currentState || currentState === '*' || t.from === currentState)
+    );
 
+    // MODE 1: Property-based routing (XComponent pattern)
+    // If ANY transition has matchingRules, use property-based routing
+    if (transitionsWithMatchingRules.length > 0) {
       let processedCount = 0;
+      const processedInstances = new Set<string>();
 
-      for (const instance of instances) {
-        try {
-          await this.sendEvent(instance.id, event);
-          processedCount++;
-        } catch (error: any) {
-          this.emit('broadcast_error', {
-            instanceId: instance.id,
-            event,
-            error: error.message,
-          });
+      // For each transition with matching rules, find and process matching instances
+      for (const transition of transitionsWithMatchingRules) {
+        // Get state filter for this transition
+        const stateFilter = transition.from;
+
+        // Find all instances that match this transition's rules
+        const matchingInstances = this.findMatchingInstances(
+          machineName,
+          stateFilter,
+          event,
+          transition.matchingRules!
+        );
+
+        // Send event to each matching instance (only once per instance)
+        for (const instance of matchingInstances) {
+          if (processedInstances.has(instance.id)) {
+            continue; // Already processed by another transition
+          }
+
+          try {
+            const stateBefore = instance.currentState;
+            await this.sendEvent(instance.id, event);
+
+            // Check if state actually changed (or instance was disposed)
+            const instanceAfter = this.instances.get(instance.id);
+            const transitioned = !instanceAfter || instanceAfter.currentState !== stateBefore;
+
+            if (transitioned) {
+              processedInstances.add(instance.id);
+              processedCount++;
+            }
+          } catch (error: any) {
+            this.emit('broadcast_error', {
+              instanceId: instance.id,
+              event,
+              error: error.message,
+            });
+          }
         }
       }
 
       this.emit('broadcast_completed', {
         machineName,
-        currentState: '*',
+        currentState: currentState || '*',
         event,
-        matchedCount: instances.length,
+        matchedCount: processedInstances.size,
         processedCount,
       });
 
       return processedCount;
     }
 
-    // MODE 2: XComponent-style matching rules
-    // Find instances based on event payload matching instance properties
-    // Find ALL transitions with matching rules for this state/event combination
-    const transitionsWithMatchingRules = machine.transitions.filter(
-      t => t.from === currentState && t.event === event.type && t.matchingRules && t.matchingRules.length > 0
-    );
+    // MODE 2: Simple broadcast - send to all instances (or in specific state)
+    // No matchingRules - just send the event to all instances
+    let instances: FSMInstance[];
 
-    if (transitionsWithMatchingRules.length === 0) {
-      throw new Error(
-        `No transition with matching rules found for ${machineName}.${currentState} on event ${event.type}`
-      );
+    if (!currentState || currentState === '*') {
+      // Broadcast to ALL instances of this machine
+      const machineIds = this.machineIndex.get(machineName) || new Set();
+      instances = Array.from(machineIds)
+        .map(id => this.instances.get(id))
+        .filter((inst): inst is FSMInstance => inst !== undefined);
+    } else {
+      // Broadcast to instances in specific state
+      const stateKey = `${machineName}:${currentState}`;
+      const candidateIds = this.stateIndex.get(stateKey) || new Set();
+      instances = Array.from(candidateIds)
+        .map(id => this.instances.get(id))
+        .filter((inst): inst is FSMInstance => inst !== undefined && inst.status === 'active');
     }
 
     let processedCount = 0;
-    const processedInstances = new Set<string>();
 
-    // For each transition with matching rules, find and process matching instances
-    for (const transition of transitionsWithMatchingRules) {
-      // Find all instances that match this transition's rules
-      const matchingInstances = this.findMatchingInstances(
-        machineName,
-        currentState,
-        event,
-        transition.matchingRules!
-      );
-
-      // Send event to each matching instance (only once per instance)
-      for (const instance of matchingInstances) {
-        if (processedInstances.has(instance.id)) {
-          continue; // Already processed by another transition
-        }
-
-        try {
-          const stateBefore = instance.currentState;
-          await this.sendEvent(instance.id, event);
-
-          // Check if state actually changed (or instance was disposed)
-          const instanceAfter = this.instances.get(instance.id);
-          const transitioned = !instanceAfter || instanceAfter.currentState !== stateBefore;
-
-          if (transitioned) {
-            processedInstances.add(instance.id);
-            processedCount++;
-          }
-        } catch (error: any) {
-          this.emit('broadcast_error', {
-            instanceId: instance.id,
-            event,
-            error: error.message,
-          });
-        }
+    for (const instance of instances) {
+      try {
+        await this.sendEvent(instance.id, event);
+        processedCount++;
+      } catch (error: any) {
+        this.emit('broadcast_error', {
+          instanceId: instance.id,
+          event,
+          error: error.message,
+        });
       }
     }
 
     this.emit('broadcast_completed', {
       machineName,
-      currentState,
+      currentState: currentState || '*',
       event,
-      matchedCount: processedInstances.size,
+      matchedCount: instances.length,
       processedCount,
     });
 

@@ -433,16 +433,5 @@ describe('Property Matching (XComponent-style)', () => {
       ).rejects.toThrow('Machine NonExistent not found');
     });
 
-    it('should throw error when transition has no matching rules', async () => {
-      const runtime = new FSMRuntime(basicComponent);
-
-      await expect(
-        runtime.broadcastEvent('Machine', {
-          type: 'GO',
-          payload: {},
-          timestamp: Date.now(),
-        })
-      ).rejects.toThrow('No transition with matching rules found');
-    });
   });
 });

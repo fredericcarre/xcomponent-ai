@@ -68,11 +68,12 @@ xcomponent-ai serve order.yaml \
 }
 ```
 
-### Broadcast Event to All Instances in a State
+### Broadcast Event to Instances in a State
 
 **Channel:** `xcomponent:external:broadcasts`
 
-**Message format:**
+#### Broadcast to ALL instances (no filters)
+
 ```json
 {
   "componentName": "OrderComponent",
@@ -86,7 +87,77 @@ xcomponent-ai serve order.yaml \
 }
 ```
 
-This will send `TIMEOUT` to **all** Order instances currently in `Pending` state.
+This sends `TIMEOUT` to **ALL** Order instances in `Pending` state.
+
+#### Broadcast to specific instances (with property filters)
+
+**Target a single customer:**
+```json
+{
+  "componentName": "OrderComponent",
+  "machineName": "Order",
+  "currentState": "Pending",
+  "filters": [
+    {
+      "property": "customerId",
+      "operator": "===",
+      "value": "CUST-001"
+    }
+  ],
+  "event": {
+    "type": "TIMEOUT"
+  }
+}
+```
+
+Sends `TIMEOUT` only to Orders with `customerId === "CUST-001"`.
+
+**Multiple filters (AND logic):**
+```json
+{
+  "componentName": "OrderComponent",
+  "machineName": "Order",
+  "currentState": "Pending",
+  "filters": [
+    {
+      "property": "customerId",
+      "value": "CUST-001"
+    },
+    {
+      "property": "amount",
+      "operator": ">",
+      "value": 1000
+    }
+  ],
+  "event": {
+    "type": "URGENT_REVIEW"
+  }
+}
+```
+
+Sends `URGENT_REVIEW` to Orders with `customerId === "CUST-001"` **AND** `amount > 1000`.
+
+**Nested properties:**
+```json
+{
+  "filters": [
+    {
+      "property": "customer.tier",
+      "value": "premium"
+    }
+  ]
+}
+```
+
+**✅ Can target a single instance** if filters are specific enough!
+
+**Supported operators:**
+- `===` (equal, default)
+- `!==` (not equal)
+- `>` (greater than)
+- `<` (less than)
+- `>=` (greater or equal)
+- `<=` (less or equal)
 
 ---
 
@@ -284,6 +355,26 @@ await redis.publish('xcomponent:external:commands', JSON.stringify({
   }
 }));
 
+// Broadcast to all instances in a state
+await redis.publish('xcomponent:external:broadcasts', JSON.stringify({
+  componentName: 'OrderComponent',
+  machineName: 'Order',
+  currentState: 'Pending',
+  event: { type: 'TIMEOUT', timestamp: Date.now() }
+}));
+
+// Broadcast with property filters (target specific customer)
+await redis.publish('xcomponent:external:broadcasts', JSON.stringify({
+  componentName: 'OrderComponent',
+  machineName: 'Order',
+  currentState: 'Pending',
+  filters: [
+    { property: 'customerId', value: 'CUST-001' },
+    { property: 'amount', operator: '>', value: 1000 }
+  ],
+  event: { type: 'URGENT_REVIEW', timestamp: Date.now() }
+}));
+
 // Subscribe to state changes
 const subscriber = redis.duplicate();
 await subscriber.connect();
@@ -315,6 +406,19 @@ command = {
     }
 }
 r.publish('xcomponent:external:commands', json.dumps(command))
+
+# Broadcast with property filters
+broadcast = {
+    'componentName': 'OrderComponent',
+    'machineName': 'Order',
+    'currentState': 'Pending',
+    'filters': [
+        {'property': 'customerId', 'value': 'CUST-001'},
+        {'property': 'amount', 'operator': '>', 'value': 1000}
+    ],
+    'event': {'type': 'URGENT_REVIEW', 'timestamp': int(time.time() * 1000)}
+}
+r.publish('xcomponent:external:broadcasts', json.dumps(broadcast))
 
 # Subscribe to state changes
 pubsub = r.pubsub()

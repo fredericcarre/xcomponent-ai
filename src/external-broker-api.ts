@@ -15,9 +15,12 @@
  * - `xcomponent:events:instance_disposed` - Subscribe to instance disposals
  */
 
-import { MessageBroker } from './message-broker';
+import { MessageBroker, PropertyFilter } from './message-broker';
 import { ComponentRegistry } from './component-registry';
 import { FSMEvent } from './types';
+
+// Re-export PropertyFilter for convenience
+export type { PropertyFilter };
 
 /**
  * External command to send event to FSM instance
@@ -32,7 +35,35 @@ export interface ExternalCommand {
 }
 
 /**
- * External broadcast command (sends to all instances in a state)
+ * External broadcast command (sends to instances in a state)
+ *
+ * Without filters: broadcasts to ALL instances in the state
+ * With filters: only instances matching ALL filters receive the event
+ *
+ * Example (broadcast to specific customer):
+ * ```json
+ * {
+ *   "componentName": "OrderComponent",
+ *   "machineName": "Order",
+ *   "currentState": "Pending",
+ *   "filters": [
+ *     {"property": "customerId", "operator": "===", "value": "CUST-001"}
+ *   ],
+ *   "event": {"type": "TIMEOUT"}
+ * }
+ * ```
+ * This broadcasts ONLY to Orders with customerId === "CUST-001"
+ *
+ * Multiple filters example (AND logic):
+ * ```json
+ * {
+ *   "filters": [
+ *     {"property": "customerId", "value": "CUST-001"},
+ *     {"property": "amount", "operator": ">", "value": 1000}
+ *   ]
+ * }
+ * ```
+ * Broadcasts to Orders with customerId === "CUST-001" AND amount > 1000
  */
 export interface ExternalBroadcastCommand {
   /** Component name */
@@ -43,6 +74,14 @@ export interface ExternalBroadcastCommand {
   currentState: string;
   /** Event to broadcast */
   event: FSMEvent;
+  /**
+   * Optional property filters to target specific instances
+   * If omitted, broadcasts to ALL instances in the state
+   * If specified, only instances matching ALL filters receive the event (AND logic)
+   *
+   * Can target a single instance if filters are specific enough
+   */
+  filters?: PropertyFilter[];
 }
 
 /**
@@ -144,13 +183,14 @@ export class ExternalBrokerAPI {
           throw new Error('Invalid external broadcast command format');
         }
 
-        // Broadcast event
+        // Broadcast event with optional property filters
         await this.registry.broadcastToComponent(
           cmd.componentName,
           cmd.machineName,
           cmd.currentState,
           cmd.event,
-          'external'
+          'external',
+          cmd.filters // Pass filters for targeted broadcast
         );
       } catch (error) {
         console.error('[ExternalBrokerAPI] Broadcast error:', error);

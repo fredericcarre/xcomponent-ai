@@ -15,7 +15,7 @@
 import { EventEmitter } from 'events';
 import { FSMRuntime } from './fsm-runtime';
 import { Component, FSMEvent, FSMInstance } from './types';
-import { MessageBroker, InMemoryMessageBroker, CrossComponentMessage } from './message-broker';
+import { MessageBroker, InMemoryMessageBroker, CrossComponentMessage, PropertyFilter } from './message-broker';
 
 export interface ComponentInfo {
   name: string;
@@ -73,11 +73,16 @@ export class ComponentRegistry extends EventEmitter {
     this.broker.subscribe(component.name, async (message: CrossComponentMessage) => {
       try {
         // Get all instances of the target machine in the target state
-        const instances = runtime.getAllInstances().filter(
+        let instances = runtime.getAllInstances().filter(
           inst =>
             inst.machineName === message.targetMachine &&
             inst.currentState === message.targetState
         );
+
+        // Apply property filters if specified
+        if (message.filters && message.filters.length > 0) {
+          instances = instances.filter(inst => this.matchesFilters(inst, message.filters!));
+        }
 
         // Send event to each matching instance
         for (const instance of instances) {
@@ -233,6 +238,7 @@ export class ComponentRegistry extends EventEmitter {
    * @param currentState Current state filter
    * @param event Event to broadcast
    * @param sourceComponent Source component name (for tracing)
+   * @param filters Optional property filters to target specific instances
    * @returns Number of instances processed
    */
   async broadcastToComponent(
@@ -240,7 +246,8 @@ export class ComponentRegistry extends EventEmitter {
     machineName: string,
     currentState: string,
     event: FSMEvent,
-    sourceComponent?: string
+    sourceComponent?: string,
+    filters?: PropertyFilter[]
   ): Promise<number> {
     // Check if target component exists (only for in-memory broker)
     if (this.broker instanceof InMemoryMessageBroker) {
@@ -257,6 +264,7 @@ export class ComponentRegistry extends EventEmitter {
       targetMachine: machineName,
       targetState: currentState,
       event,
+      filters, // Include filters for distributed mode
     };
 
     const channel = `xcomponent:${componentName}`;
@@ -267,9 +275,14 @@ export class ComponentRegistry extends EventEmitter {
       const runtime = this.runtimes.get(componentName)!;
 
       // Get all instances of the target machine in the target state
-      const instances = runtime.getAllInstances().filter(
+      let instances = runtime.getAllInstances().filter(
         inst => inst.machineName === machineName && inst.currentState === currentState
       );
+
+      // Apply property filters if specified
+      if (filters && filters.length > 0) {
+        instances = instances.filter(inst => this.matchesFilters(inst, filters));
+      }
 
       // Send event to each matching instance
       let count = 0;
@@ -504,6 +517,59 @@ export class ComponentRegistry extends EventEmitter {
     }
 
     return [];
+  }
+
+  /**
+   * Check if an instance matches all property filters
+   *
+   * @param instance FSM instance to check
+   * @param filters Property filters to apply
+   * @returns true if instance matches ALL filters (AND logic)
+   */
+  private matchesFilters(instance: FSMInstance, filters: PropertyFilter[]): boolean {
+    for (const filter of filters) {
+      const value = this.getNestedProperty(instance.context, filter.property);
+      const operator = filter.operator || '===';
+
+      let matches = false;
+      switch (operator) {
+        case '===':
+          matches = value === filter.value;
+          break;
+        case '!==':
+          matches = value !== filter.value;
+          break;
+        case '>':
+          matches = value > filter.value;
+          break;
+        case '<':
+          matches = value < filter.value;
+          break;
+        case '>=':
+          matches = value >= filter.value;
+          break;
+        case '<=':
+          matches = value <= filter.value;
+          break;
+      }
+
+      if (!matches) {
+        return false; // AND logic: all filters must match
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Get nested property value from object using dot notation
+   *
+   * @param obj Object to get property from
+   * @param path Property path (e.g., "customer.id", "amount")
+   * @returns Property value or undefined
+   */
+  private getNestedProperty(obj: any, path: string): any {
+    return path.split('.').reduce((current, prop) => current?.[prop], obj);
   }
 
   /**

@@ -34,7 +34,8 @@ export {
   InMemoryMessageBroker,
   RedisMessageBroker,
   createMessageBroker,
-  CrossComponentMessage
+  CrossComponentMessage,
+  PropertyFilter
 } from './message-broker';
 export {
   ExternalBrokerAPI,

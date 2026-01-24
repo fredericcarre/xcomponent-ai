@@ -7,6 +7,15 @@ import { EventEmitter } from 'events';
 import { FSMEvent } from './types';
 
 /**
+ * Property filter for instance targeting
+ */
+export interface PropertyFilter {
+  property: string;
+  operator?: '===' | '!==' | '>' | '<' | '>=' | '<=';
+  value: any;
+}
+
+/**
  * Message sent between components
  */
 export interface CrossComponentMessage {
@@ -16,6 +25,8 @@ export interface CrossComponentMessage {
   targetState: string;
   event: FSMEvent;
   payload?: Record<string, any>;
+  /** Optional filters to target specific instances based on context properties */
+  filters?: PropertyFilter[];
 }
 
 /**

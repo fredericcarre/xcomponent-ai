@@ -137,10 +137,13 @@ export class PersistenceManager {
   async persistEvent(
     instanceId: string,
     machineName: string,
+    componentName: string,
     event: import('./types').FSMEvent,
     stateBefore: string,
     stateAfter: string,
-    causedBy?: string[]
+    causedBy?: string[],
+    sourceComponentName?: string,
+    targetComponentName?: string
   ): Promise<string> {
     if (!this.eventSourcingEnabled) {
       return '';
@@ -152,12 +155,15 @@ export class PersistenceManager {
       id: eventId,
       instanceId,
       machineName,
+      componentName,
       event,
       stateBefore,
       stateAfter,
       persistedAt: Date.now(),
       causedBy: causedBy || (this.currentEventId ? [this.currentEventId] : undefined),
       caused: [],
+      sourceComponentName,
+      targetComponentName,
     };
 
     await this.eventStore.append(persistedEvent);
@@ -268,6 +274,17 @@ export class PersistenceManager {
     }
 
     return await this.eventStore.getEventsForInstance(instanceId);
+  }
+
+  /**
+   * Get all events (for cross-component tracing)
+   */
+  async getAllEvents(): Promise<PersistedEvent[]> {
+    if (!this.eventSourcingEnabled) {
+      return [];
+    }
+
+    return await this.eventStore.getAllEvents();
   }
 
   /**

@@ -6,6 +6,7 @@
 import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import { FSMRuntime } from './fsm-runtime';
+import { ComponentRegistry } from './component-registry';
 import { WebSocketManager } from './websockets';
 import { monitoringService } from './monitoring';
 import { SupervisorAgent } from './agents';
@@ -22,14 +23,14 @@ export class APIServer {
   private app: express.Application;
   private httpServer: any;
   private wsManager: WebSocketManager;
-  private runtimes: Map<string, FSMRuntime>;
+  private registry: ComponentRegistry;
   private supervisor: SupervisorAgent;
 
   constructor() {
     this.app = express();
     this.httpServer = createServer(this.app);
     this.wsManager = new WebSocketManager(this.httpServer);
-    this.runtimes = new Map();
+    this.registry = new ComponentRegistry();
     this.supervisor = new SupervisorAgent();
 
     this.setupMiddleware();
@@ -75,7 +76,8 @@ export class APIServer {
         const component = yaml.parse(content) as Component;
 
         const runtime = new FSMRuntime(component);
-        this.runtimes.set(component.name, runtime);
+        runtime.setRegistry(this.registry);
+        this.registry.registerComponent(component, runtime);
         this.wsManager.registerRuntime(component.name, runtime);
 
         // Setup monitoring
@@ -100,7 +102,7 @@ export class APIServer {
         const machine = req.params.machine as string;
         const { context } = req.body;
 
-        const runtime = this.runtimes.get(component);
+        const runtime = this.registry.getRuntime(component);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -119,7 +121,7 @@ export class APIServer {
         const instanceId = req.params.instanceId as string;
         const event: FSMEvent = req.body;
 
-        const runtime = this.runtimes.get(component);
+        const runtime = this.registry.getRuntime(component);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -139,7 +141,7 @@ export class APIServer {
         const component = req.params.component as string;
         const instanceId = req.params.instanceId as string;
 
-        const runtime = this.runtimes.get(component);
+        const runtime = this.registry.getRuntime(component);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -160,7 +162,7 @@ export class APIServer {
       try {
         const component = req.params.component as string;
 
-        const runtime = this.runtimes.get(component);
+        const runtime = this.registry.getRuntime(component);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -217,7 +219,7 @@ export class APIServer {
     this.app.get('/api/:component/definition', (req: Request, res: Response) => {
       try {
         const componentName = req.params.component as string;
-        const runtime = this.runtimes.get(componentName);
+        const runtime = this.registry.getRuntime(componentName);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -235,7 +237,7 @@ export class APIServer {
         const componentName = req.params.component as string;
         const instanceId = req.params.instanceId as string;
 
-        const runtime = this.runtimes.get(componentName);
+        const runtime = this.registry.getRuntime(componentName);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -258,7 +260,7 @@ export class APIServer {
         const componentName = req.params.component as string;
         const instanceId = req.params.instanceId as string;
 
-        const runtime = this.runtimes.get(componentName);
+        const runtime = this.registry.getRuntime(componentName);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
@@ -270,19 +272,53 @@ export class APIServer {
       }
     });
 
-    // Trace event causality
+    // Trace event causality (single component)
     this.app.get('/api/:component/causality/:eventId', async (req: Request, res: Response) => {
       try {
         const componentName = req.params.component as string;
         const eventId = req.params.eventId as string;
 
-        const runtime = this.runtimes.get(componentName);
+        const runtime = this.registry.getRuntime(componentName);
         if (!runtime) {
           return res.status(404).json({ success: false, error: 'Component not found' });
         }
 
         const causality = await runtime.traceEventCausality(eventId);
         return res.json({ success: true, data: { causality } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Cross-component traceability: trace event across all components
+    this.app.get('/api/cross-component/causality/:eventId', async (req: Request, res: Response) => {
+      try {
+        const eventId = req.params.eventId as string;
+
+        const causality = await this.registry.traceEventAcrossComponents(eventId);
+        return res.json({ success: true, data: { causality, count: causality.length } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Cross-component traceability: get all events across all components
+    this.app.get('/api/cross-component/events', async (_req: Request, res: Response) => {
+      try {
+        const events = await this.registry.getAllPersistedEvents();
+        return res.json({ success: true, data: { events, count: events.length } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Cross-component traceability: get instance history across components
+    this.app.get('/api/cross-component/instance/:instanceId/history', async (req: Request, res: Response) => {
+      try {
+        const instanceId = req.params.instanceId as string;
+
+        const history = await this.registry.getInstanceHistory(instanceId);
+        return res.json({ success: true, data: { history, count: history.length } });
       } catch (error: any) {
         return res.status(500).json({ success: false, error: error.message });
       }

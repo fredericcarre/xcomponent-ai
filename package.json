@@ -1,25 +1,39 @@
 {
   "name": "xcomponent-ai",
   "version": "0.1.0",
-  "description": "Agentic FSM tool for fintech workflows - XComponent-inspired with LLM orchestration",
+  "description": "Event-driven FSM runtime with XComponent patterns: multi-instance state machines, cross-component communication, event sourcing, and production-ready persistence (PostgreSQL, MongoDB)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "engines": {
     "node": ">=20.0.0"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "PERSISTENCE.md",
+    "CONTRIBUTING.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
+    "clean": "rm -rf dist",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --ci --maxWorkers=2",
     "cli": "ts-node src/cli.ts",
     "api": "ts-node src/api.ts",
     "doc": "typedoc --out docs src",
     "lint": "eslint src/**/*.ts",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run clean && npm run build && npm test",
+    "preversion": "npm run lint && npm test",
+    "version": "git add -A",
+    "postversion": "git push && git push --tags"
   },
   "keywords": [
     "fsm",
     "state-machine",
+    "finite-state-machine",
     "agentic-ai",
     "langchain",
     "fintech",
@@ -27,13 +41,36 @@
     "trading",
     "kyc",
     "xcomponent",
-    "workflow"
+    "workflow",
+    "event-sourcing",
+    "event-driven",
+    "microservices",
+    "orchestration",
+    "saga-pattern",
+    "process-automation",
+    "business-logic",
+    "postgresql",
+    "mongodb",
+    "typescript",
+    "cross-component",
+    "multi-instance",
+    "persistence",
+    "real-time",
+    "websocket"
   ],
-  "author": "XComponent AI Contributors",
+  "author": {
+    "name": "XComponent AI Contributors",
+    "email": "dev@xcomponent.com"
+  },
   "license": "Apache-2.0",
+  "homepage": "https://github.com/fredericcarre/mayele-ai#readme",
+  "bugs": {
+    "url": "https://github.com/fredericcarre/mayele-ai/issues",
+    "email": "dev@xcomponent.com"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/fredericcarre/mayele-ai.git"
+    "url": "git+https://github.com/fredericcarre/mayele-ai.git"
   },
   "dependencies": {
     "@langchain/core": "^0.3.21",

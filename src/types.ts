@@ -43,22 +43,49 @@ export type GuardFunction = (event: FSMEvent, context: any) => boolean;
 /**
  * Sender interface for triggered methods
  * Allows state machines to send events to other instances (XComponent pattern)
+ *
+ * Supports both intra-component (within same component) and
+ * cross-component (between different components) communication
  */
 export interface Sender {
   /**
-   * Send event to specific instance by ID
+   * Send event to specific instance by ID (intra-component)
    */
   sendTo(instanceId: string, event: FSMEvent): Promise<void>;
 
   /**
-   * Broadcast event to instances matching property rules
+   * Send event to specific instance in another component (cross-component)
+   */
+  sendToComponent(componentName: string, instanceId: string, event: FSMEvent): Promise<void>;
+
+  /**
+   * Broadcast event to instances matching property rules (intra-component)
    */
   broadcast(machineName: string, currentState: string, event: FSMEvent): Promise<number>;
 
   /**
-   * Create new instance (inter-machine pattern)
+   * Broadcast event to instances in another component (cross-component)
+   */
+  broadcastToComponent(
+    componentName: string,
+    machineName: string,
+    currentState: string,
+    event: FSMEvent
+  ): Promise<number>;
+
+  /**
+   * Create new instance (intra-component)
    */
   createInstance(machineName: string, initialContext: Record<string, any>): string;
+
+  /**
+   * Create new instance in another component (cross-component)
+   */
+  createInstanceInComponent(
+    componentName: string,
+    machineName: string,
+    initialContext: Record<string, any>
+  ): string;
 }
 
 /**
@@ -313,6 +340,8 @@ export interface PersistedEvent {
   instanceId: string;
   /** Machine name */
   machineName: string;
+  /** Component name where this event occurred */
+  componentName: string;
   /** The FSM event */
   event: FSMEvent;
   /** State before transition */
@@ -325,6 +354,10 @@ export interface PersistedEvent {
   causedBy?: string[];
   /** Causality: IDs of events caused by this event */
   caused?: string[];
+  /** Cross-component: Source component name (if event originated from another component) */
+  sourceComponentName?: string;
+  /** Cross-component: Target component name (if event was sent to another component) */
+  targetComponentName?: string;
 }
 
 /**

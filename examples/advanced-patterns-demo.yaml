@@ -99,6 +99,26 @@ triggeredMethods:
       console.log(`[Order ${context.orderId}] COMPLETED - all quantity executed`);
       context.completedAt = Date.now();
       context.executionDuration = Date.now() - context.createdAt;
+
+      // BROADCAST WITHOUT SPECIFYING STATE
+      // Notify all risk monitors for this customer (any state)
+      await sender.broadcast(
+        'RiskMonitor',
+        {
+          type: 'ORDER_COMPLETED',
+          payload: {
+            orderId: context.orderId,
+            totalQuantity: context.totalQuantity,
+            executionDuration: context.executionDuration
+          },
+          timestamp: Date.now()
+        },
+        [
+          // Filter: only risk monitors for this customer
+          { property: 'customerId', value: context.customerId }
+        ]
+        // No currentState parameter = broadcast to all states
+      );
     }
 
   # Risk monitor receives updates
@@ -241,20 +261,24 @@ stateMachines:
 
       # PARALLEL TIMEOUT TRANSITION
       # Can expire from PartiallyExecuted if execution takes too long
-      # This competes with EXECUTION_NOTIFICATION transitions
+      # resetOnTransition: false means timer does NOT reset on self-loop
+      # Timer starts when entering PartiallyExecuted and runs for total time in state
       - from: PartiallyExecuted
         to: Expired
         event: TIMEOUT
         type: timeout
         timeoutMs: 30000  # 30 seconds
+        resetOnTransition: false  # Don't reset on self-loop (PartiallyExecuted → PartiallyExecuted)
         triggeredMethod: handleExpiration
 
       # Can also expire from Submitted
+      # resetOnTransition: true (default) means timer resets on each transition
       - from: Submitted
         to: Expired
         event: TIMEOUT
         type: timeout
         timeoutMs: 30000
+        resetOnTransition: true  # Reset timer if we transition back to Submitted (default behavior)
         triggeredMethod: handleExpiration
 
   # Risk Monitor - receives broadcasts from orders

@@ -187,10 +187,10 @@ export class ExternalBrokerAPI {
         await this.registry.broadcastToComponent(
           cmd.componentName,
           cmd.machineName,
-          cmd.currentState,
           cmd.event,
           'external',
-          cmd.filters // Pass filters for targeted broadcast
+          cmd.filters, // Pass filters for targeted broadcast
+          cmd.currentState
         );
       } catch (error) {
         console.error('[ExternalBrokerAPI] Broadcast error:', error);

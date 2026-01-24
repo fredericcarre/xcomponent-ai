@@ -75,26 +75,30 @@ export interface Sender {
    * Broadcast event to instances (intra-component)
    *
    * @param machineName Target state machine name
-   * @param currentState Current state filter (only instances in this state)
    * @param event Event to broadcast
    * @param filters Optional property filters to target specific instances
+   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
    * @returns Number of instances that received the event
    *
    * @example
-   * // Broadcast to all Orders in Pending state
-   * await sender.broadcast('Order', 'Pending', {type: 'TIMEOUT', payload: {}});
+   * // Broadcast to all Orders (any state)
+   * await sender.broadcast('Order', {type: 'SYSTEM_ALERT', payload: {}});
    *
    * @example
-   * // Broadcast only to orders for a specific customer
-   * await sender.broadcast('Order', 'Pending', {type: 'TIMEOUT', payload: {}}, [
+   * // Broadcast to Orders in Pending state only
+   * await sender.broadcast('Order', {type: 'TIMEOUT', payload: {}}, [], 'Pending');
+   *
+   * @example
+   * // Broadcast only to orders for a specific customer (any state)
+   * await sender.broadcast('Order', {type: 'CUSTOMER_UPDATE', payload: {}}, [
    *   {property: 'customerId', value: 'CUST-001'}
    * ]);
    */
   broadcast(
     machineName: string,
-    currentState: string,
     event: FSMEvent,
-    filters?: PropertyFilter[]
+    filters?: PropertyFilter[],
+    currentState?: string
   ): Promise<number>;
 
   /**
@@ -102,17 +106,17 @@ export interface Sender {
    *
    * @param componentName Target component name
    * @param machineName Target state machine name
-   * @param currentState Current state filter
    * @param event Event to broadcast
    * @param filters Optional property filters to target specific instances
+   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
    * @returns Number of instances that received the event
    */
   broadcastToComponent(
     componentName: string,
     machineName: string,
-    currentState: string,
     event: FSMEvent,
-    filters?: PropertyFilter[]
+    filters?: PropertyFilter[],
+    currentState?: string
   ): Promise<number>;
 
   /**
@@ -272,6 +276,24 @@ export interface Transition {
   guards?: Guard[];
   /** Timeout in milliseconds (for TIMEOUT type) */
   timeoutMs?: number;
+  /**
+   * Reset timeout on any transition to this state (for TIMEOUT type)
+   *
+   * false (default): Timer runs for total time in state (doesn't reset on self-loop)
+   * true: Timer resets every time instance enters this state (including self-loops)
+   *
+   * Example with resetOnTransition: false (default):
+   *   - Enter PartiallyExecuted at T=0, timeout=30s
+   *   - Self-loop at T=10s (PartiallyExecuted → PartiallyExecuted)
+   *   - Timeout fires at T=30s (total time in state)
+   *
+   * Example with resetOnTransition: true:
+   *   - Enter PartiallyExecuted at T=0, timeout=30s
+   *   - Self-loop at T=10s → timer RESETS to 30s
+   *   - Self-loop at T=25s → timer RESETS to 30s again
+   *   - Timeout fires at T=55s (30s after last transition)
+   */
+  resetOnTransition?: boolean;
   /** Target machine for inter-machine transitions */
   targetMachine?: string;
   /** Triggered method name */

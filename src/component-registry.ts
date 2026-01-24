@@ -72,12 +72,22 @@ export class ComponentRegistry extends EventEmitter {
     // Subscribe to messages for this component via message broker
     this.broker.subscribe(component.name, async (message: CrossComponentMessage) => {
       try {
-        // Get all instances of the target machine in the target state
-        let instances = runtime.getAllInstances().filter(
-          inst =>
-            inst.machineName === message.targetMachine &&
-            inst.currentState === message.targetState
-        );
+        // Get instances of the target machine
+        let instances: FSMInstance[];
+
+        if (!message.targetState || message.targetState === '*') {
+          // Broadcast to all instances of this machine (any state)
+          instances = runtime.getAllInstances().filter(
+            inst => inst.machineName === message.targetMachine
+          );
+        } else {
+          // Filter by specific state
+          instances = runtime.getAllInstances().filter(
+            inst =>
+              inst.machineName === message.targetMachine &&
+              inst.currentState === message.targetState
+          );
+        }
 
         // Apply property filters if specified
         if (message.filters && message.filters.length > 0) {
@@ -235,19 +245,19 @@ export class ComponentRegistry extends EventEmitter {
    *
    * @param componentName Target component name
    * @param machineName Target machine name
-   * @param currentState Current state filter
    * @param event Event to broadcast
    * @param sourceComponent Source component name (for tracing)
    * @param filters Optional property filters to target specific instances
+   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
    * @returns Number of instances processed
    */
   async broadcastToComponent(
     componentName: string,
     machineName: string,
-    currentState: string,
     event: FSMEvent,
     sourceComponent?: string,
-    filters?: PropertyFilter[]
+    filters?: PropertyFilter[],
+    currentState?: string
   ): Promise<number> {
     // Check if target component exists (only for in-memory broker)
     if (this.broker instanceof InMemoryMessageBroker) {
@@ -262,7 +272,7 @@ export class ComponentRegistry extends EventEmitter {
       sourceComponent: sourceComponent || 'unknown',
       targetComponent: componentName,
       targetMachine: machineName,
-      targetState: currentState,
+      targetState: currentState || '*',
       event,
       filters, // Include filters for distributed mode
     };
@@ -274,10 +284,20 @@ export class ComponentRegistry extends EventEmitter {
     if (this.broker instanceof InMemoryMessageBroker) {
       const runtime = this.runtimes.get(componentName)!;
 
-      // Get all instances of the target machine in the target state
-      let instances = runtime.getAllInstances().filter(
-        inst => inst.machineName === machineName && inst.currentState === currentState
-      );
+      // Get instances of the target machine
+      let instances: FSMInstance[];
+
+      if (!currentState || currentState === '*') {
+        // Broadcast to all instances of this machine (any state)
+        instances = runtime.getAllInstances().filter(
+          inst => inst.machineName === machineName
+        );
+      } else {
+        // Filter by specific state
+        instances = runtime.getAllInstances().filter(
+          inst => inst.machineName === machineName && inst.currentState === currentState
+        );
+      }
 
       // Apply property filters if specified
       if (filters && filters.length > 0) {
@@ -326,7 +346,7 @@ export class ComponentRegistry extends EventEmitter {
 
     for (const [componentName, runtime] of this.runtimes) {
       try {
-        const count = await runtime.broadcastEvent(machineName, currentState, event);
+        const count = await runtime.broadcastEvent(machineName, event, undefined, currentState);
         total += count;
       } catch (error) {
         this.emit('broadcast_error', {

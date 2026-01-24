@@ -13,6 +13,7 @@ export * from './websockets';
 export * from './component-registry';
 export * from './persistence';
 export * from './timer-wheel';
+export * from './message-broker';
 
 // Main exports
 export { FSMRuntime, loadComponent } from './fsm-runtime';
@@ -27,3 +28,10 @@ export {
   PersistenceManager
 } from './persistence';
 export { TimerWheel } from './timer-wheel';
+export {
+  MessageBroker,
+  InMemoryMessageBroker,
+  RedisMessageBroker,
+  createMessageBroker,
+  CrossComponentMessage
+} from './message-broker';

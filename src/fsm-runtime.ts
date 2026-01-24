@@ -925,7 +925,8 @@ export class FSMRuntime extends EventEmitter {
         rule.targetComponent,
         rule.targetMachine,
         rule.targetState,
-        event
+        event,
+        this.componentDef.name // Pass source component name
       );
 
       this.emit('cross_component_cascade', {

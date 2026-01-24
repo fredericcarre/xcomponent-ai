@@ -61,12 +61,20 @@ stateMachines:
 ### Step 2: Use CLI
 
 ```bash
-# Multi-component support (NEW!)
+# In-Memory Mode (single process, default)
 xcomponent-ai serve fsm/trading.yaml fsm/settlement.yaml
 
-# Dashboard with real-time WebSocket (NEW!)
+# Distributed Mode (multi-process via Redis) - NEW in v0.3.0!
+xcomponent-ai serve fsm/trading.yaml --broker redis://localhost:6379
+
+# Dashboard with real-time WebSocket
 # → http://localhost:3000/dashboard.html
 ```
+
+**Distributed Mode** allows running components in **separate processes** with zero code changes:
+- Same YAML files work in both modes
+- Switch via `--broker` flag or `XCOMPONENT_BROKER_URL` env variable
+- Supports Redis Pub/Sub for production scaling
 
 ### Step 3: Integrate with Code
 
@@ -191,6 +199,41 @@ Returns Mermaid `stateDiagram-v2` syntax with:
 - State styling (entry/orange, final/green, error/red)
 - Transitions with guards
 - State descriptions as notes
+
+### 6. Distributed Mode (Multi-Process)
+
+Run components in **separate processes** communicating via Redis:
+
+```bash
+# Process 1: OrderComponent
+xcomponent-ai serve order.yaml --port 3001 --broker redis://localhost:6379
+
+# Process 2: PaymentComponent (in another terminal/server)
+xcomponent-ai serve payment.yaml --port 3002 --broker redis://localhost:6379
+```
+
+**Key features:**
+- **Zero code changes**: Same YAML files work in both in-memory and distributed modes
+- **Horizontal scaling**: Run multiple instances of each component
+- **Message broker abstraction**: Currently supports Redis Pub/Sub, extensible to NATS/RabbitMQ
+- **Cross-process cascadingRules**: Automatic routing via Redis channels
+- **Environment variable support**: `XCOMPONENT_BROKER_URL=redis://...`
+
+**Example:**
+```yaml
+# order.yaml - runs in Process 1
+states:
+  - name: Validated
+    cascadingRules:
+      - targetComponent: PaymentComponent  # Process 2!
+        targetMachine: Payment
+        targetState: Pending
+        event: PROCESS
+```
+
+When Order transitions to "Validated" in Process 1, Redis automatically delivers the PROCESS event to PaymentComponent in Process 2.
+
+See: `examples/distributed-demo/` for complete working example.
 
 ---
 

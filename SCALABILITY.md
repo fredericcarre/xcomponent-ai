@@ -187,6 +187,20 @@ app.listen(3001);
 
 **Use Redis Pub/Sub, NATS, RabbitMQ, or Kafka for async communication.**
 
+**✨ NEW in v0.3.0:** Redis Pub/Sub is now **built-in**! Use the `--broker` flag:
+
+```bash
+# Process 1 (OrderComponent)
+xcomponent-ai serve order.yaml --port 3001 --broker redis://localhost:6379
+
+# Process 2 (PaymentComponent)
+xcomponent-ai serve payment.yaml --port 3002 --broker redis://localhost:6379
+```
+
+Your YAML cascadingRules automatically work across processes! See `examples/distributed-demo/` for a complete working example.
+
+**Manual implementation** (if you need custom logic):
+
 ```typescript
 // order-service/index.ts
 import { FSMRuntime } from 'xcomponent-ai';

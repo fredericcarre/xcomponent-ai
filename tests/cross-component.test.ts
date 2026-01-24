@@ -194,12 +194,14 @@ describe('Cross-Component Communication', () => {
         const result = await registry.broadcastToComponent(
           'ShippingComponent',
           'Shipment',
-          'Created',
           {
             type: 'SHIP',
             payload: { shipmentId: id },
             timestamp: Date.now(),
-          }
+          },
+          'OrderComponent',
+          undefined,
+          'Created'
         );
         count += result;
       }
@@ -214,11 +216,18 @@ describe('Cross-Component Communication', () => {
 
     it('should throw error for non-existent component', async () => {
       await expect(
-        registry.broadcastToComponent('NonExistentComponent', 'Order', 'Pending', {
-          type: 'CONFIRM',
-          payload: {},
-          timestamp: Date.now(),
-        })
+        registry.broadcastToComponent(
+          'NonExistentComponent',
+          'Order',
+          {
+            type: 'CONFIRM',
+            payload: {},
+            timestamp: Date.now(),
+          },
+          'OrderComponent',
+          undefined,
+          'Pending'
+        )
       ).rejects.toThrow('Component NonExistentComponent not found');
     });
   });

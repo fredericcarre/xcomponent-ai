@@ -6,7 +6,7 @@ import { ComponentRegistry } from '../../src/component-registry';
 import { FSMRuntime } from '../../src/fsm-runtime';
 import { InMemoryMessageBroker } from '../../src/message-broker';
 import { ExternalBrokerAPI } from '../../src/external-broker-api';
-import { Component, FSMEvent } from '../../src/types';
+import { Component, StateType, TransitionType } from '../../src/types';
 
 // Test components
 const orderComponent: Component = {
@@ -17,10 +17,10 @@ const orderComponent: Component = {
       name: 'Order',
       initialState: 'Created',
       states: [
-        { name: 'Created', type: 'entry' },
+        { name: 'Created', type: StateType.ENTRY },
         {
           name: 'Validated',
-          type: 'regular',
+          type: StateType.REGULAR,
           cascadingRules: [
             {
               targetComponent: 'PaymentComponent',
@@ -34,20 +34,20 @@ const orderComponent: Component = {
             },
           ],
         },
-        { name: 'Completed', type: 'final' },
+        { name: 'Completed', type: StateType.FINAL },
       ],
       transitions: [
         {
           from: 'Created',
           to: 'Validated',
           event: 'VALIDATE',
-          type: 'triggerable',
+          type: TransitionType.REGULAR,
         },
         {
           from: 'Validated',
           to: 'Completed',
           event: 'COMPLETE',
-          type: 'triggerable',
+          type: TransitionType.REGULAR,
         },
       ],
     },
@@ -62,29 +62,29 @@ const paymentComponent: Component = {
       name: 'Payment',
       initialState: 'Pending',
       states: [
-        { name: 'Pending', type: 'entry' },
-        { name: 'Processing', type: 'regular' },
-        { name: 'Completed', type: 'final' },
-        { name: 'Failed', type: 'error' },
+        { name: 'Pending', type: StateType.ENTRY },
+        { name: 'Processing', type: StateType.REGULAR },
+        { name: 'Completed', type: StateType.FINAL },
+        { name: 'Failed', type: StateType.ERROR },
       ],
       transitions: [
         {
           from: 'Pending',
           to: 'Processing',
           event: 'PROCESS',
-          type: 'triggerable',
+          type: TransitionType.REGULAR,
         },
         {
           from: 'Processing',
           to: 'Completed',
           event: 'CONFIRM',
-          type: 'triggerable',
+          type: TransitionType.REGULAR,
         },
         {
           from: 'Processing',
           to: 'Failed',
           event: 'FAIL',
-          type: 'triggerable',
+          type: TransitionType.REGULAR,
         },
       ],
     },
@@ -123,7 +123,7 @@ describe('Message Broker Integration', () => {
       });
 
       // Send VALIDATE to Order
-      await orderRuntime.sendEvent(orderId, { type: 'VALIDATE', timestamp: Date.now() });
+      await orderRuntime.sendEvent(orderId, { type: 'VALIDATE', payload: {}, timestamp: Date.now() });
 
       // Wait for async cascade
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -157,8 +157,10 @@ describe('Message Broker Integration', () => {
       const count = await registry.broadcastToComponent(
         'PaymentComponent',
         'Payment',
-        'Pending',
-        { type: 'PROCESS', timestamp: Date.now() }
+        { type: 'PROCESS', payload: {}, timestamp: Date.now() },
+        'OrderComponent',
+        undefined,
+        'Pending'
       );
 
       expect(count).toBe(3);
@@ -201,7 +203,7 @@ describe('Message Broker Integration', () => {
         targetComponent: 'external:commands',
         targetMachine: '',
         targetState: '',
-        event: { type: 'VALIDATE', timestamp: Date.now() },
+        event: { type: 'VALIDATE', payload: {}, timestamp: Date.now() },
         componentName: 'OrderComponent',
         instanceId: orderId,
       } as any);
@@ -245,7 +247,7 @@ describe('Message Broker Integration', () => {
         amount: 5000,
       });
 
-      await runtime.sendEvent(orderId, { type: 'VALIDATE', timestamp: Date.now() });
+      await runtime.sendEvent(orderId, { type: 'VALIDATE', payload: {}, timestamp: Date.now() });
 
       // Wait for event publication
       await new Promise(resolve => setTimeout(resolve, 100));

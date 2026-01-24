@@ -166,11 +166,11 @@ describe('Sender Interface (XComponent-style)', () => {
       runtime.on('triggered_method', async (data: any) => {
         if (data.method === 'triggerOrderExecution' && data.sender) {
           // Broadcast execution to Order #2
-          broadcastCount = await data.sender.broadcast('Order', 'Pending', {
+          broadcastCount = await data.sender.broadcast('Order', {
             type: 'EXECUTION',
             payload: { OrderId: 2, Quantity: 150 },
             timestamp: Date.now(),
-          });
+          }, 'Pending');
         }
       });
 
@@ -357,11 +357,11 @@ describe('Sender Interface (XComponent-style)', () => {
       runtime.on('triggered_method', async (data: any) => {
         if (data.method === 'onOrderConfirmed' && data.sender) {
           // Reserve inventory
-          await data.sender.broadcast('Inventory', 'Available', {
+          await data.sender.broadcast('Inventory', {
             type: 'RESERVE',
             payload: { ProductId: data.context.ProductId, Quantity: data.context.Quantity },
             timestamp: Date.now(),
-          });
+          }, 'Available');
 
           // Create shipment
           data.sender.createInstance('Shipment', {

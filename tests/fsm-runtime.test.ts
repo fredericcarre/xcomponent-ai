@@ -31,7 +31,6 @@ describe('FSMRuntime', () => {
             to: 'Success',
             event: 'COMPLETE',
             type: TransitionType.REGULAR,
-            guards: [{ keys: ['result'] }],
           },
           {
             from: 'Processing',

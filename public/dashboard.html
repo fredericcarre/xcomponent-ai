@@ -3,847 +3,510 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>XComponent AI - Enhanced Dashboard</title>
-
-  <!-- External Dependencies -->
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+  <title>xcomponent-ai Dashboard</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-
   <style>
+    /* Reset & Base */
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: #f5f7fa;
-      color: #2c3e50;
-    }
-
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 1.5rem 2rem;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-
-    .header h1 {
-      font-size: 1.75rem;
-      font-weight: 600;
-      margin-bottom: 0.25rem;
-    }
-
-    .header .subtitle {
-      opacity: 0.9;
-      font-size: 0.875rem;
-    }
-
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 2rem;
-    }
-
-    .card {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1rem;
-      padding-bottom: 0.75rem;
-      border-bottom: 2px solid #e9ecef;
-    }
-
-    .card-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: #2c3e50;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      border-radius: 12px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-
-    .badge-primary { background: #667eea; color: white; }
-    .badge-success { background: #10b981; color: white; }
-    .badge-danger { background: #ef4444; color: white; }
-    .badge-warning { background: #f59e0b; color: white; }
-    .badge-info { background: #3b82f6; color: white; }
-
-    .btn {
-      display: inline-block;
-      padding: 0.5rem 1rem;
-      border-radius: 6px;
-      border: none;
-      font-size: 0.875rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-decoration: none;
-    }
-
-    .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-    .btn-primary { background: #667eea; color: white; }
-    .btn-success { background: #10b981; color: white; }
-    .btn-danger { background: #ef4444; color: white; }
-    .btn-secondary { background: #6b7280; color: white; }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
-
-    .grid {
-      display: grid;
-      gap: 1.5rem;
-    }
-
-    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-
-    .instance-card {
-      border: 2px solid #e9ecef;
-      border-radius: 8px;
-      padding: 1rem;
-      cursor: pointer;
-      transition: all 0.2s;
-      position: relative;
-    }
-
-    .instance-card:hover {
-      border-color: #667eea;
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
-    }
-
-    .instance-card.selected {
-      border-color: #667eea;
-      background: #f8f9ff;
-    }
-
-    .instance-id {
-      font-family: 'Courier New', monospace;
-      font-size: 0.8125rem;
-      color: #6b7280;
-      margin-bottom: 0.5rem;
-    }
-
-    .instance-machine {
-      font-weight: 600;
-      font-size: 1rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .instance-state {
-      font-size: 0.875rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid #e9ecef;
-      margin-bottom: 1.5rem;
-    }
-
-    .tab {
-      padding: 0.75rem 1.5rem;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      font-weight: 500;
-      color: #6b7280;
-      transition: all 0.2s;
-      margin-bottom: -2px;
-    }
-
-    .tab:hover { color: #667eea; }
-    .tab.active { color: #667eea; border-bottom-color: #667eea; }
-
-    .tab-content {
-      display: none;
-    }
-
-    .tab-content.active {
-      display: block;
-      animation: fadeIn 0.3s;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .json-viewer {
-      background: #f8f9fa;
-      border: 1px solid #e9ecef;
-      border-radius: 6px;
-      padding: 1rem;
-      font-family: 'Courier New', monospace;
-      font-size: 0.8125rem;
-      overflow-x: auto;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-
-    .diagram-container {
-      background: #f8f9fa;
-      border: 1px solid #e9ecef;
-      border-radius: 6px;
-      padding: 2rem;
-      overflow-x: auto;
-    }
-
-    .timeline {
-      position: relative;
-      padding-left: 2rem;
-    }
-
-    .timeline-item {
-      position: relative;
-      padding-bottom: 1.5rem;
-    }
-
-    .timeline-item:before {
-      content: '';
-      position: absolute;
-      left: -1.5rem;
-      top: 0.5rem;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #667eea;
-      border: 3px solid white;
-      box-shadow: 0 0 0 2px #667eea;
-    }
-
-    .timeline-item:after {
-      content: '';
-      position: absolute;
-      left: -1.06rem;
-      top: 1.25rem;
-      width: 2px;
-      height: calc(100% - 0.5rem);
-      background: #e9ecef;
-    }
-
-    .timeline-item:last-child:after {
-      display: none;
-    }
-
-    .timeline-content {
-      background: #f8f9fa;
-      border: 1px solid #e9ecef;
-      border-radius: 6px;
-      padding: 0.75rem 1rem;
-    }
-
-    .timeline-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.5rem;
-    }
-
-    .timeline-event {
-      font-weight: 600;
-      color: #2c3e50;
-    }
-
-    .timeline-time {
-      font-size: 0.75rem;
-      color: #6b7280;
-    }
-
-    .timeline-transition {
-      font-size: 0.875rem;
-      color: #6b7280;
-    }
-
-    .form-group {
-      margin-bottom: 1rem;
-    }
-
-    .form-label {
-      display: block;
-      font-weight: 500;
-      margin-bottom: 0.5rem;
-      color: #374151;
-    }
-
-    .form-select,
-    .form-textarea {
-      width: 100%;
-      padding: 0.5rem 0.75rem;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      font-size: 0.875rem;
-      transition: border-color 0.2s;
-    }
-
-    .form-select:focus,
-    .form-textarea:focus {
-      outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-
-    .form-textarea {
-      font-family: 'Courier New', monospace;
-      min-height: 100px;
-      resize: vertical;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 3rem 1rem;
-      color: #6b7280;
-    }
-
-    .empty-state-icon {
-      font-size: 3rem;
-      margin-bottom: 1rem;
-    }
-
-    .loading {
-      text-align: center;
-      padding: 2rem;
-      color: #6b7280;
-    }
-
-    .spinner {
-      border: 3px solid #f3f4f6;
-      border-top: 3px solid #667eea;
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      animation: spin 1s linear infinite;
-      margin: 0 auto;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .connection-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.875rem;
-    }
-
-    .status-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #10b981;
-      animation: pulse 2s infinite;
-    }
-
-    .status-indicator.disconnected {
-      background: #ef4444;
-      animation: none;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; color: #24292e; }
+    .container { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    
+    /* Header */
+    .header { background: #24292e; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 24px; }
+    .header .status { display: flex; align-items: center; gap: 15px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .status-dot.connected { background: #28a745; box-shadow: 0 0 8px #28a745; }
+    .status-dot.disconnected { background: #d73a49; }
+    .header-links { display: flex; gap: 10px; }
+    .header-links a { padding: 8px 16px; background: rgba(255,255,255,0.1); border-radius: 4px; color: white; text-decoration: none; font-size: 14px; }
+    .header-links a:hover { background: rgba(255,255,255,0.2); }
+    
+    /* Stats Cards */
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 20px; }
+    .stat-card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .stat-value { font-size: 32px; font-weight: 700; color: #0366d6; }
+    .stat-label { font-size: 12px; color: #586069; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    /* Tabs */
+    .tabs { display: flex; background: white; border-radius: 8px 8px 0 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+    .tab { flex: 1; padding: 15px; text-align: center; cursor: pointer; color: #586069; font-weight: 600; border-bottom: 3px solid transparent; transition: all 0.3s; }
+    .tab:hover { background: #f6f8fa; }
+    .tab.active { color: #0366d6; border-bottom-color: #0366d6; background: #f6f8fa; }
+    
+    /* Tab Content */
+    .tab-content { display: none; background: white; padding: 20px; border-radius: 0 0 8px 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); min-height: 600px; }
+    .tab-content.active { display: block; }
+    
+    /* Grid Layouts */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    
+    /* Card */
+    .card { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; }
+    .card h2 { font-size: 16px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #0366d6; }
+    
+    /* Form */
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 14px; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #d1d5da; border-radius: 4px; font-size: 14px; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #0366d6; box-shadow: 0 0 0 3px rgba(3,102,214,0.1); }
+    .form-help { font-size: 12px; color: #586069; margin-top: 4px; }
+    
+    /* Button */
+    .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+    .btn-primary { background: #0366d6; color: white; }
+    .btn-primary:hover { background: #0256c7; }
+    .btn-success { background: #28a745; color: white; }
+    .btn-success:hover { background: #22863a; }
+    .btn-danger { background: #d73a49; color: white; }
+    .btn-danger:hover { background: #cb2431; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    
+    /* Instance List */
+    .instance-list { max-height: 500px; overflow-y: auto; }
+    .instance-item { background: white; border: 1px solid #e1e4e8; padding: 15px; margin-bottom: 10px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+    .instance-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); transform: translateY(-1px); }
+    .instance-item.selected { border-color: #0366d6; background: #f1f8ff; }
+    .instance-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .instance-id { font-weight: 700; color: #0366d6; font-family: monospace; font-size: 13px; }
+    .badge { padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge.active { background: #dbedff; color: #0366d6; }
+    .badge.final { background: #dcffe4; color: #28a745; }
+    .badge.error { background: #ffdce0; color: #d73a49; }
+    .instance-meta { font-size: 13px; color: #586069; line-height: 1.6; }
+    
+    /* Blotter */
+    .blotter { background: #24292e; border-radius: 6px; padding: 15px; max-height: 600px; overflow-y: auto; }
+    .blotter-item { border-left: 3px solid #0366d6; background: #2d333b; padding: 10px 12px; margin-bottom: 8px; font-family: monospace; font-size: 12px; border-radius: 0 4px 4px 0; }
+    .blotter-item.created { border-color: #28a745; }
+    .blotter-item.error { border-color: #d73a49; }
+    .blotter-item.cross-component { border-color: #f66a0a; }
+    .blotter-time { color: #8b949e; font-size: 11px; }
+    .blotter-content { color: #c9d1d9; margin-top: 4px; }
+    .blotter-source { color: #f66a0a; font-size: 11px; margin-top: 4px; }
+    
+    /* Mermaid */
+    .mermaid-container { background: white; border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; overflow-x: auto; }
+    
+    /* Sequence */
+    .sequence-container { max-height: 600px; overflow-y: auto; }
+    .sequence-item { display: flex; align-items: center; padding: 12px; margin-bottom: 8px; border-left: 3px solid #0366d6; background: #f6f8fa; border-radius: 0 4px 4px 0; }
+    .sequence-time { min-width: 80px; font-size: 11px; color: #586069; font-family: monospace; }
+    .sequence-arrow { margin: 0 15px; color: #0366d6; }
+    .sequence-content { flex: 1; }
+    .sequence-event { font-weight: 600; font-size: 14px; }
+    .sequence-detail { font-size: 12px; color: #586069; margin-top: 4px; }
+    
+    /* Empty State */
+    .empty-state { text-align: center; padding: 60px 20px; color: #959da5; }
+    .empty-state-icon { font-size: 48px; margin-bottom: 15px; }
+    
+    /* Filter */
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; padding: 15px; background: #f6f8fa; border-radius: 6px; }
+    .filter-bar input, .filter-bar select { flex: 1; }
+    
+    /* Component Selector */
+    .component-selector { margin-bottom: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; }
+    .component-selector label { display: block; font-weight: 600; margin-bottom: 8px; }
+    .component-selector select { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #d1d5da; }
   </style>
 </head>
 <body>
-  <div id="app">
+  <div class="container">
     <div class="header">
-      <h1>🤖 XComponent AI - Enhanced Dashboard</h1>
-      <div class="subtitle">
-        Real-time State Machine Monitoring & Control
-        <span class="connection-status" style="float: right;">
-          <span :class="['status-indicator', { disconnected: !connected }]"></span>
-          {{ connected ? 'Connected' : 'Disconnected' }}
-        </span>
+      <div>
+        <h1>📊 xcomponent-ai Dashboard</h1>
+        <div class="status">
+          <span class="status-dot" id="ws-status"></span>
+          <span id="component-name">Loading...</span>
+        </div>
+      </div>
+      <div class="header-links">
+        <a href="/api-docs" target="_blank">📖 API Docs</a>
+        <a href="#" onclick="exportState()">💾 Export</a>
       </div>
     </div>
-
-    <div class="container">
-      <!-- Component Selector -->
-      <div class="card" v-if="components.length > 0">
-        <div class="card-header">
-          <div class="card-title">Component</div>
+    
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total Instances</div></div>
+      <div class="stat-card"><div class="stat-value" id="stat-active">0</div><div class="stat-label">Active</div></div>
+      <div class="stat-card"><div class="stat-value" id="stat-final">0</div><div class="stat-label">Final</div></div>
+      <div class="stat-card"><div class="stat-value" id="stat-error">0</div><div class="stat-label">Error</div></div>
+      <div class="stat-card"><div class="stat-value" id="stat-events">0</div><div class="stat-label">Events</div></div>
+    </div>
+    
+    <div class="component-selector">
+      <label for="component-select">Component:</label>
+      <select id="component-select" onchange="selectComponent()">
+        <option value="">Select a component...</option>
+      </select>
+    </div>
+    
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('overview')">Overview</div>
+      <div class="tab" onclick="switchTab('diagram')">FSM Diagram</div>
+      <div class="tab" onclick="switchTab('blotter')">Event Blotter</div>
+      <div class="tab" onclick="switchTab('traceability')">Traceability</div>
+      <div class="tab" onclick="switchTab('create')">Create Instance</div>
+    </div>
+    
+    <div class="tab-content active" id="tab-overview">
+      <div class="filter-bar">
+        <input type="text" id="filter-instance" placeholder="Filter by instance ID..." oninput="filterInstances()">
+        <select id="filter-machine" onchange="filterInstances()">
+          <option value="">All Machines</option>
+        </select>
+        <select id="filter-state" onchange="filterInstances()">
+          <option value="">All States</option>
+        </select>
+      </div>
+      <div class="instance-list" id="instance-list">
+        <div class="empty-state">
+          <div class="empty-state-icon">📭</div>
+          <div>No instances yet. Create one in the "Create Instance" tab.</div>
         </div>
-        <div class="form-group" style="margin-bottom: 0;">
-          <select v-model="selectedComponent" @change="loadInstances" class="form-select">
-            <option value="">Select a component...</option>
-            <option v-for="comp in components" :key="comp" :value="comp">{{ comp }}</option>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="tab-diagram">
+      <div class="form-group">
+        <label for="diagram-machine">State Machine:</label>
+        <select id="diagram-machine" onchange="renderDiagram()">
+          <option value="">Select a state machine...</option>
+        </select>
+      </div>
+      <div class="mermaid-container" id="diagram-container">
+        <div class="empty-state">
+          <div class="empty-state-icon">🎨</div>
+          <div>Select a state machine to view its diagram</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="tab-blotter">
+      <div class="filter-bar">
+        <input type="text" id="blotter-filter" placeholder="Filter events..." oninput="filterBlotter()">
+        <select id="blotter-type" onchange="filterBlotter()">
+          <option value="">All Events</option>
+          <option value="state-change">State Changes</option>
+          <option value="created">Created</option>
+          <option value="error">Errors</option>
+          <option value="cross-component">Cross-Component</option>
+        </select>
+        <button class="btn btn-sm btn-danger" onclick="clearBlotter()">Clear</button>
+      </div>
+      <div class="blotter" id="event-blotter">
+        <div style="color: #8b949e; text-align: center; padding: 40px;">Waiting for events...</div>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="tab-traceability">
+      <div class="form-group">
+        <label for="trace-instance">Instance:</label>
+        <select id="trace-instance" onchange="loadTrace()">
+          <option value="">Select an instance...</option>
+        </select>
+      </div>
+      <div class="sequence-container" id="trace-container">
+        <div class="empty-state">
+          <div class="empty-state-icon">🔍</div>
+          <div>Select an instance to view its history</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="tab-create">
+      <div class="card">
+        <h2>Create New Instance</h2>
+        <div class="form-group">
+          <label for="create-machine">State Machine *</label>
+          <select id="create-machine" onchange="updateCreateForm()">
+            <option value="">Select a state machine...</option>
           </select>
         </div>
-      </div>
-
-      <!-- Instances Grid -->
-      <div class="card" v-if="selectedComponent && instances.length > 0">
-        <div class="card-header">
-          <div class="card-title">Active Instances</div>
-          <span class="badge badge-primary">{{ instances.length }} active</span>
-        </div>
-        <div class="grid grid-2">
-          <div
-            v-for="instance in instances"
-            :key="instance.id"
-            :class="['instance-card', { selected: selectedInstance?.id === instance.id }]"
-            @click="selectInstance(instance)"
-          >
-            <div class="instance-id">{{ instance.id }}</div>
-            <div class="instance-machine">{{ instance.machineName }}</div>
-            <div class="instance-state">
-              State: <span :class="'badge badge-' + getStateColor(instance.currentState)">{{ instance.currentState }}</span>
-            </div>
-            <div style="font-size: 0.75rem; color: #6b7280;">
-              Created: {{ new Date(instance.createdAt).toLocaleString() }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Instance Details -->
-      <div class="card" v-if="selectedInstance">
-        <div class="card-header">
-          <div class="card-title">Instance Details</div>
-          <span class="badge badge-info">{{ selectedInstance.machineName }}</span>
-        </div>
-
-        <div class="tabs">
-          <div
-            v-for="tab in tabs"
-            :key="tab.id"
-            :class="['tab', { active: activeTab === tab.id }]"
-            @click="activeTab = tab.id"
-          >
-            {{ tab.label }}
-          </div>
-        </div>
-
-        <!-- Overview Tab -->
-        <div :class="['tab-content', { active: activeTab === 'overview' }]">
-          <h3 style="margin-bottom: 1rem;">Current State</h3>
-          <div style="margin-bottom: 1.5rem;">
-            <span :class="'badge badge-' + getStateColor(selectedInstance.currentState)" style="font-size: 1rem; padding: 0.5rem 1rem;">
-              {{ selectedInstance.currentState }}
-            </span>
-          </div>
-
-          <h3 style="margin-bottom: 1rem;">Public Member (Business Data)</h3>
-          <div class="json-viewer">
-            <pre>{{ JSON.stringify(selectedInstance.publicMember || {}, null, 2) }}</pre>
-          </div>
-
-          <h3 style="margin-bottom: 1rem; margin-top: 1.5rem;">Internal Context</h3>
-          <div class="json-viewer">
-            <pre>{{ JSON.stringify(selectedInstance.context || {}, null, 2) }}</pre>
-          </div>
-        </div>
-
-        <!-- FSM Diagram Tab -->
-        <div :class="['tab-content', { active: activeTab === 'fsm' }]">
-          <div class="diagram-container">
-            <div v-if="fsmDiagram" class="mermaid" v-html="fsmDiagram"></div>
-            <div v-else class="loading">
-              <div class="spinner"></div>
-              <p style="margin-top: 1rem;">Generating FSM diagram...</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- History Tab -->
-        <div :class="['tab-content', { active: activeTab === 'history' }]">
-          <div v-if="history.length > 0" class="timeline">
-            <div v-for="(event, idx) in history" :key="event.id" class="timeline-item">
-              <div class="timeline-content">
-                <div class="timeline-header">
-                  <div class="timeline-event">{{ event.event.type }}</div>
-                  <div class="timeline-time">{{ new Date(event.persistedAt).toLocaleTimeString() }}</div>
-                </div>
-                <div class="timeline-transition">
-                  {{ event.stateBefore }} → {{ event.stateAfter }}
-                </div>
-                <div v-if="event.event.payload && Object.keys(event.event.payload).length > 0" style="margin-top: 0.5rem;">
-                  <details>
-                    <summary style="cursor: pointer; font-size: 0.8125rem; color: #6b7280;">Payload</summary>
-                    <pre style="margin-top: 0.5rem; font-size: 0.75rem;">{{ JSON.stringify(event.event.payload, null, 2) }}</pre>
-                  </details>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="historyLoading" class="loading">
-            <div class="spinner"></div>
-            <p style="margin-top: 1rem;">Loading history...</p>
-          </div>
-          <div v-else class="empty-state">
-            <div class="empty-state-icon">📊</div>
-            <p>No history available</p>
-            <p style="font-size: 0.875rem; margin-top: 0.5rem;">Enable persistence (event sourcing) to see event history</p>
-          </div>
-        </div>
-
-        <!-- Sequence Diagram Tab -->
-        <div :class="['tab-content', { active: activeTab === 'sequence' }]">
-          <div class="diagram-container">
-            <div v-if="sequenceDiagram" class="mermaid" v-html="sequenceDiagram"></div>
-            <div v-else-if="history.length > 0" class="loading">
-              <div class="spinner"></div>
-              <p style="margin-top: 1rem;">Generating sequence diagram...</p>
-            </div>
-            <div v-else class="empty-state">
-              <div class="empty-state-icon">🔄</div>
-              <p>No sequence data available</p>
-              <p style="font-size: 0.875rem; margin-top: 0.5rem;">Enable persistence to see interaction sequences</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Actions Tab -->
-        <div :class="['tab-content', { active: activeTab === 'actions' }]">
-          <h3 style="margin-bottom: 1rem;">Trigger Transition</h3>
-
-          <div v-if="availableTransitions.length > 0">
-            <div class="form-group">
-              <label class="form-label">Select Transition</label>
-              <select v-model="selectedTransition" class="form-select">
-                <option value="">Choose a transition...</option>
-                <option v-for="trans in availableTransitions" :key="trans.event" :value="trans">
-                  {{ trans.event }} → {{ trans.to }}
-                </option>
-              </select>
-            </div>
-
-            <div v-if="selectedTransition" class="form-group">
-              <label class="form-label">Event Payload (JSON)</label>
-              <textarea
-                v-model="eventPayload"
-                class="form-textarea"
-                placeholder='{ "key": "value" }'
-              ></textarea>
-            </div>
-
-            <button
-              v-if="selectedTransition"
-              @click="triggerTransition"
-              class="btn btn-primary"
-              :disabled="sending"
-            >
-              {{ sending ? 'Sending...' : 'Send Event' }}
-            </button>
-          </div>
-          <div v-else class="empty-state">
-            <div class="empty-state-icon">⚡</div>
-            <p>No transitions available from current state</p>
-            <p style="font-size: 0.875rem; margin-top: 0.5rem;">
-              Current state: <strong>{{ selectedInstance.currentState }}</strong>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Empty States -->
-      <div class="card" v-if="!selectedComponent && components.length === 0">
-        <div class="empty-state">
-          <div class="empty-state-icon">📦</div>
-          <h3 style="margin-bottom: 0.5rem;">No Components Loaded</h3>
-          <p>Load a component using the API to get started</p>
-          <p style="font-size: 0.875rem; margin-top: 1rem; color: #6b7280;">
-            POST /api/component/load with { "filePath": "path/to/component.yaml" }
-          </p>
-        </div>
-      </div>
-
-      <div class="card" v-if="selectedComponent && instances.length === 0">
-        <div class="empty-state">
-          <div class="empty-state-icon">🎯</div>
-          <h3 style="margin-bottom: 0.5rem;">No Active Instances</h3>
-          <p>Create an instance to get started</p>
-          <p style="font-size: 0.875rem; margin-top: 1rem; color: #6b7280;">
-            POST /api/{{ selectedComponent }}/:machine/instance with context data
-          </p>
-        </div>
+        <div id="create-form-fields"></div>
+        <button class="btn btn-primary" onclick="createInstance()">Create Instance</button>
       </div>
     </div>
   </div>
-
+  
   <script>
-    const { createApp } = Vue;
-
-    createApp({
-      data() {
-        return {
-          socket: null,
-          connected: false,
-          components: [],
-          selectedComponent: '',
-          instances: [],
-          selectedInstance: null,
-          activeTab: 'overview',
-          tabs: [
-            { id: 'overview', label: 'Overview' },
-            { id: 'fsm', label: 'FSM Diagram' },
-            { id: 'history', label: 'History' },
-            { id: 'sequence', label: 'Sequence Diagram' },
-            { id: 'actions', label: 'Actions' }
-          ],
-          fsmDiagram: null,
-          sequenceDiagram: null,
-          history: [],
-          historyLoading: false,
-          availableTransitions: [],
-          selectedTransition: null,
-          eventPayload: '{}',
-          sending: false
-        };
-      },
-      mounted() {
-        this.initSocket();
-        this.loadComponents();
-        mermaid.initialize({ startOnLoad: false, theme: 'default' });
-      },
-      methods: {
-        initSocket() {
-          this.socket = io();
-
-          this.socket.on('connect', () => {
-            this.connected = true;
-            console.log('Connected to WebSocket');
-          });
-
-          this.socket.on('disconnect', () => {
-            this.connected = false;
-          });
-
-          this.socket.on('state_change', (data) => {
-            console.log('State change:', data);
-            // Update instance if it's the selected one
-            if (this.selectedInstance && this.selectedInstance.id === data.instanceId) {
-              this.selectedInstance.currentState = data.newState;
-              // Reload details
-              this.selectInstance(this.selectedInstance);
-            }
-            // Reload instances list
-            this.loadInstances();
-          });
-
-          this.socket.on('instance_created', () => {
-            this.loadInstances();
-          });
-
-          this.socket.on('instance_disposed', () => {
-            this.loadInstances();
-          });
-        },
-
-        async loadComponents() {
-          // For now, we need to discover components via instances
-          // In a real implementation, we'd have an API endpoint to list loaded components
-          // As a workaround, we'll try to fetch instances and extract component names
-          this.components = ['TestComponent']; // Placeholder
-        },
-
-        async loadInstances() {
-          if (!this.selectedComponent) return;
-
-          try {
-            const response = await fetch(`/api/${this.selectedComponent}/instances`);
-            const data = await response.json();
-
-            if (data.success) {
-              this.instances = data.data.instances;
-
-              // Subscribe to component events
-              if (this.socket) {
-                this.socket.emit('subscribe_component', this.selectedComponent);
-              }
-            }
-          } catch (error) {
-            console.error('Failed to load instances:', error);
+    const socket = io();
+    let componentData = null;
+    let instances = [];
+    let events = [];
+    let selectedInstance = null;
+    
+    // WebSocket connection
+    socket.on('connect', () => {
+      document.getElementById('ws-status').className = 'status-dot connected';
+    });
+    
+    socket.on('disconnect', () => {
+      document.getElementById('ws-status').className = 'status-dot disconnected';
+    });
+    
+    socket.on('component_data', (data) => {
+      componentData = data;
+      document.getElementById('component-name').textContent = data.name;
+      populateSelectors();
+    });
+    
+    socket.on('instance_created', (data) => {
+      addEvent({type: 'created', timestamp: Date.now(), message: `Instance ${data.instanceId} created (${data.machineName})`, instanceId: data.instanceId});
+      loadInstances();
+    });
+    
+    socket.on('state_change', (data) => {
+      addEvent({type: 'state-change', timestamp: Date.now(), message: `${data.instanceId}: ${data.previousState} → ${data.newState} (${data.event.type})`, instanceId: data.instanceId, source: data.componentName});
+      loadInstances();
+      if (selectedInstance === data.instanceId) loadTrace();
+    });
+    
+    socket.on('instance_error', (data) => {
+      addEvent({type: 'error', timestamp: Date.now(), message: `ERROR in ${data.instanceId}: ${data.error}`, instanceId: data.instanceId});
+      loadInstances();
+    });
+    
+    // Tab Switching
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabName).classList.add('active');
+    }
+    
+    // Load Instances
+    async function loadInstances() {
+      const res = await fetch('/api/instances');
+      const data = await res.json();
+      instances = data.instances || [];
+      updateStats();
+      renderInstances();
+      updateTraceSelector();
+    }
+    
+    function updateStats() {
+      document.getElementById('stat-total').textContent = instances.length;
+      document.getElementById('stat-active').textContent = instances.filter(i => i.status === 'active').length;
+      document.getElementById('stat-final').textContent = instances.filter(i => i.status === 'final').length;
+      document.getElementById('stat-error').textContent = instances.filter(i => i.status === 'error').length;
+      document.getElementById('stat-events').textContent = events.length;
+    }
+    
+    function renderInstances() {
+      const container = document.getElementById('instance-list');
+      if (instances.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div>No instances yet. Create one in the "Create Instance" tab.</div></div>';
+        return;
+      }
+      
+      container.innerHTML = instances.map(inst => `
+        <div class="instance-item ${selectedInstance === inst.id ? 'selected' : ''}" onclick="selectInstance('${inst.id}')">
+          <div class="instance-header">
+            <span class="instance-id">${inst.id.substring(0, 8)}</span>
+            <span class="badge ${inst.status}">${inst.currentState}</span>
+          </div>
+          <div class="instance-meta">
+            Machine: ${inst.machineName}<br>
+            Status: ${inst.status}
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    function selectInstance(id) {
+      selectedInstance = id;
+      renderInstances();
+      loadTrace();
+    }
+    
+    // Filter Instances
+    function filterInstances() {
+      const idFilter = document.getElementById('filter-instance').value.toLowerCase();
+      const machineFilter = document.getElementById('filter-machine').value;
+      const stateFilter = document.getElementById('filter-state').value;
+      
+      document.querySelectorAll('.instance-item').forEach(item => {
+        const id = item.querySelector('.instance-id').textContent.toLowerCase();
+        const machine = item.querySelector('.instance-meta').textContent.includes(machineFilter);
+        const state = item.querySelector('.badge').textContent.includes(stateFilter);
+        
+        const show = id.includes(idFilter) && (!machineFilter || machine) && (!stateFilter || state);
+        item.style.display = show ? '' : 'none';
+      });
+    }
+    
+    // Event Blotter
+    function addEvent(event) {
+      events.unshift(event);
+      if (events.length > 200) events = events.slice(0, 200);
+      renderBlotter();
+      updateStats();
+    }
+    
+    function renderBlotter() {
+      const container = document.getElementById('event-blotter');
+      if (events.length === 0) {
+        container.innerHTML = '<div style="color: #8b949e; text-align: center; padding: 40px;">Waiting for events...</div>';
+        return;
+      }
+      
+      container.innerHTML = events.map(evt => `
+        <div class="blotter-item ${evt.type}">
+          <div class="blotter-time">${new Date(evt.timestamp).toLocaleTimeString()}</div>
+          <div class="blotter-content">${evt.message}</div>
+          ${evt.source ? `<div class="blotter-source">Source: ${evt.source}</div>` : ''}
+        </div>
+      `).join('');
+    }
+    
+    function filterBlotter() {
+      const filter = document.getElementById('blotter-filter').value.toLowerCase();
+      const typeFilter = document.getElementById('blotter-type').value;
+      
+      document.querySelectorAll('.blotter-item').forEach(item => {
+        const text = item.textContent.toLowerCase();
+        const type = typeFilter ? item.classList.contains(typeFilter) : true;
+        item.style.display = (text.includes(filter) && type) ? '' : 'none';
+      });
+    }
+    
+    function clearBlotter() {
+      events = [];
+      renderBlotter();
+      updateStats();
+    }
+    
+    // Diagram
+    function renderDiagram() {
+      const machineName = document.getElementById('diagram-machine').value;
+      if (!machineName || !componentData) return;
+      
+      const machine = componentData.machines.find(m => m.name === machineName);
+      if (!machine) return;
+      
+      // Generate Mermaid diagram
+      let mermaid = 'stateDiagram-v2\\n';
+      mermaid += `  [*] --> ${machine.initialState}\\n`;
+      
+      machine.transitions.forEach(t => {
+        mermaid += `  ${t.from} --> ${t.to}: ${t.event}\\n`;
+      });
+      
+      machine.states.filter(s => s.type === 'final' || s.type === 'error').forEach(s => {
+        mermaid += `  ${s.name} --> [*]\\n`;
+      });
+      
+      document.getElementById('diagram-container').innerHTML = `<div class="mermaid">${mermaid}</div>`;
+      mermaid.init();
+    }
+    
+    // Traceability
+    async function loadTrace() {
+      if (!selectedInstance) return;
+      
+      const container = document.getElementById('trace-container');
+      // In real version, fetch from /api/instances/:id/history
+      container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div>Traceability history would appear here</div></div>';
+    }
+    
+    function updateTraceSelector() {
+      const select = document.getElementById('trace-instance');
+      select.innerHTML = '<option value="">Select an instance...</option>' + 
+        instances.map(i => `<option value="${i.id}">${i.id.substring(0, 8)} - ${i.machineName}</option>`).join('');
+    }
+    
+    // Create Instance
+    function updateCreateForm() {
+      const machineName = document.getElementById('create-machine').value;
+      if (!machineName || !componentData) return;
+      
+      const machine = componentData.machines.find(m => m.name === machineName);
+      if (!machine || !machine.contextSchema) {
+        document.getElementById('create-form-fields').innerHTML = '<div class="form-group"><label>Context (JSON)</label><textarea id="context-json" rows="4"></textarea></div>';
+        return;
+      }
+      
+      // Generate form from schema
+      let html = '';
+      for (const [key, field] of Object.entries(machine.contextSchema)) {
+        html += `<div class="form-group">`;
+        html += `<label for="ctx_${key}">${field.label || key}${field.required ? ' *' : ''}</label>`;
+        if (field.type === 'select') {
+          html += `<select id="ctx_${key}">`;
+          field.options.forEach(opt => html += `<option value="${opt.value}">${opt.label}</option>`);
+          html += `</select>`;
+        } else {
+          html += `<input type="${field.type || 'text'}" id="ctx_${key}" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''}>`;
+        }
+        if (field.description) html += `<div class="form-help">${field.description}</div>`;
+        html += `</div>`;
+      }
+      document.getElementById('create-form-fields').innerHTML = html;
+    }
+    
+    async function createInstance() {
+      const machineName = document.getElementById('create-machine').value;
+      if (!machineName) return alert('Please select a state machine');
+      
+      const machine = componentData?.machines.find(m => m.name === machineName);
+      let context = {};
+      
+      if (machine?.contextSchema) {
+        for (const key of Object.keys(machine.contextSchema)) {
+          const input = document.getElementById('ctx_' + key);
+          if (input && input.value) {
+            context[key] = input.type === 'number' ? parseFloat(input.value) : input.value;
           }
-        },
-
-        async selectInstance(instance) {
-          this.selectedInstance = instance;
-          this.activeTab = 'overview';
-
-          // Load component definition for FSM diagram
-          await this.loadFSMDiagram();
-
-          // Load history
-          await this.loadHistory();
-
-          // Load available transitions
-          await this.loadAvailableTransitions();
-
-          // Subscribe to instance events
-          if (this.socket) {
-            this.socket.emit('subscribe_instance', {
-              componentName: this.selectedComponent,
-              instanceId: instance.id
-            });
-          }
-        },
-
-        async loadFSMDiagram() {
-          try {
-            const response = await fetch(`/api/${this.selectedComponent}/definition`);
-            const data = await response.json();
-
-            if (data.success) {
-              const component = data.data.component;
-              const machine = component.stateMachines.find(m => m.name === this.selectedInstance.machineName);
-
-              if (machine) {
-                this.fsmDiagram = this.generateMermaidFSM(machine, this.selectedInstance.currentState);
-                this.$nextTick(() => {
-                  mermaid.run();
-                });
-              }
-            }
-          } catch (error) {
-            console.error('Failed to load FSM diagram:', error);
-          }
-        },
-
-        generateMermaidFSM(machine, currentState) {
-          let diagram = 'stateDiagram-v2\n';
-
-          // Add states with special styling for current state
-          machine.states.forEach(state => {
-            if (state.name === currentState) {
-              diagram += `    ${state.name} : **${state.name}** (CURRENT)\n`;
-            }
-          });
-
-          // Add transitions
-          machine.transitions.forEach(trans => {
-            diagram += `    ${trans.from} --> ${trans.to} : ${trans.event}\n`;
-          });
-
-          return diagram;
-        },
-
-        async loadHistory() {
-          this.historyLoading = true;
-          this.history = [];
-
-          try {
-            const response = await fetch(`/api/${this.selectedComponent}/instance/${this.selectedInstance.id}/history`);
-            const data = await response.json();
-
-            if (data.success) {
-              this.history = data.data.history;
-
-              // Generate sequence diagram
-              if (this.history.length > 0) {
-                await this.generateSequenceDiagram();
-              }
-            }
-          } catch (error) {
-            console.error('Failed to load history:', error);
-          } finally {
-            this.historyLoading = false;
-          }
-        },
-
-        async generateSequenceDiagram() {
-          let diagram = 'sequenceDiagram\n';
-          diagram += `    participant User\n`;
-          diagram += `    participant ${this.selectedInstance.machineName}\n`;
-
-          this.history.forEach((event, idx) => {
-            diagram += `    User->>+${this.selectedInstance.machineName}: ${event.event.type}\n`;
-            diagram += `    Note over ${this.selectedInstance.machineName}: ${event.stateBefore} → ${event.stateAfter}\n`;
-            diagram += `    ${this.selectedInstance.machineName}-->>-User: State updated\n`;
-          });
-
-          this.sequenceDiagram = diagram;
-          this.$nextTick(() => {
-            mermaid.run();
-          });
-        },
-
-        async loadAvailableTransitions() {
-          try {
-            const response = await fetch(`/api/${this.selectedComponent}/instance/${this.selectedInstance.id}/transitions`);
-            const data = await response.json();
-
-            if (data.success) {
-              this.availableTransitions = data.data.transitions;
-            }
-          } catch (error) {
-            console.error('Failed to load transitions:', error);
-          }
-        },
-
-        async triggerTransition() {
-          if (!this.selectedTransition) return;
-
-          this.sending = true;
-
-          try {
-            let payload = {};
-            try {
-              payload = JSON.parse(this.eventPayload);
-            } catch (e) {
-              alert('Invalid JSON payload');
-              this.sending = false;
-              return;
-            }
-
-            const event = {
-              type: this.selectedTransition.event,
-              payload,
-              timestamp: Date.now()
-            };
-
-            const response = await fetch(`/api/${this.selectedComponent}/instance/${this.selectedInstance.id}/event`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(event)
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-              // Reset form
-              this.selectedTransition = null;
-              this.eventPayload = '{}';
-
-              // Show success message
-              alert('Event sent successfully!');
-            } else {
-              alert('Failed to send event: ' + data.error);
-            }
-          } catch (error) {
-            console.error('Failed to trigger transition:', error);
-            alert('Failed to send event');
-          } finally {
-            this.sending = false;
-          }
-        },
-
-        getStateColor(state) {
-          const stateUpper = (state || '').toUpperCase();
-          if (stateUpper.includes('ERROR') || stateUpper.includes('FAILED') || stateUpper.includes('CANCELLED')) {
-            return 'danger';
-          }
-          if (stateUpper.includes('COMPLETED') || stateUpper.includes('SUCCESS') || stateUpper.includes('DONE')) {
-            return 'success';
-          }
-          if (stateUpper.includes('PENDING') || stateUpper.includes('WAITING')) {
-            return 'warning';
-          }
-          return 'info';
+        }
+      } else {
+        const json = document.getElementById('context-json')?.value;
+        if (json) context = JSON.parse(json);
+      }
+      
+      await fetch('/api/instances', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({machineName, context})
+      });
+      
+      // Clear form
+      if (machine?.contextSchema) {
+        for (const key of Object.keys(machine.contextSchema)) {
+          const input = document.getElementById('ctx_' + key);
+          if (input) input.value = '';
         }
       }
-    }).mount('#app');
+      
+      switchTab('overview');
+      loadInstances();
+    }
+    
+    function populateSelectors() {
+      if (!componentData) return;
+      
+      const machines = componentData.machines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
+      document.getElementById('filter-machine').innerHTML = '<option value="">All Machines</option>' + machines;
+      document.getElementById('diagram-machine').innerHTML = '<option value="">Select...</option>' + machines;
+      document.getElementById('create-machine').innerHTML = '<option value="">Select...</option>' + machines;
+    }
+    
+    function exportState() {
+      const state = {componentData, instances, events, timestamp: Date.now()};
+      const blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `xcomponent-state-${Date.now()}.json`;
+      a.click();
+    }
+    
+    // Initialize
+    loadInstances();
+    mermaid.initialize({startOnLoad: true, theme: 'default'});
   </script>
 </body>
 </html>

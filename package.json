@@ -1,6 +1,6 @@
 {
   "name": "xcomponent-ai",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "LLM-first framework for AI agents (Claude, GPT) to build apps with sanctuarized business logic. Event-driven FSM runtime with multi-instance state machines, cross-component communication, event sourcing, and production-ready persistence (PostgreSQL, MongoDB)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -81,6 +81,7 @@
   "dependencies": {
     "@langchain/core": "^0.3.21",
     "@langchain/openai": "^0.3.14",
+    "@types/swagger-ui-express": "^4.1.8",
     "commander": "^12.1.0",
     "express": "^4.21.2",
     "socket.io": "^4.8.1",
@@ -101,7 +102,7 @@
     "@typescript-eslint/parser": "^8.19.1",
     "eslint": "^9.18.0",
     "jest": "^29.7.0",
-    "socket.io-client": "^4.8.1",
+    "socket.io-client": "^4.8.3",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "typedoc": "^0.27.5",

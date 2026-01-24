@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-01-24
+
+### Added
+- CLI binary configuration to enable global installation (`npm install -g xcomponent-ai`)
+- CLI now accessible via `xcomponent-ai` command after global install
+
+### Fixed
+- Missing `bin` field in package.json preventing CLI usage after global install
+
 ## [0.1.1] - 2026-01-24
 
 ### Fixed

@@ -234,24 +234,36 @@
   
   <script>
     const socket = io();
-    let componentData = null;
+    let componentsData = [];
+    let selectedComponentName = null;
     let instances = [];
     let events = [];
     let selectedInstance = null;
-    
+
+    // Get current component
+    function getCurrentComponent() {
+      if (!selectedComponentName || componentsData.length === 0) {
+        return componentsData[0] || null;
+      }
+      return componentsData.find(c => c.name === selectedComponentName) || componentsData[0];
+    }
+
     // WebSocket connection
     socket.on('connect', () => {
       document.getElementById('ws-status').className = 'status-dot connected';
     });
-    
+
     socket.on('disconnect', () => {
       document.getElementById('ws-status').className = 'status-dot disconnected';
     });
-    
-    socket.on('component_data', (data) => {
-      componentData = data.component;
-      document.getElementById('component-name').textContent = componentData.name;
-      populateSelectors();
+
+    socket.on('components_data', (data) => {
+      componentsData = data.components || [];
+      if (componentsData.length > 0) {
+        selectedComponentName = componentsData[0].name;
+        document.getElementById('component-name').textContent = `${componentsData.length} component(s) loaded`;
+        populateSelectors();
+      }
     });
     
     socket.on('instance_created', (data) => {
@@ -390,13 +402,14 @@
     // Diagram
     async function renderDiagram() {
       const machineName = document.getElementById('diagram-machine').value;
-      if (!machineName || !componentData) return;
+      const component = getCurrentComponent();
+      if (!machineName || !component) return;
 
-      const machine = componentData.stateMachines.find(m => m.name === machineName);
+      const machine = component.stateMachines.find(m => m.name === machineName);
       if (!machine) return;
 
       // Fetch Mermaid diagram from API
-      const res = await fetch(`/api/diagrams/${machineName}`);
+      const res = await fetch(`/api/components/${component.name}/diagrams/${machineName}`);
       const data = await res.json();
 
       if (data.diagram) {
@@ -429,9 +442,10 @@
     // Create Instance
     function updateCreateForm() {
       const machineName = document.getElementById('create-machine').value;
-      if (!machineName || !componentData) return;
+      const component = getCurrentComponent();
+      if (!machineName || !component) return;
 
-      const machine = componentData.stateMachines.find(m => m.name === machineName);
+      const machine = component.stateMachines.find(m => m.name === machineName);
       if (!machine || !machine.contextSchema) {
         document.getElementById('create-form-fields').innerHTML = '<div class="form-group"><label>Context (JSON)</label><textarea id="context-json" rows="4"></textarea></div>';
         return;
@@ -457,11 +471,13 @@
     
     async function createInstance() {
       const machineName = document.getElementById('create-machine').value;
+      const component = getCurrentComponent();
       if (!machineName) return alert('Please select a state machine');
+      if (!component) return alert('No component loaded');
 
-      const machine = componentData?.stateMachines.find(m => m.name === machineName);
+      const machine = component.stateMachines.find(m => m.name === machineName);
       let context = {};
-      
+
       if (machine?.contextSchema) {
         for (const key of Object.keys(machine.contextSchema)) {
           const input = document.getElementById('ctx_' + key);
@@ -473,8 +489,9 @@
         const json = document.getElementById('context-json')?.value;
         if (json) context = JSON.parse(json);
       }
-      
-      await fetch('/api/instances', {
+
+
+      await fetch(`/api/components/${component.name}/instances`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({machineName, context})
@@ -493,23 +510,32 @@
     }
     
     function populateSelectors() {
-      if (!componentData || !componentData.stateMachines) return;
+      if (!componentsData || componentsData.length === 0) return;
 
-      // Populate component selector (currently only one component)
+      // Populate component selector with all loaded components
       const componentSelect = document.getElementById('component-select');
-      componentSelect.innerHTML = `<option value="${componentData.name}" selected>${componentData.name}</option>`;
+      componentSelect.innerHTML = componentsData.map(c =>
+        `<option value="${c.name}" ${c.name === selectedComponentName ? 'selected' : ''}>${c.name}</option>`
+      ).join('');
 
-      const machines = componentData.stateMachines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
-      document.getElementById('filter-machine').innerHTML = '<option value="">All Machines</option>' + machines;
-      document.getElementById('diagram-machine').innerHTML = '<option value="">Select...</option>' + machines;
-      document.getElementById('create-machine').innerHTML = '<option value="">Select...</option>' + machines;
+      // Populate state machine selectors for current component
+      const component = getCurrentComponent();
+      if (component && component.stateMachines) {
+        const machines = component.stateMachines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
+        document.getElementById('filter-machine').innerHTML = '<option value="">All Machines</option>' + machines;
+        document.getElementById('diagram-machine').innerHTML = '<option value="">Select...</option>' + machines;
+        document.getElementById('create-machine').innerHTML = '<option value="">Select...</option>' + machines;
+      }
     }
 
     function selectComponent() {
-      // Currently only supports single component loaded via serve command
-      // In future, this will allow switching between multiple components
       const selected = document.getElementById('component-select').value;
+      selectedComponentName = selected;
       console.log('Component selected:', selected);
+      // Refresh selectors for the new component
+      populateSelectors();
+      // Clear create form when switching components
+      document.getElementById('create-form-fields').innerHTML = '';
     }
     
     function exportState() {

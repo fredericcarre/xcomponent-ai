@@ -1,7 +1,7 @@
 # 🤖 xcomponent-ai
 
 [![npm version](https://img.shields.io/npm/v/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
-[![npm downloads](https://img.shields.io/npm/dm/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
+[![npm downloads](https://img.shields.io/npm/dt/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
 [![CI](https://github.com/fredericcarre/mayele-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/mayele-ai/actions)
 [![Coverage](https://img.shields.io/badge/coverage-79.91%25-brightgreen.svg)](https://github.com/fredericcarre/mayele-ai/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)

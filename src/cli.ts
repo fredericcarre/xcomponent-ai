@@ -31,7 +31,7 @@ const program = new Command();
 program
   .name('xcomponent-ai')
   .description('Agentic FSM tool for fintech workflows')
-  .version('0.1.6');
+  .version('0.1.7');
 
 /**
  * Initialize new project

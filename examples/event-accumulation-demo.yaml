@@ -1,0 +1,157 @@
+# Event Accumulation Demo
+# Shows how to accumulate multiple events and transition based on accumulated data
+#
+# Use Case: Trading Order that receives multiple execution notifications
+# and transitions to "Fully Executed" only when all quantity is executed
+
+name: TradingComponent
+version: 1.0.0
+metadata:
+  description: Trading order with partial executions
+
+# Define triggered methods that will accumulate execution data
+triggeredMethods:
+  accumulateExecution: |
+    // This method is called BEFORE the transition
+    // It accumulates the executed quantity from the event
+    async function(event, context, sender) {
+      // Initialize if first execution
+      if (!context.executedQuantity) {
+        context.executedQuantity = 0;
+      }
+      if (!context.executions) {
+        context.executions = [];
+      }
+
+      // Add executed quantity from event
+      const executedQty = event.payload.quantity || 0;
+      context.executedQuantity += executedQty;
+
+      // Track individual executions for audit
+      context.executions.push({
+        quantity: executedQty,
+        price: event.payload.price,
+        timestamp: event.timestamp,
+        executionId: event.payload.executionId
+      });
+
+      console.log(`Accumulated: ${context.executedQuantity}/${context.totalQuantity}`);
+    }
+
+stateMachines:
+  - name: TradingOrder
+    initialState: Created
+
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+      symbol:
+        type: text
+        label: Symbol (e.g., AAPL)
+        required: true
+      totalQuantity:
+        type: number
+        label: Total Quantity to Execute
+        required: true
+        min: 1
+      side:
+        type: select
+        label: Side
+        options:
+          - BUY
+          - SELL
+        required: true
+
+    states:
+      - name: Created
+        type: entry
+        description: Order created, waiting for market submission
+
+      - name: Submitted
+        type: regular
+        description: Order submitted to market
+
+      - name: PartiallyExecuted
+        type: regular
+        description: Order partially executed, waiting for more fills
+
+      - name: FullyExecuted
+        type: regular
+        description: Order fully executed
+
+      - name: Completed
+        type: final
+        description: Order completed (settlement done)
+
+      - name: Cancelled
+        type: error
+        description: Order cancelled
+
+    transitions:
+      # Submit order to market
+      - from: Created
+        to: Submitted
+        event: SUBMIT
+        type: triggerable
+
+      # First execution notification (0 → partial)
+      - from: Submitted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # Subsequent execution notifications (partial → partial)
+      # Guard ensures we DON'T transition to FullyExecuted yet
+      - from: PartiallyExecuted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+        guards:
+          # Stay in PartiallyExecuted if not fully executed yet
+          - type: custom
+            condition: "context.executedQuantity < context.totalQuantity"
+
+      # Transition to FullyExecuted when quantity is complete
+      # THIS IS THE KEY: Guard checks accumulated quantity
+      - from: PartiallyExecuted
+        to: FullyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+        guards:
+          # Only transition when fully executed
+          - type: context
+            property: executedQuantity
+            operator: ">="
+            value: "{{totalQuantity}}"  # Reference totalQuantity from context
+
+      # Alternative: Direct FullyExecuted from Submitted (large fill)
+      - from: Submitted
+        to: FullyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+        guards:
+          - type: custom
+            condition: "context.executedQuantity >= context.totalQuantity"
+
+      # Settlement
+      - from: FullyExecuted
+        to: Completed
+        event: SETTLE
+        type: triggerable
+
+      # Cancellation
+      - from: Submitted
+        to: Cancelled
+        event: CANCEL
+        type: triggerable
+
+      - from: PartiallyExecuted
+        to: Cancelled
+        event: CANCEL
+        type: triggerable

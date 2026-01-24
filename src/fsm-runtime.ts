@@ -625,9 +625,45 @@ export class FSMRuntime extends EventEmitter {
 
   /**
    * Evaluate guards
+   *
+   * Guards are evaluated with AND logic (all must pass for transition to occur)
+   * Supports:
+   * - context guards: Check properties in instance context
+   * - event guards: Check properties in event payload
+   * - custom guards: JavaScript conditions
    */
   private evaluateGuards(guards: Guard[], event: FSMEvent, context: Record<string, any>): boolean {
     return guards.every(guard => {
+      // Modern guard types
+      if (guard.type) {
+        switch (guard.type) {
+          case 'context':
+            return this.evaluatePropertyGuard(context, guard);
+
+          case 'event':
+            return this.evaluatePropertyGuard(event.payload || {}, guard);
+
+          case 'custom':
+            if (guard.condition) {
+              try {
+                // Create function with context, event, and publicMember (for backward compatibility)
+                // eslint-disable-next-line no-new-func
+                const func = new Function('context', 'event', 'publicMember', `return ${guard.condition}`);
+                return func(context, event, context); // publicMember = context for backward compat
+              } catch (error) {
+                console.error(`Guard condition evaluation failed: ${guard.condition}`, error);
+                return false;
+              }
+            }
+            return false;
+
+          default:
+            console.warn(`Unknown guard type: ${guard.type}`);
+            return false;
+        }
+      }
+
+      // Legacy support
       // Key matching
       if (guard.keys) {
         return guard.keys.every(key => event.payload[key] !== undefined);
@@ -638,9 +674,10 @@ export class FSMRuntime extends EventEmitter {
         return JSON.stringify(event.payload).includes(guard.contains);
       }
 
-      // Custom function (evaluate as string - in production, use sandboxed eval)
+      // Custom function (legacy)
       if (guard.customFunction) {
         try {
+          // eslint-disable-next-line no-new-func
           const func = new Function('event', 'context', `return ${guard.customFunction}`);
           return func(event, context);
         } catch {
@@ -650,6 +687,49 @@ export class FSMRuntime extends EventEmitter {
 
       return true;
     });
+  }
+
+  /**
+   * Evaluate a property-based guard (context or event)
+   */
+  private evaluatePropertyGuard(obj: any, guard: Guard): boolean {
+    if (!guard.property) {
+      return false;
+    }
+
+    // Get property value (supports dot notation)
+    const value = this.getNestedProperty(obj, guard.property);
+    const operator = guard.operator || '===';
+
+    // Resolve guard.value if it's a template ({{propertyName}})
+    let compareValue = guard.value;
+    if (typeof compareValue === 'string' && compareValue.startsWith('{{') && compareValue.endsWith('}}')) {
+      const propName = compareValue.slice(2, -2);
+      compareValue = this.getNestedProperty(obj, propName);
+    }
+
+    // Evaluate operator
+    switch (operator) {
+      case '===':
+        return value === compareValue;
+      case '!==':
+        return value !== compareValue;
+      case '>':
+        return value > compareValue;
+      case '<':
+        return value < compareValue;
+      case '>=':
+        return value >= compareValue;
+      case '<=':
+        return value <= compareValue;
+      case 'contains':
+        return String(value).includes(String(compareValue));
+      case 'in':
+        return Array.isArray(compareValue) && compareValue.includes(value);
+      default:
+        console.warn(`Unknown operator: ${operator}`);
+        return false;
+    }
   }
 
   /**

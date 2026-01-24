@@ -96,14 +96,70 @@ export type TriggeredMethod = (event: FSMEvent, context: any, sender: Sender) =>
 
 /**
  * Guard configuration
+ *
+ * Guards are conditions that must be satisfied for a transition to occur.
+ * Multiple guards are evaluated with AND logic (all must pass).
+ *
+ * Examples:
+ * ```yaml
+ * guards:
+ *   # Guard 1: Check context property value
+ *   - type: context
+ *     property: executedQuantity
+ *     operator: ">="
+ *     value: "{{totalQuantity}}"  # Can reference other context properties
+ *
+ *   # Guard 2: Check event payload
+ *   - type: event
+ *     property: amount
+ *     operator: ">"
+ *     value: 1000
+ *
+ *   # Guard 3: Custom JavaScript function
+ *   - type: custom
+ *     condition: "context.executedQuantity >= context.totalQuantity && event.payload.status === 'confirmed'"
+ * ```
  */
 export interface Guard {
-  /** Matching keys */
-  keys?: string[];
-  /** Contains check */
-  contains?: string;
-  /** Custom JavaScript function */
+  /**
+   * Guard type
+   * - context: Check a property in the instance context
+   * - event: Check a property in the event payload
+   * - custom: Custom JavaScript condition
+   */
+  type?: 'context' | 'event' | 'custom';
+
+  /**
+   * Property path to check (for context/event guards)
+   * Supports dot notation: "customer.tier", "order.items.length"
+   */
+  property?: string;
+
+  /**
+   * Comparison operator
+   */
+  operator?: '===' | '!==' | '>' | '<' | '>=' | '<=' | 'contains' | 'in';
+
+  /**
+   * Value to compare against
+   * Can use {{propertyName}} to reference context properties
+   */
+  value?: any;
+
+  /**
+   * Custom JavaScript condition (for custom type)
+   * Has access to: context, event, publicMember
+   * Example: "context.executedQuantity >= context.totalQuantity"
+   */
+  condition?: string;
+
+  // Legacy fields (backward compatibility)
+  /** @deprecated Use type: 'custom' with condition instead */
   customFunction?: string;
+  /** @deprecated Use property with operator instead */
+  keys?: string[];
+  /** @deprecated Use operator: 'contains' instead */
+  contains?: string;
 }
 
 /**

@@ -1,0 +1,236 @@
+# Explicit Transitions Demo
+# Shows the new sender.sendToSelf() pattern for explicit control
+
+name: ExplicitTransitionsComponent
+version: 1.0.0
+metadata:
+  description: Demonstrates explicit transition control with sender.sendToSelf()
+
+triggeredMethods:
+  # Accumulate execution and EXPLICITLY decide when to complete
+  accumulateExecution: |
+    async function(event, context, sender) {
+      // Initialize counters
+      if (!context.executedQuantity) {
+        context.executedQuantity = 0;
+      }
+      if (!context.executions) {
+        context.executions = [];
+      }
+
+      // Accumulate quantity
+      const qty = event.payload.quantity || 0;
+      context.executedQuantity += qty;
+
+      // Track execution
+      context.executions.push({
+        quantity: qty,
+        price: event.payload.price,
+        executionId: event.payload.executionId,
+        timestamp: event.timestamp
+      });
+
+      console.log(`[Order ${context.orderId}] Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+
+      // EXPLICIT CONTROL: Decide when to transition
+      if (context.executedQuantity >= context.totalQuantity) {
+        // Send event to self to trigger completion
+        await sender.sendToSelf({
+          type: 'FULLY_EXECUTED',
+          payload: {
+            totalExecuted: context.executedQuantity,
+            executionDuration: Date.now() - context.startTime,
+            averagePrice: context.totalAmount / context.executedQuantity,
+            executionCount: context.executions.length
+          },
+          timestamp: Date.now()
+        });
+      }
+
+      // Notify risk monitors
+      await sender.broadcast(
+        'RiskMonitor',
+        {
+          type: 'ORDER_UPDATE',
+          payload: {
+            orderId: context.orderId,
+            executedQuantity: context.executedQuantity,
+            totalQuantity: context.totalQuantity
+          },
+          timestamp: Date.now()
+        }
+      );
+    }
+
+  handleCompletion: |
+    async function(event, context, sender) {
+      console.log(`[Order ${context.orderId}] COMPLETED`);
+      console.log(`  - Total executed: ${event.payload.totalExecuted}`);
+      console.log(`  - Duration: ${event.payload.executionDuration}ms`);
+      console.log(`  - Avg price: ${event.payload.averagePrice}`);
+      console.log(`  - Executions: ${event.payload.executionCount}`);
+
+      context.completedAt = Date.now();
+      context.stats = event.payload;
+    }
+
+  handleExpiration: |
+    async function(event, context, sender) {
+      console.log(`[Order ${context.orderId}] EXPIRED`);
+      console.log(`  - Executed: ${context.executedQuantity || 0}/${context.totalQuantity}`);
+      console.log(`  - Duration: ${Date.now() - context.startTime}ms`);
+
+      context.expirationReason = 'timeout';
+      context.expiredAt = Date.now();
+    }
+
+  updateRiskMetrics: |
+    async function(event, context, sender) {
+      if (!context.orderUpdates) {
+        context.orderUpdates = [];
+      }
+
+      context.orderUpdates.push({
+        orderId: event.payload.orderId,
+        executedQuantity: event.payload.executedQuantity,
+        totalQuantity: event.payload.totalQuantity,
+        timestamp: event.timestamp
+      });
+
+      console.log(`[RiskMonitor ${context.customerId}] Order ${event.payload.orderId}: ${event.payload.executedQuantity}/${event.payload.totalQuantity}`);
+    }
+
+stateMachines:
+  - name: Order
+    initialState: Created
+
+    contextSchema:
+      orderId:
+        type: text
+        required: true
+      customerId:
+        type: text
+        required: true
+      symbol:
+        type: text
+        required: true
+      totalQuantity:
+        type: number
+        required: true
+        min: 1
+      side:
+        type: select
+        options:
+          - BUY
+          - SELL
+        required: true
+      startTime:
+        type: number
+        default: 0
+
+    states:
+      - name: Created
+        type: entry
+
+      - name: Submitted
+        type: regular
+
+      - name: PartiallyExecuted
+        type: regular
+        description: Receiving executions, accumulating quantity
+
+      - name: FullyExecuted
+        type: regular
+        description: All quantity executed
+
+      - name: Completed
+        type: final
+
+      - name: Expired
+        type: error
+        description: Timed out before completion
+
+    transitions:
+      # Submit order
+      - from: Created
+        to: Submitted
+        event: SUBMIT
+        type: triggerable
+
+      # First execution
+      - from: Submitted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # SELF-LOOP: Stay in PartiallyExecuted
+      # Triggered method decides when to send FULLY_EXECUTED event
+      - from: PartiallyExecuted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # EXPLICIT TRANSITION: Triggered by sender.sendToSelf() in accumulateExecution
+      # No guards! Logic is in the triggered method
+      - from: PartiallyExecuted
+        to: FullyExecuted
+        event: FULLY_EXECUTED
+        type: triggerable
+        triggeredMethod: handleCompletion
+
+      # Complete order
+      - from: FullyExecuted
+        to: Completed
+        event: SETTLE
+        type: triggerable
+
+      # Timeout (parallel to executions)
+      - from: PartiallyExecuted
+        to: Expired
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+        resetOnTransition: false  # Total time in state
+        triggeredMethod: handleExpiration
+
+  - name: RiskMonitor
+    initialState: Created
+
+    contextSchema:
+      customerId:
+        type: text
+        required: true
+
+    states:
+      - name: Created
+        type: entry
+
+      - name: Monitoring
+        type: regular
+
+      - name: Stopped
+        type: final
+
+    transitions:
+      - from: Created
+        to: Monitoring
+        event: START
+        type: triggerable
+
+      # Receive updates via matchingRules
+      - from: Monitoring
+        to: Monitoring
+        event: ORDER_UPDATE
+        type: triggerable
+        triggeredMethod: updateRiskMetrics
+        matchingRules:
+          # Only receive events for orders with matching customerId
+          - eventProperty: payload.customerId
+            instanceProperty: customerId
+
+      - from: Monitoring
+        to: Stopped
+        event: STOP
+        type: triggerable

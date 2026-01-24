@@ -346,7 +346,7 @@ export class ComponentRegistry extends EventEmitter {
 
     for (const [componentName, runtime] of this.runtimes) {
       try {
-        const count = await runtime.broadcastEvent(machineName, event, undefined, currentState);
+        const count = await runtime.broadcastEvent(machineName, event, currentState);
         total += count;
       } catch (error) {
         this.emit('broadcast_error', {

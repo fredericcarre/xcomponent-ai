@@ -16,7 +16,6 @@ import {
   Guard,
   Sender,
   PersistenceConfig,
-  PropertyFilter,
 } from './types';
 import type { MatchingRule } from './types';
 import { TimerWheel } from './timer-wheel';
@@ -31,8 +30,14 @@ import type { ComponentRegistry } from './component-registry';
 class SenderImpl implements Sender {
   constructor(
     private runtime: FSMRuntime,
+    private currentInstanceId: string,
     private registry?: ComponentRegistry
   ) {}
+
+  async sendToSelf(event: FSMEvent): Promise<void> {
+    // Queue event asynchronously to avoid race conditions
+    return this.runtime.sendEvent(this.currentInstanceId, event);
+  }
 
   async sendTo(instanceId: string, event: FSMEvent): Promise<void> {
     return this.runtime.sendEvent(instanceId, event);
@@ -48,30 +53,27 @@ class SenderImpl implements Sender {
   async broadcast(
     machineName: string,
     event: FSMEvent,
-    filters?: import('./message-broker').PropertyFilter[],
-    currentState?: string
+    currentState?: string,
+    componentName?: string
   ): Promise<number> {
-    return this.runtime.broadcastEvent(machineName, event, filters, currentState);
-  }
-
-  async broadcastToComponent(
-    componentName: string,
-    machineName: string,
-    event: FSMEvent,
-    filters?: import('./message-broker').PropertyFilter[],
-    currentState?: string
-  ): Promise<number> {
-    if (!this.registry) {
-      throw new Error('Cross-component communication requires ComponentRegistry');
+    // Unified broadcast: intra-component OR cross-component
+    if (componentName) {
+      // Cross-component
+      if (!this.registry) {
+        throw new Error('Cross-component communication requires ComponentRegistry');
+      }
+      return this.registry.broadcastToComponent(
+        componentName,
+        machineName,
+        event,
+        this.runtime.getComponentName(),
+        undefined, // No PropertyFilter
+        currentState
+      );
+    } else {
+      // Intra-component
+      return this.runtime.broadcastEvent(machineName, event, currentState);
     }
-    return this.registry.broadcastToComponent(
-      componentName,
-      machineName,
-      event,
-      this.runtime.getComponentName(),
-      filters,
-      currentState
-    );
   }
 
   createInstance(machineName: string, initialContext: Record<string, any>): string {
@@ -107,6 +109,9 @@ export class FSMRuntime extends EventEmitter {
   private machineIndex: Map<string, Set<string>>; // machineName → Set<instanceId>
   private stateIndex: Map<string, Set<string>>; // "machineName:state" → Set<instanceId>
   private propertyIndex: Map<string, Set<string>>; // "machineName:propName:propValue" → Set<instanceId>
+
+  // Deprecation warnings (shown once per runtime)
+  private guardsDeprecationWarned = false;
 
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
@@ -404,10 +409,15 @@ export class FSMRuntime extends EventEmitter {
   /**
    * Broadcast event to all matching instances
    *
+   * Two modes:
+   * 1. Simple broadcast - send to all instances (any state or specific state)
+   * 2. MatchingRules - XComponent-style routing based on event payload
+   *
+   * Filtering via matchingRules in YAML, not in code.
+   *
    * @param machineName Target state machine name
    * @param event Event to broadcast
-   * @param filters Optional property filters to target specific instances
-   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
+   * @param currentState Optional state filter. Omit to broadcast to all states
    * @returns Number of instances that received the event
    *
    * @example
@@ -415,19 +425,22 @@ export class FSMRuntime extends EventEmitter {
    * await runtime.broadcastEvent('Order', {type: 'ALERT', payload: {}});
    *
    * @example
-   * // Broadcast to Orders in Pending state
-   * await runtime.broadcastEvent('Order', {type: 'TIMEOUT', payload: {}}, [], 'Pending');
+   * // Broadcast to Orders in Pending state only
+   * await runtime.broadcastEvent('Order', {type: 'TIMEOUT', payload: {}}, 'Pending');
    *
    * @example
-   * // Broadcast to specific customer (any state)
-   * await runtime.broadcastEvent('Order', {type: 'UPDATE', payload: {}}, [
-   *   {property: 'customerId', value: 'CUST-001'}
-   * ]);
+   * // Filtering via matchingRules in YAML:
+   * // transitions:
+   * //   - from: Monitoring
+   * //     to: Monitoring
+   * //     event: ORDER_UPDATE
+   * //     matchingRules:
+   * //       - eventProperty: payload.customerId
+   * //         instanceProperty: customerId
    */
   async broadcastEvent(
     machineName: string,
     event: FSMEvent,
-    filters?: PropertyFilter[],
     currentState?: string
   ): Promise<number> {
     const machine = this.machines.get(machineName);
@@ -435,57 +448,8 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${machineName} not found`);
     }
 
-    // MODE 1: Filter-based broadcast (from triggered methods)
-    if (filters && filters.length > 0) {
-      let instances: FSMInstance[];
-
-      // If currentState is not specified or is '*', broadcast to all instances of this machine
-      if (!currentState || currentState === '*') {
-        const machineIds = this.machineIndex.get(machineName) || new Set();
-        instances = Array.from(machineIds)
-          .map(id => this.instances.get(id))
-          .filter((inst): inst is FSMInstance => inst !== undefined);
-      } else {
-        // Filter by specific state
-        const stateKey = `${machineName}:${currentState}`;
-        const candidateIds = this.stateIndex.get(stateKey) || new Set();
-        instances = Array.from(candidateIds)
-          .map(id => this.instances.get(id))
-          .filter((inst): inst is FSMInstance => inst !== undefined);
-      }
-
-      // Apply property filters
-      instances = instances.filter(inst => this.matchesFilters(inst, filters));
-
-      let processedCount = 0;
-
-      // Send event to each matching instance
-      for (const instance of instances) {
-        try {
-          await this.sendEvent(instance.id, event);
-          processedCount++;
-        } catch (error: any) {
-          this.emit('broadcast_error', {
-            instanceId: instance.id,
-            event,
-            error: error.message,
-          });
-        }
-      }
-
-      this.emit('broadcast_completed', {
-        machineName,
-        currentState: currentState || '*',
-        event,
-        matchedCount: instances.length,
-        processedCount,
-      });
-
-      return processedCount;
-    }
-
-    // MODE 2: Simple broadcast without filters or matching rules
-    // Broadcast to all instances of the machine (or in specific state)
+    // MODE 1: Simple broadcast - send to all instances (or in specific state)
+    // No matchingRules - just send the event to all instances
     if (!currentState || currentState === '*') {
       // Broadcast to ALL instances of this machine
       const machineIds = this.machineIndex.get(machineName) || new Set();
@@ -519,7 +483,8 @@ export class FSMRuntime extends EventEmitter {
       return processedCount;
     }
 
-    // MODE 3: XComponent-style matching rules (backward compatibility)
+    // MODE 2: XComponent-style matching rules
+    // Find instances based on event payload matching instance properties
     // Find ALL transitions with matching rules for this state/event combination
     const transitionsWithMatchingRules = machine.transitions.filter(
       t => t.from === currentState && t.event === event.type && t.matchingRules && t.matchingRules.length > 0
@@ -708,57 +673,6 @@ export class FSMRuntime extends EventEmitter {
   }
 
   /**
-   * Check if an instance matches all property filters
-   *
-   * @param instance FSM instance to check
-   * @param filters Property filters to apply
-   * @returns true if instance matches ALL filters (AND logic)
-   */
-  private matchesFilters(instance: FSMInstance, filters: PropertyFilter[]): boolean {
-    // Use publicMember if available (XComponent pattern), otherwise fallback to context
-    const instanceContext = instance.publicMember || instance.context;
-
-    for (const filter of filters) {
-      const value = this.getNestedProperty(instanceContext, filter.property);
-      const operator = filter.operator || '===';
-
-      let matches = false;
-      switch (operator) {
-        case '===':
-          matches = value === filter.value;
-          break;
-        case '!==':
-          matches = value !== filter.value;
-          break;
-        case '>':
-          matches = value > filter.value;
-          break;
-        case '<':
-          matches = value < filter.value;
-          break;
-        case '>=':
-          matches = value >= filter.value;
-          break;
-        case '<=':
-          matches = value <= filter.value;
-          break;
-        case 'contains':
-          matches = typeof value === 'string' && value.includes(String(filter.value));
-          break;
-        case 'in':
-          matches = Array.isArray(filter.value) && filter.value.includes(value);
-          break;
-      }
-
-      if (!matches) {
-        return false; // AND logic: all filters must match
-      }
-    }
-
-    return true;
-  }
-
-  /**
    * Find applicable transition with support for specific triggering rules
    *
    * When multiple transitions exist from the same state with the same event,
@@ -838,6 +752,9 @@ export class FSMRuntime extends EventEmitter {
   /**
    * Evaluate guards
    *
+   * @deprecated Guards are deprecated in favor of explicit control in triggered methods.
+   * Use sender.sendToSelf() to explicitly trigger transitions based on business logic.
+   *
    * Guards are evaluated with AND logic (all must pass for transition to occur)
    * Supports:
    * - context guards: Check properties in instance context
@@ -845,6 +762,16 @@ export class FSMRuntime extends EventEmitter {
    * - custom guards: JavaScript conditions
    */
   private evaluateGuards(guards: Guard[], event: FSMEvent, context: Record<string, any>): boolean {
+    // Warning: Guards are deprecated
+    if (guards.length > 0 && !this.guardsDeprecationWarned) {
+      console.warn(
+        '[xcomponent-ai] DEPRECATION WARNING: Guards are deprecated. ' +
+        'Use sender.sendToSelf() in triggered methods for explicit control. ' +
+        'Guards will be removed in v0.3.0.'
+      );
+      this.guardsDeprecationWarned = true;
+    }
+
     return guards.every(guard => {
       // Modern guard types
       if (guard.type) {
@@ -953,7 +880,7 @@ export class FSMRuntime extends EventEmitter {
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
     // In production, execute triggered methods here
     if (transition.triggeredMethod) {
-      const sender = new SenderImpl(this, this.registry);
+      const sender = new SenderImpl(this, instance.id, this.registry);
       const instanceContext = instance.publicMember || instance.context;
 
       this.emit('triggered_method', {
@@ -1313,7 +1240,7 @@ export class FSMRuntime extends EventEmitter {
     else {
       if (rule.matchingRules && rule.matchingRules.length > 0) {
         // Use property-based routing
-        processedCount = await this.broadcastEvent(rule.targetMachine, event, undefined, rule.targetState);
+        processedCount = await this.broadcastEvent(rule.targetMachine, event, rule.targetState);
       } else {
         // No matching rules - send to ALL instances in target state
         // Performance: Use state index instead of iterating all instances

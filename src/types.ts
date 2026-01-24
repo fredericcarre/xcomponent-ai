@@ -62,6 +62,34 @@ export interface PropertyFilter {
  */
 export interface Sender {
   /**
+   * Send event to current instance (self)
+   *
+   * Allows triggered methods to explicitly control state transitions.
+   * Event is queued and processed asynchronously to avoid race conditions.
+   *
+   * @param event Event to send to self
+   *
+   * @example
+   * // Triggered method decides when to transition
+   * async function(event, context, sender) {
+   *   context.executedQuantity += event.payload.quantity;
+   *
+   *   if (context.executedQuantity >= context.totalQuantity) {
+   *     // Explicitly trigger transition to next state
+   *     await sender.sendToSelf({
+   *       type: 'FULLY_EXECUTED',
+   *       payload: {
+   *         totalExecuted: context.executedQuantity,
+   *         executionDuration: Date.now() - context.startTime
+   *       },
+   *       timestamp: Date.now()
+   *     });
+   *   }
+   * }
+   */
+  sendToSelf(event: FSMEvent): Promise<void>;
+
+  /**
    * Send event to specific instance by ID (intra-component)
    */
   sendTo(instanceId: string, event: FSMEvent): Promise<void>;
@@ -72,51 +100,44 @@ export interface Sender {
   sendToComponent(componentName: string, instanceId: string, event: FSMEvent): Promise<void>;
 
   /**
-   * Broadcast event to instances (intra-component)
+   * Broadcast event to instances
+   *
+   * Unified broadcast method for both intra-component and cross-component communication.
+   * Filtering is done via matchingRules in YAML, not in code.
    *
    * @param machineName Target state machine name
    * @param event Event to broadcast
-   * @param filters Optional property filters to target specific instances
-   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
+   * @param currentState Optional state filter. Omit to broadcast to all states
+   * @param componentName Optional component name. Omit for intra-component
    * @returns Number of instances that received the event
    *
    * @example
-   * // Broadcast to all Orders (any state)
+   * // Broadcast to all Orders in current component (any state)
    * await sender.broadcast('Order', {type: 'SYSTEM_ALERT', payload: {}});
    *
    * @example
    * // Broadcast to Orders in Pending state only
-   * await sender.broadcast('Order', {type: 'TIMEOUT', payload: {}}, [], 'Pending');
+   * await sender.broadcast('Order', {type: 'TIMEOUT', payload: {}}, 'Pending');
    *
    * @example
-   * // Broadcast only to orders for a specific customer (any state)
-   * await sender.broadcast('Order', {type: 'CUSTOMER_UPDATE', payload: {}}, [
-   *   {property: 'customerId', value: 'CUST-001'}
-   * ]);
+   * // Cross-component broadcast
+   * await sender.broadcast('Payment', {type: 'ORDER_COMPLETED', payload: {...}}, undefined, 'PaymentComponent');
+   *
+   * @example
+   * // Filtering via matchingRules in YAML:
+   * // transitions:
+   * //   - from: Monitoring
+   * //     to: Monitoring
+   * //     event: ORDER_UPDATE
+   * //     matchingRules:
+   * //       - eventProperty: payload.customerId
+   * //         instanceProperty: customerId
    */
   broadcast(
     machineName: string,
     event: FSMEvent,
-    filters?: PropertyFilter[],
-    currentState?: string
-  ): Promise<number>;
-
-  /**
-   * Broadcast event to instances in another component (cross-component)
-   *
-   * @param componentName Target component name
-   * @param machineName Target state machine name
-   * @param event Event to broadcast
-   * @param filters Optional property filters to target specific instances
-   * @param currentState Optional state filter. Use '*' or omit to broadcast to all states
-   * @returns Number of instances that received the event
-   */
-  broadcastToComponent(
-    componentName: string,
-    machineName: string,
-    event: FSMEvent,
-    filters?: PropertyFilter[],
-    currentState?: string
+    currentState?: string,
+    componentName?: string
   ): Promise<number>;
 
   /**

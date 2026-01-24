@@ -15,10 +15,22 @@
 ## 📦 Installation
 
 ```bash
-npm install xcomponent-ai
+npm install -g xcomponent-ai
 ```
 
 **Requirements**: Node.js 20.0.0+
+
+## 🚀 Quick Start
+
+**New to xcomponent-ai?** → Read the [Quick Start Guide](./QUICKSTART.md) for a 5-minute tutorial.
+
+```bash
+# Start runtime with dashboard
+xcomponent-ai serve examples/trading.yaml
+
+# Open browser → http://localhost:3000/dashboard
+# Create instances, send events, visualize FSM in real-time!
+```
 
 ## 🤖 For LLMs (Claude, GPT, etc.)
 

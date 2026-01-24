@@ -13,7 +13,6 @@ import {
   FSMInstance,
   StateType,
   TransitionType,
-  Guard,
   Sender,
   PersistenceConfig,
 } from './types';
@@ -109,9 +108,6 @@ export class FSMRuntime extends EventEmitter {
   private machineIndex: Map<string, Set<string>>; // machineName → Set<instanceId>
   private stateIndex: Map<string, Set<string>>; // "machineName:state" → Set<instanceId>
   private propertyIndex: Map<string, Set<string>>; // "machineName:propName:propValue" → Set<instanceId>
-
-  // Deprecation warnings (shown once per runtime)
-  private guardsDeprecationWarned = false;
 
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
@@ -224,9 +220,6 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${instance.machineName} not found`);
     }
 
-    // Use publicMember if available (XComponent pattern), otherwise fallback to context
-    const instanceContext = instance.publicMember || instance.context;
-
     // Find ALL candidate transitions from current state with matching event
     const candidates = machine.transitions.filter(
       t => t.from === instance.currentState && t.event === event.type
@@ -237,48 +230,9 @@ export class FSMRuntime extends EventEmitter {
       return;
     }
 
-    // Try each candidate in order (first matching guard wins)
-    let transition: Transition | null = null;
-
-    if (candidates.length === 1) {
-      // Single candidate - use it directly
-      transition = candidates[0];
-
-      // Check guards
-      if (transition.guards && !this.evaluateGuards(transition.guards, event, instanceContext)) {
-        this.emit('guard_failed', { instanceId, event, transition });
-        return;
-      }
-    } else {
-      // Multiple candidates - try each in order until guards pass
-      // This supports patterns like:
-      //   - from: PartiallyExecuted, to: PartiallyExecuted, event: EXEC, guard: qty < total
-      //   - from: PartiallyExecuted, to: FullyExecuted, event: EXEC, guard: qty >= total
-      for (const candidate of candidates) {
-        // Evaluate guards if present
-        if (candidate.guards) {
-          if (this.evaluateGuards(candidate.guards, event, instanceContext)) {
-            transition = candidate;
-            break; // First matching guard wins
-          }
-        } else {
-          // No guards - this transition always matches
-          transition = candidate;
-          break;
-        }
-      }
-
-      if (!transition) {
-        // No transition's guards passed
-        this.emit('guard_failed', {
-          instanceId,
-          event,
-          currentState: instance.currentState,
-          candidateCount: candidates.length,
-        });
-        return;
-      }
-    }
+    // Use first matching transition
+    // For multiple candidates with same event, use specificTriggeringRule or matchingRules
+    const transition: Transition = candidates[0];
 
     const previousState = instance.currentState;
 
@@ -749,127 +703,6 @@ export class FSMRuntime extends EventEmitter {
     return candidates[0];
   }
 
-  /**
-   * Evaluate guards
-   *
-   * @deprecated Guards are deprecated in favor of explicit control in triggered methods.
-   * Use sender.sendToSelf() to explicitly trigger transitions based on business logic.
-   *
-   * Guards are evaluated with AND logic (all must pass for transition to occur)
-   * Supports:
-   * - context guards: Check properties in instance context
-   * - event guards: Check properties in event payload
-   * - custom guards: JavaScript conditions
-   */
-  private evaluateGuards(guards: Guard[], event: FSMEvent, context: Record<string, any>): boolean {
-    // Warning: Guards are deprecated
-    if (guards.length > 0 && !this.guardsDeprecationWarned) {
-      console.warn(
-        '[xcomponent-ai] DEPRECATION WARNING: Guards are deprecated. ' +
-        'Use sender.sendToSelf() in triggered methods for explicit control. ' +
-        'Guards will be removed in v0.3.0.'
-      );
-      this.guardsDeprecationWarned = true;
-    }
-
-    return guards.every(guard => {
-      // Modern guard types
-      if (guard.type) {
-        switch (guard.type) {
-          case 'context':
-            return this.evaluatePropertyGuard(context, guard);
-
-          case 'event':
-            return this.evaluatePropertyGuard(event.payload || {}, guard);
-
-          case 'custom':
-            if (guard.condition) {
-              try {
-                // Create function with context, event, and publicMember (for backward compatibility)
-                // eslint-disable-next-line no-new-func
-                const func = new Function('context', 'event', 'publicMember', `return ${guard.condition}`);
-                return func(context, event, context); // publicMember = context for backward compat
-              } catch (error) {
-                console.error(`Guard condition evaluation failed: ${guard.condition}`, error);
-                return false;
-              }
-            }
-            return false;
-
-          default:
-            console.warn(`Unknown guard type: ${guard.type}`);
-            return false;
-        }
-      }
-
-      // Legacy support
-      // Key matching
-      if (guard.keys) {
-        return guard.keys.every(key => event.payload[key] !== undefined);
-      }
-
-      // Contains check
-      if (guard.contains) {
-        return JSON.stringify(event.payload).includes(guard.contains);
-      }
-
-      // Custom function (legacy)
-      if (guard.customFunction) {
-        try {
-          // eslint-disable-next-line no-new-func
-          const func = new Function('event', 'context', `return ${guard.customFunction}`);
-          return func(event, context);
-        } catch {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }
-
-  /**
-   * Evaluate a property-based guard (context or event)
-   */
-  private evaluatePropertyGuard(obj: any, guard: Guard): boolean {
-    if (!guard.property) {
-      return false;
-    }
-
-    // Get property value (supports dot notation)
-    const value = this.getNestedProperty(obj, guard.property);
-    const operator = guard.operator || '===';
-
-    // Resolve guard.value if it's a template ({{propertyName}})
-    let compareValue = guard.value;
-    if (typeof compareValue === 'string' && compareValue.startsWith('{{') && compareValue.endsWith('}}')) {
-      const propName = compareValue.slice(2, -2);
-      compareValue = this.getNestedProperty(obj, propName);
-    }
-
-    // Evaluate operator
-    switch (operator) {
-      case '===':
-        return value === compareValue;
-      case '!==':
-        return value !== compareValue;
-      case '>':
-        return value > compareValue;
-      case '<':
-        return value < compareValue;
-      case '>=':
-        return value >= compareValue;
-      case '<=':
-        return value <= compareValue;
-      case 'contains':
-        return String(value).includes(String(compareValue));
-      case 'in':
-        return Array.isArray(compareValue) && compareValue.includes(value);
-      default:
-        console.warn(`Unknown operator: ${operator}`);
-        return false;
-    }
-  }
 
   /**
    * Execute transition
@@ -1026,16 +859,6 @@ export class FSMRuntime extends EventEmitter {
     );
 
     autoTransitions.forEach(transition => {
-      // Use publicMember if available (XComponent pattern), otherwise fallback to context
-      const instanceContext = instance.publicMember || instance.context;
-
-      // Check guards before scheduling auto-transition
-      if (transition.guards && !this.evaluateGuards(transition.guards,
-        { type: transition.event, payload: {}, timestamp: Date.now() },
-        instanceContext)) {
-        return; // Guard failed, skip this auto-transition
-      }
-
       const delay = transition.timeoutMs || 0; // Default to immediate (0ms)
       const taskId = `${instanceId}-${stateName}-auto-${transition.event}`;
 
@@ -1423,10 +1246,6 @@ export class FSMRuntime extends EventEmitter {
         return { success: false, path, error: `No transition from ${currentState} for event ${event.type}` };
       }
 
-      if (transition.guards && !this.evaluateGuards(transition.guards, event, context)) {
-        return { success: false, path, error: `Guard failed for transition from ${currentState}` };
-      }
-
       currentState = transition.to;
       path.push(currentState);
 
@@ -1591,16 +1410,6 @@ export class FSMRuntime extends EventEmitter {
       );
 
       for (const transition of autoTransitions) {
-        // Use publicMember if available (XComponent pattern), otherwise fallback to context
-        const instanceContext = instance.publicMember || instance.context;
-
-        // Check guards before scheduling auto-transition
-        if (transition.guards && !this.evaluateGuards(transition.guards,
-          { type: transition.event, payload: {}, timestamp: Date.now() },
-          instanceContext)) {
-          continue; // Guard failed, skip this auto-transition
-        }
-
         const delay = transition.timeoutMs || 0;
 
         // Calculate elapsed time

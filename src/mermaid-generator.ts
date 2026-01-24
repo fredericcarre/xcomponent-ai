@@ -27,25 +27,7 @@ export function generateMermaidDiagram(machine: StateMachine): string {
 
   // Add all transitions
   machine.transitions.forEach(transition => {
-    const label = transition.event;
-
-    // Add guards info if present
-    let transitionLabel = label;
-    if (transition.guards && transition.guards.length > 0) {
-      const guardDesc = transition.guards.map(g => {
-        if (g.keys) {
-          return `requires: ${g.keys.join(', ')}`;
-        }
-        if (g.customFunction) {
-          return `guard: ${g.customFunction}`;
-        }
-        return '';
-      }).filter(Boolean).join('; ');
-
-      if (guardDesc) {
-        transitionLabel = `${label}\\n[${guardDesc}]`;
-      }
-    }
+    const transitionLabel = transition.event;
 
     lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
   });

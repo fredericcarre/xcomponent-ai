@@ -1,6 +1,6 @@
-# 📊 Event Accumulation & Conditional Transitions Guide
+# 📊 Event Accumulation & Explicit Control Guide
 
-This guide shows how to handle **multiple events** that accumulate data and transition based on **aggregated state**.
+This guide shows how to handle **multiple events** that accumulate data and **explicitly control transitions** based on business logic.
 
 ## 🎯 Use Case
 
@@ -9,17 +9,19 @@ This guide shows how to handle **multiple events** that accumulate data and tran
 - Each notification has a partial quantity (e.g., 100, 250, 150...)
 - Order should transition to "Fully Executed" **only when** `executedQuantity >= totalQuantity`
 
-**Key Challenge:** How to accumulate data from multiple events and conditionally transition?
+**Key Challenge:** How to accumulate data from multiple events and explicitly decide when to transition?
 
 ---
 
-## 💡 Solution: Guards + Triggered Methods
+## 💡 Solution: Explicit Control with sender.sendToSelf()
 
-xcomponent-ai provides three mechanisms to solve this:
+xcomponent-ai provides **explicit control** through triggered methods:
 
 1. **Context** - Stores accumulated state
-2. **Triggered Methods** - Accumulate data from events
-3. **Guards** - Conditional transitions based on context
+2. **Triggered Methods** - Accumulate data from events and decide when to transition
+3. **sender.sendToSelf()** - Explicitly trigger state transitions from code
+
+**Philosophy:** Business logic should be in code (triggered methods), not in YAML configuration.
 
 ---
 
@@ -49,7 +51,7 @@ stateMachines:
         default: []
 ```
 
-### Step 2: Create Accumulation Method
+### Step 2: Create Accumulation Method with Explicit Control
 
 ```yaml
 triggeredMethods:
@@ -76,147 +78,69 @@ triggeredMethods:
       });
 
       console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+
+      // EXPLICIT CONTROL: Decide when to transition
+      if (context.executedQuantity >= context.totalQuantity) {
+        // Send event to self to trigger completion
+        await sender.sendToSelf({
+          type: 'FULLY_EXECUTED',
+          payload: {
+            totalExecuted: context.executedQuantity,
+            executionCount: context.executions.length,
+            averagePrice: context.executions.reduce((sum, e) => sum + e.price, 0) / context.executions.length
+          },
+          timestamp: Date.now()
+        });
+      }
     }
 ```
 
-### Step 3: Define Conditional Transitions with Guards
+**Key Points:**
+- Method accumulates data from the event
+- Method **decides** when to transition based on business logic
+- Uses `sender.sendToSelf()` to **explicitly** trigger the transition
+- Event is queued asynchronously to avoid race conditions
+
+### Step 3: Define Transitions (No Guards!)
 
 ```yaml
 transitions:
-  # Stay in PartiallyExecuted if NOT fully executed yet
+  # SELF-LOOP: Stay in PartiallyExecuted
+  # Triggered method decides when to send FULLY_EXECUTED event
   - from: PartiallyExecuted
     to: PartiallyExecuted
     event: EXECUTION_NOTIFICATION
     type: triggerable
     triggeredMethod: accumulateExecution
-    guards:
-      # Guard: Only stay if quantity is still incomplete
-      - type: custom
-        condition: "context.executedQuantity < context.totalQuantity"
 
-  # Transition to FullyExecuted when quantity is complete
+  # EXPLICIT TRANSITION: Triggered by sender.sendToSelf()
+  # No guards - logic is in the triggered method
   - from: PartiallyExecuted
     to: FullyExecuted
-    event: EXECUTION_NOTIFICATION
+    event: FULLY_EXECUTED
     type: triggerable
-    triggeredMethod: accumulateExecution
-    guards:
-      # Guard: Only transition when fully executed
-      - type: context
-        property: executedQuantity
-        operator: ">="
-        value: "{{totalQuantity}}"  # Reference context property
+    triggeredMethod: handleCompletion
+
+  # Also handle direct full execution from Submitted
+  - from: Submitted
+    to: FullyExecuted
+    event: FULLY_EXECUTED
+    type: triggerable
+    triggeredMethod: handleCompletion
 ```
 
 **How it works:**
-1. Event arrives → `accumulateExecution` method executes → context.executedQuantity updated
-2. Guards are evaluated **after** triggered method
-3. **Multiple transitions are tried in order** - first matching guard wins
-4. Transition occurs based on which guard passes first
+1. Event `EXECUTION_NOTIFICATION` arrives
+2. `accumulateExecution` method executes, updates context
+3. Method checks if `executedQuantity >= totalQuantity`
+4. If true, method calls `sender.sendToSelf()` with `FULLY_EXECUTED` event
+5. `FULLY_EXECUTED` event triggers transition to `FullyExecuted` state
 
-**Important:** When multiple transitions from the same state use the same event:
-- Triggered method runs **once** (before evaluating any guards)
-- Guards are evaluated in the order transitions are defined
-- The **first transition with passing guards** is used
-- Define transitions in your desired evaluation order
-
----
-
-## 🛡️ Guard Types Reference
-
-### 1. Context Guards
-
-Check properties in the instance **context**.
-
-```yaml
-guards:
-  # Simple comparison
-  - type: context
-    property: executedQuantity
-    operator: ">="
-    value: 1000
-
-  # Reference another context property
-  - type: context
-    property: executedQuantity
-    operator: ">="
-    value: "{{totalQuantity}}"
-
-  # Nested property
-  - type: context
-    property: customer.tier
-    operator: "==="
-    value: "premium"
-
-  # Array length
-  - type: context
-    property: executions.length
-    operator: ">"
-    value: 0
-```
-
-### 2. Event Guards
-
-Check properties in the **event payload**.
-
-```yaml
-guards:
-  # Check event payload
-  - type: event
-    property: quantity
-    operator: ">"
-    value: 100
-
-  # Check execution price
-  - type: event
-    property: price
-    operator: "<="
-    value: "{{limitPrice}}"  # Compare with context property
-```
-
-### 3. Custom Guards
-
-JavaScript conditions with full access to `context`, `event`, and `publicMember`.
-
-```yaml
-guards:
-  # Complex condition
-  - type: custom
-    condition: "context.executedQuantity >= context.totalQuantity && event.payload.status === 'confirmed'"
-
-  # Multiple checks
-  - type: custom
-    condition: "context.executions.length > 0 && context.executions.every(e => e.quantity > 0)"
-
-  # Date/time logic
-  - type: custom
-    condition: "Date.now() - context.createdAt < 3600000"  # Within 1 hour
-```
-
-### Supported Operators
-
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `===` | Equal (default) | `property: amount, value: 1000` |
-| `!==` | Not equal | `property: status, operator: "!==", value: "cancelled"` |
-| `>` | Greater than | `property: amount, operator: ">", value: 100` |
-| `<` | Less than | `property: quantity, operator: "<", value: "{{maxQuantity}}"` |
-| `>=` | Greater or equal | `property: executedQuantity, operator: ">=", value: "{{totalQuantity}}"` |
-| `<=` | Less or equal | `property: price, operator: "<=", value: "{{limitPrice}}"` |
-| `contains` | String contains | `property: description, operator: "contains", value: "urgent"` |
-| `in` | Value in array | `property: status, operator: "in", value: ["pending", "active"]` |
-
-### Template References
-
-Use `{{propertyName}}` to reference other context properties:
-
-```yaml
-guards:
-  - type: context
-    property: executedQuantity
-    operator: ">="
-    value: "{{totalQuantity}}"  # References context.totalQuantity
-```
+**Benefits:**
+- ✅ All business logic in one place (triggered method)
+- ✅ Easy to test and debug
+- ✅ Can set event payload properties dynamically
+- ✅ Full control over transition timing
 
 ---
 
@@ -240,6 +164,28 @@ triggeredMethods:
         executionId: event.payload.executionId,
         timestamp: event.timestamp
       });
+
+      console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+
+      // EXPLICIT CONTROL
+      if (context.executedQuantity >= context.totalQuantity) {
+        await sender.sendToSelf({
+          type: 'FULLY_EXECUTED',
+          payload: {
+            totalExecuted: context.executedQuantity,
+            executionCount: context.executions.length
+          },
+          timestamp: Date.now()
+        });
+      }
+    }
+
+  handleCompletion: |
+    async function(event, context, sender) {
+      console.log(`Order completed!`);
+      console.log(`  Total: ${event.payload.totalExecuted}`);
+      console.log(`  Executions: ${event.payload.executionCount}`);
+      context.stats = event.payload;
     }
 
 stateMachines:
@@ -248,10 +194,15 @@ stateMachines:
 
     states:
       - name: Created
+        type: entry
       - name: Submitted
+        type: regular
       - name: PartiallyExecuted
+        type: regular
       - name: FullyExecuted
+        type: regular
       - name: Completed
+        type: final
 
     transitions:
       - from: Created
@@ -259,27 +210,31 @@ stateMachines:
         event: SUBMIT
         type: triggerable
 
-      # Partial → Partial (stay if not complete)
+      - from: Submitted
+        to: PartiallyExecuted
+        event: EXECUTION_NOTIFICATION
+        type: triggerable
+        triggeredMethod: accumulateExecution
+
+      # SELF-LOOP
       - from: PartiallyExecuted
         to: PartiallyExecuted
         event: EXECUTION_NOTIFICATION
         type: triggerable
         triggeredMethod: accumulateExecution
-        guards:
-          - type: custom
-            condition: "context.executedQuantity < context.totalQuantity"
 
-      # Partial → Fully (transition when complete)
+      # EXPLICIT TRANSITION
       - from: PartiallyExecuted
         to: FullyExecuted
-        event: EXECUTION_NOTIFICATION
+        event: FULLY_EXECUTED
         type: triggerable
-        triggeredMethod: accumulateExecution
-        guards:
-          - type: context
-            property: executedQuantity
-            operator: ">="
-            value: "{{totalQuantity}}"
+        triggeredMethod: handleCompletion
+
+      - from: Submitted
+        to: FullyExecuted
+        event: FULLY_EXECUTED
+        type: triggerable
+        triggeredMethod: handleCompletion
 
       - from: FullyExecuted
         to: Completed
@@ -368,88 +323,106 @@ curl http://localhost:3000/api/instances/{instanceId}
     {"quantity": 300, "price": 150.50, "executionId": "EXEC-001"},
     {"quantity": 400, "price": 150.45, "executionId": "EXEC-002"},
     {"quantity": 300, "price": 150.40, "executionId": "EXEC-003"}
-  ]
+  ],
+  "stats": {
+    "totalExecuted": 1000,
+    "executionCount": 3
+  }
 }
 ```
 
 ---
 
-## 📤 Sending Events from Triggered Methods
+## 📤 Sender Methods Reference
 
-Triggered methods can send events to other instances using the `sender` parameter.
+Triggered methods receive a `sender` parameter with methods for cross-instance communication.
 
-### Send to Specific Instance
+### sendToSelf(event)
 
-```yaml
-triggeredMethods:
-  notifyPayment: |
-    async function(event, context, sender) {
-      // Send event to specific payment instance
-      await sender.sendTo(context.paymentInstanceId, {
-        type: 'ORDER_CONFIRMED',
-        payload: { orderId: context.orderId },
-        timestamp: Date.now()
-      });
-    }
+Send event to current instance (explicit control):
+
+```javascript
+await sender.sendToSelf({
+  type: 'FULLY_EXECUTED',
+  payload: { totalExecuted: context.executedQuantity },
+  timestamp: Date.now()
+});
 ```
 
-### Broadcast with Property Filters
+### sendTo(instanceId, event)
 
-Send events to **multiple instances** matching specific criteria:
+Send event to specific instance:
 
-```yaml
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // Update context...
-      context.executedQuantity += event.payload.quantity;
-
-      // BROADCAST to risk monitors for this customer
-      const count = await sender.broadcast(
-        'RiskMonitor',           // Target machine
-        'Monitoring',            // Target state
-        {
-          type: 'ORDER_UPDATE',
-          payload: {
-            orderId: context.orderId,
-            executedQuantity: context.executedQuantity
-          },
-          timestamp: Date.now()
-        },
-        [
-          // FILTERS: Only instances for this customer
-          { property: 'customerId', value: context.customerId },
-          { property: 'assetClass', value: 'EQUITY' }
-        ]
-      );
-
-      console.log(`Notified ${count} risk monitor(s)`);
-    }
+```javascript
+await sender.sendTo(context.paymentInstanceId, {
+  type: 'ORDER_CONFIRMED',
+  payload: { orderId: context.orderId },
+  timestamp: Date.now()
+});
 ```
 
-**Filter operators:** `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
+### broadcast(machineName, event, currentState?, componentName?)
 
-**Multiple filters use AND logic** (all must match).
+Broadcast to all matching instances. Filtering is done via **matchingRules in YAML**, not in code:
 
-### Cross-Component Broadcasts
+```javascript
+// Broadcast to all Orders (any state)
+await sender.broadcast('Order', {
+  type: 'SYSTEM_ALERT',
+  payload: {},
+  timestamp: Date.now()
+});
+
+// Broadcast to Orders in Pending state only
+await sender.broadcast('Order', {
+  type: 'TIMEOUT',
+  payload: {},
+  timestamp: Date.now()
+}, 'Pending');
+
+// Cross-component broadcast
+await sender.broadcast('Payment', {
+  type: 'ORDER_COMPLETED',
+  payload: { orderId: context.orderId },
+  timestamp: Date.now()
+}, undefined, 'PaymentComponent');
+```
+
+**Filtering via matchingRules in YAML:**
 
 ```yaml
-triggeredMethods:
-  cascadeToOtherComponent: |
-    async function(event, context, sender) {
-      // Broadcast to instances in another component
-      await sender.broadcastToComponent(
-        'PaymentComponent',      // Target component
-        'Payment',               // Target machine
-        'Pending',               // Target state
-        {
-          type: 'ORDER_COMPLETED',
-          payload: { orderId: context.orderId },
-          timestamp: Date.now()
-        },
-        [{ property: 'orderId', value: context.orderId }]
-      );
-    }
+# In the receiving machine's transition
+transitions:
+  - from: Monitoring
+    to: Monitoring
+    event: ORDER_UPDATE
+    type: triggerable
+    matchingRules:
+      # Only instances with matching customerId receive event
+      - eventProperty: payload.customerId
+        instanceProperty: customerId
+```
+
+### createInstance(machineName, initialContext)
+
+Create new instance:
+
+```javascript
+const newInstanceId = sender.createInstance('Order', {
+  orderId: 'ORD-001',
+  totalQuantity: 1000
+});
+```
+
+### createInstanceInComponent(componentName, machineName, initialContext)
+
+Create instance in another component:
+
+```javascript
+sender.createInstanceInComponent('PaymentComponent', 'Payment', {
+  orderId: context.orderId,
+  amount: context.totalAmount
+});
 ```
 
 ---
@@ -458,44 +431,55 @@ triggeredMethods:
 
 ### 1. Payment Installments
 
-```yaml
-# Loan with multiple payment installments
-guards:
-  - type: context
-    property: paidInstallments
-    operator: ">="
-    value: "{{totalInstallments}}"
+```javascript
+async function(event, context, sender) {
+  if (!context.paidInstallments) context.paidInstallments = 0;
+  context.paidInstallments += 1;
+
+  if (context.paidInstallments >= context.totalInstallments) {
+    await sender.sendToSelf({
+      type: 'FULLY_PAID',
+      payload: { installments: context.paidInstallments },
+      timestamp: Date.now()
+    });
+  }
+}
 ```
 
 ### 2. Multi-Step Approval
 
-```yaml
-# Require 3 approvals
-guards:
-  - type: context
-    property: approvals.length
-    operator: ">="
-    value: 3
+```javascript
+async function(event, context, sender) {
+  if (!context.approvals) context.approvals = [];
+  context.approvals.push({
+    approver: event.payload.approver,
+    timestamp: event.timestamp
+  });
+
+  if (context.approvals.length >= 3) {
+    await sender.sendToSelf({
+      type: 'APPROVED',
+      payload: { approvers: context.approvals.map(a => a.approver) },
+      timestamp: Date.now()
+    });
+  }
+}
 ```
 
 ### 3. Time-based Accumulation
 
-```yaml
-# Only transition after 24 hours
-guards:
-  - type: custom
-    condition: "Date.now() - context.createdAt > 86400000"
-```
+```javascript
+async function(event, context, sender) {
+  const elapsed = Date.now() - context.createdAt;
 
-### 4. Conditional on External Data
-
-```yaml
-# Check market conditions
-guards:
-  - type: event
-    property: marketPrice
-    operator: "<="
-    value: "{{limitPrice}}"
+  if (elapsed > 86400000) {  // 24 hours
+    await sender.sendToSelf({
+      type: 'EXPIRED',
+      payload: { duration: elapsed },
+      timestamp: Date.now()
+    });
+  }
+}
 ```
 
 ---
@@ -503,11 +487,11 @@ guards:
 ## ⚠️ Best Practices
 
 1. **Initialize accumulators** in triggered methods (handle first event)
-2. **Use guards on BOTH transitions** (stay vs. transition)
-3. **Log accumulation** for debugging (`console.log` in triggered methods)
+2. **Use sender.sendToSelf()** for explicit control instead of guards
+3. **Log state changes** for debugging (`console.log` in triggered methods)
 4. **Test edge cases** (exact match, overfill, underfill)
-5. **Use context guards for clarity** instead of always using custom
-6. **Document business logic** in YAML comments
+5. **Keep business logic in code** (triggered methods), not YAML
+6. **Document transitions** with clear comments in YAML
 
 ---
 
@@ -515,6 +499,7 @@ guards:
 
 - [LLM-GUIDE.md](./LLM-GUIDE.md) - Complete YAML patterns
 - [examples/event-accumulation-demo.yaml](./examples/event-accumulation-demo.yaml) - Full example
+- [examples/explicit-transitions-demo.yaml](./examples/explicit-transitions-demo.yaml) - Explicit control demo
 - [QUICKSTART.md](./QUICKSTART.md) - Getting started
 
-**Built for complex workflows.** 🚀
+**Built for explicit control.** 🚀

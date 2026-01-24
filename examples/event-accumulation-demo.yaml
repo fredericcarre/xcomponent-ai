@@ -1,19 +1,20 @@
 # Event Accumulation Demo
-# Shows how to accumulate multiple events and transition based on accumulated data
+# Shows how to accumulate multiple events and use EXPLICIT CONTROL for transitions
 #
 # Use Case: Trading Order that receives multiple execution notifications
 # and transitions to "Fully Executed" only when all quantity is executed
+#
+# Key Pattern: sender.sendToSelf() for explicit transition control
 
 name: TradingComponent
 version: 1.0.0
 metadata:
-  description: Trading order with partial executions
+  description: Trading order with partial executions and explicit control
 
-# Define triggered methods that will accumulate execution data
+# Define triggered methods that accumulate data and EXPLICITLY control transitions
 triggeredMethods:
+  # Accumulates execution data and EXPLICITLY decides when to transition
   accumulateExecution: |
-    // This method is called BEFORE the transition
-    // It accumulates the executed quantity from the event
     async function(event, context, sender) {
       // Initialize if first execution
       if (!context.executedQuantity) {
@@ -36,6 +37,33 @@ triggeredMethods:
       });
 
       console.log(`Accumulated: ${context.executedQuantity}/${context.totalQuantity}`);
+
+      // EXPLICIT CONTROL: Decide when to transition to FullyExecuted
+      if (context.executedQuantity >= context.totalQuantity) {
+        console.log(`Order ${context.orderId} is now fully executed!`);
+        // Send event to self to trigger transition to FullyExecuted
+        await sender.sendToSelf({
+          type: 'FULLY_EXECUTED',
+          payload: {
+            totalExecuted: context.executedQuantity,
+            executionCount: context.executions.length,
+            averagePrice: context.executions.reduce((sum, e) => sum + e.price, 0) / context.executions.length
+          },
+          timestamp: Date.now()
+        });
+      }
+    }
+
+  # Handle completion
+  handleCompletion: |
+    async function(event, context, sender) {
+      console.log(`Order ${context.orderId} completed!`);
+      console.log(`  Total executed: ${event.payload.totalExecuted}`);
+      console.log(`  Executions: ${event.payload.executionCount}`);
+      console.log(`  Average price: ${event.payload.averagePrice}`);
+
+      context.completedAt = Date.now();
+      context.stats = event.payload;
     }
 
 stateMachines:
@@ -96,48 +124,35 @@ stateMachines:
         event: SUBMIT
         type: triggerable
 
-      # First execution notification (0 → partial)
+      # First execution notification (Submitted → PartiallyExecuted)
       - from: Submitted
         to: PartiallyExecuted
         event: EXECUTION_NOTIFICATION
         type: triggerable
         triggeredMethod: accumulateExecution
 
-      # Subsequent execution notifications (partial → partial)
-      # Guard ensures we DON'T transition to FullyExecuted yet
+      # SELF-LOOP: Subsequent execution notifications (PartiallyExecuted → PartiallyExecuted)
+      # Triggered method decides when to send FULLY_EXECUTED event
       - from: PartiallyExecuted
         to: PartiallyExecuted
         event: EXECUTION_NOTIFICATION
         type: triggerable
         triggeredMethod: accumulateExecution
-        guards:
-          # Stay in PartiallyExecuted if not fully executed yet
-          - type: custom
-            condition: "context.executedQuantity < context.totalQuantity"
 
-      # Transition to FullyExecuted when quantity is complete
-      # THIS IS THE KEY: Guard checks accumulated quantity
+      # EXPLICIT TRANSITION: Triggered by sender.sendToSelf() in accumulateExecution
+      # No guards! The business logic is in the triggered method
       - from: PartiallyExecuted
         to: FullyExecuted
-        event: EXECUTION_NOTIFICATION
+        event: FULLY_EXECUTED
         type: triggerable
-        triggeredMethod: accumulateExecution
-        guards:
-          # Only transition when fully executed
-          - type: context
-            property: executedQuantity
-            operator: ">="
-            value: "{{totalQuantity}}"  # Reference totalQuantity from context
+        triggeredMethod: handleCompletion
 
-      # Alternative: Direct FullyExecuted from Submitted (large fill)
+      # Also handle direct full execution from Submitted (single large fill)
       - from: Submitted
         to: FullyExecuted
-        event: EXECUTION_NOTIFICATION
+        event: FULLY_EXECUTED
         type: triggerable
-        triggeredMethod: accumulateExecution
-        guards:
-          - type: custom
-            condition: "context.executedQuantity >= context.totalQuantity"
+        triggeredMethod: handleCompletion
 
       # Settlement
       - from: FullyExecuted

@@ -54,7 +54,7 @@ describe('Property Matching (XComponent-style)', () => {
       const order3 = runtime.createInstance('Order', { Id: 3, Quantity: 300 });
 
       // Broadcast execution event for order 2
-      const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      const processedCount = await runtime.broadcastEvent('Order', {
         type: 'ExecutionInput',
         payload: { OrderId: 2, ExecutionQuantity: 200 },
         timestamp: Date.now(),
@@ -76,7 +76,7 @@ describe('Property Matching (XComponent-style)', () => {
       runtime.createInstance('Order', { Id: 42, Quantity: 200 });
       runtime.createInstance('Order', { Id: 99, Quantity: 300 });
 
-      const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      const processedCount = await runtime.broadcastEvent('Order', {
         type: 'ExecutionInput',
         payload: { OrderId: 42, ExecutionQuantity: 150 },
         timestamp: Date.now(),
@@ -91,7 +91,7 @@ describe('Property Matching (XComponent-style)', () => {
       runtime.createInstance('Order', { Id: 1, Quantity: 100 });
       runtime.createInstance('Order', { Id: 2, Quantity: 200 });
 
-      const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      const processedCount = await runtime.broadcastEvent('Order', {
         type: 'ExecutionInput',
         payload: { OrderId: 999, ExecutionQuantity: 50 }, // No match
         timestamp: Date.now(),
@@ -116,7 +116,7 @@ describe('Property Matching (XComponent-style)', () => {
       expect(runtime.getInstance(order1)?.currentState).toBe('Executed');
 
       // Broadcast to Pending state only
-      const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      const processedCount = await runtime.broadcastEvent('Order', {
         type: 'ExecutionInput',
         payload: { OrderId: 1, ExecutionQuantity: 50 },
         timestamp: Date.now(),
@@ -163,7 +163,7 @@ describe('Property Matching (XComponent-style)', () => {
       const customer1 = runtime.createInstance('Customer', { id: 'C001', name: 'Alice' });
       const customer2 = runtime.createInstance('Customer', { id: 'C002', name: 'Bob' });
 
-      const processedCount = await runtime.broadcastEvent('Customer', 'Active', {
+      const processedCount = await runtime.broadcastEvent('Customer', {
         type: 'UpdateAddress',
         payload: {
           customer: { id: 'C001' },
@@ -240,7 +240,7 @@ describe('Property Matching (XComponent-style)', () => {
       runtime.createInstance('Account', { id: 'A2', balance: 500 });
 
       // Balance 1000 > threshold 800
-      await runtime.broadcastEvent('Account', 'Active', {
+      await runtime.broadcastEvent('Account', {
         type: 'CheckThreshold',
         payload: { accountId: 'A1', threshold: 800 },
         timestamp: Date.now(),
@@ -255,7 +255,7 @@ describe('Property Matching (XComponent-style)', () => {
       const account1 = runtime.createInstance('Account', { id: 'A1', balance: 500 });
 
       // Balance 500 < threshold 800
-      await runtime.broadcastEvent('Account', 'Active', {
+      await runtime.broadcastEvent('Account', {
         type: 'CheckThreshold',
         payload: { accountId: 'A1', threshold: 800 },
         timestamp: Date.now(),
@@ -319,7 +319,7 @@ describe('Property Matching (XComponent-style)', () => {
       const order1 = runtime.createInstance('Order', { Id: 1, RemainingQuantity: 1000 });
 
       // Full execution (1000 === 1000)
-      await runtime.broadcastEvent('Order', 'Pending', {
+      await runtime.broadcastEvent('Order', {
         type: 'Execute',
         payload: { OrderId: 1, Quantity: 1000 },
         timestamp: Date.now(),
@@ -335,7 +335,7 @@ describe('Property Matching (XComponent-style)', () => {
       const order1 = runtime.createInstance('Order', { Id: 1, RemainingQuantity: 1000 });
 
       // Partial execution (500 < 1000)
-      await runtime.broadcastEvent('Order', 'Pending', {
+      await runtime.broadcastEvent('Order', {
         type: 'Execute',
         payload: { OrderId: 1, Quantity: 500 },
         timestamp: Date.now(),
@@ -382,7 +382,7 @@ describe('Property Matching (XComponent-style)', () => {
       const instance1 = runtime.createInstance('WithPublicMember', { businessId: 42 });
 
       // Should match against publicMember, not context
-      const processedCount = await runtime.broadcastEvent('WithPublicMember', 'Start', {
+      const processedCount = await runtime.broadcastEvent('WithPublicMember', {
         type: 'UPDATE',
         payload: { id: 42 },
         timestamp: Date.now(),
@@ -440,7 +440,7 @@ describe('Property Matching (XComponent-style)', () => {
       const order1 = runtime.createInstance('Order', { Id: 1, Quantity: 100 });
 
       // Property matches, but guard fails (Amount > 10000)
-      const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      const processedCount = await runtime.broadcastEvent('Order', {
         type: 'Validate',
         payload: { OrderId: 1, Amount: 15000 },
         timestamp: Date.now(),
@@ -456,7 +456,7 @@ describe('Property Matching (XComponent-style)', () => {
       const order1 = runtime.createInstance('Order', { Id: 1, Quantity: 100 });
 
       // Property matches AND guard passes (Amount <= 10000)
-      const processedCount = await runtime.broadcastEvent('Order', 'Pending', {
+      const processedCount = await runtime.broadcastEvent('Order', {
         type: 'Validate',
         payload: { OrderId: 1, Amount: 5000 },
         timestamp: Date.now(),
@@ -495,7 +495,7 @@ describe('Property Matching (XComponent-style)', () => {
       const runtime = new FSMRuntime(basicComponent);
 
       await expect(
-        runtime.broadcastEvent('NonExistent', 'Start', {
+        runtime.broadcastEvent('NonExistent', {
           type: 'GO',
           payload: {},
           timestamp: Date.now(),
@@ -507,7 +507,7 @@ describe('Property Matching (XComponent-style)', () => {
       const runtime = new FSMRuntime(basicComponent);
 
       await expect(
-        runtime.broadcastEvent('Machine', 'Start', {
+        runtime.broadcastEvent('Machine', {
           type: 'GO',
           payload: {},
           timestamp: Date.now(),

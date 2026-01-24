@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-01-24
+
+### Added
+- Included `examples/` directory in published npm package
+- Users can now run `xcomponent-ai load examples/trading.yaml` after global install
+
+### Fixed
+- Fixed "ENOENT: no such file or directory" error when trying to load example files
+
 ## [0.1.2] - 2026-01-24
 
 ### Added

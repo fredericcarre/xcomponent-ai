@@ -914,42 +914,69 @@ export class FSMRuntime extends EventEmitter {
 
     let processedCount = 0;
 
-    if (rule.matchingRules && rule.matchingRules.length > 0) {
-      // Use property-based routing
-      processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
-    } else {
-      // No matching rules - send to ALL instances in target state
-      // Performance: Use state index instead of iterating all instances
-      const stateKey = `${rule.targetMachine}:${rule.targetState}`;
-      const candidateIds = this.stateIndex.get(stateKey);
+    // CROSS-COMPONENT communication: delegate to ComponentRegistry
+    if (rule.targetComponent) {
+      if (!this.registry) {
+        throw new Error(`Cross-component cascading rule requires a ComponentRegistry. Target: ${rule.targetComponent}.${rule.targetMachine}`);
+      }
 
-      if (candidateIds) {
-        for (const instanceId of candidateIds) {
-          const instance = this.instances.get(instanceId);
-          if (!instance || instance.status !== 'active') continue;
+      // Use registry (ComponentRegistry) to broadcast to another component
+      processedCount = await this.registry.broadcastToComponent(
+        rule.targetComponent,
+        rule.targetMachine,
+        rule.targetState,
+        event
+      );
 
-          try {
-            await this.sendEvent(instance.id, event);
-            processedCount++;
-          } catch (error: any) {
-            // Continue processing other instances even if one fails
-            this.emit('cascade_error', {
-              sourceInstanceId: sourceInstance.id,
-              targetInstanceId: instance.id,
-              error: error.message,
-            });
+      this.emit('cross_component_cascade', {
+        sourceInstanceId: sourceInstance.id,
+        sourceComponent: this.componentDef.name,
+        targetComponent: rule.targetComponent,
+        targetMachine: rule.targetMachine,
+        targetState: rule.targetState,
+        event: rule.event,
+        processedCount,
+      });
+    }
+    // INTRA-COMPONENT communication: use local broadcastEvent
+    else {
+      if (rule.matchingRules && rule.matchingRules.length > 0) {
+        // Use property-based routing
+        processedCount = await this.broadcastEvent(rule.targetMachine, rule.targetState, event);
+      } else {
+        // No matching rules - send to ALL instances in target state
+        // Performance: Use state index instead of iterating all instances
+        const stateKey = `${rule.targetMachine}:${rule.targetState}`;
+        const candidateIds = this.stateIndex.get(stateKey);
+
+        if (candidateIds) {
+          for (const instanceId of candidateIds) {
+            const instance = this.instances.get(instanceId);
+            if (!instance || instance.status !== 'active') continue;
+
+            try {
+              await this.sendEvent(instance.id, event);
+              processedCount++;
+            } catch (error: any) {
+              // Continue processing other instances even if one fails
+              this.emit('cascade_error', {
+                sourceInstanceId: sourceInstance.id,
+                targetInstanceId: instance.id,
+                error: error.message,
+              });
+            }
           }
         }
       }
-    }
 
-    this.emit('cascade_completed', {
-      sourceInstanceId: sourceInstance.id,
-      targetMachine: rule.targetMachine,
-      targetState: rule.targetState,
-      event: rule.event,
-      processedCount,
-    });
+      this.emit('cascade_completed', {
+        sourceInstanceId: sourceInstance.id,
+        targetMachine: rule.targetMachine,
+        targetState: rule.targetState,
+        event: rule.event,
+        processedCount,
+      });
+    }
   }
 
   /**

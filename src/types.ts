@@ -126,6 +126,8 @@ export interface MatchingRule {
  * Example: When Order reaches Confirmed, start Shipment workflow
  */
 export interface CascadingRule {
+  /** Target component name (for cross-component communication). If omitted, targets the same component */
+  targetComponent?: string;
   /** Target machine name */
   targetMachine: string;
   /** Target state filter (only instances in this state) */

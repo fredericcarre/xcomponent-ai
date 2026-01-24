@@ -51,6 +51,9 @@ export class ComponentRegistry extends EventEmitter {
     this.runtimes.set(component.name, runtime);
     this.components.set(component.name, component);
 
+    // Set registry reference in runtime for cross-component communication
+    runtime.setRegistry(this);
+
     // Forward runtime events
     this.forwardRuntimeEvents(component.name, runtime);
 

@@ -14,6 +14,7 @@ export * from './component-registry';
 export * from './persistence';
 export * from './timer-wheel';
 export * from './message-broker';
+export * from './external-broker-api';
 
 // Main exports
 export { FSMRuntime, loadComponent } from './fsm-runtime';
@@ -35,3 +36,11 @@ export {
   createMessageBroker,
   CrossComponentMessage
 } from './message-broker';
+export {
+  ExternalBrokerAPI,
+  ExternalCommand,
+  ExternalBroadcastCommand,
+  PublishedFSMEvent,
+  publishExternalCommand,
+  subscribeToFSMEvents
+} from './external-broker-api';

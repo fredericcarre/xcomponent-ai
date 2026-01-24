@@ -96,6 +96,22 @@ export class InMemoryMessageBroker extends EventEmitter implements MessageBroker
 /**
  * Redis Pub/Sub Message Broker
  * For distributed multi-process deployment
+ *
+ * Supported URL formats:
+ * - redis://localhost:6379                    (no auth)
+ * - redis://:password@localhost:6379          (password only)
+ * - redis://username:password@localhost:6379  (username + password)
+ * - redis://localhost:6379/2                  (specific database)
+ * - rediss://localhost:6380                   (TLS/SSL)
+ *
+ * Query parameters:
+ * - redis://localhost:6379?connectTimeout=5000
+ *
+ * Example:
+ * ```typescript
+ * const broker = new RedisMessageBroker('redis://:mypassword@prod-redis.example.com:6379/0');
+ * await broker.connect();
+ * ```
  */
 export class RedisMessageBroker implements MessageBroker {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,6 +122,11 @@ export class RedisMessageBroker implements MessageBroker {
   private connected = false;
   private redisUrl: string;
 
+  /**
+   * Create a Redis message broker
+   *
+   * @param redisUrl Redis connection URL (supports authentication, TLS, database selection)
+   */
   constructor(redisUrl: string) {
     this.redisUrl = redisUrl;
   }

@@ -12,6 +12,7 @@
   },
   "files": [
     "dist/",
+    "public/",
     "examples/",
     "README.md",
     "QUICKSTART.md",

@@ -6,18 +6,32 @@
 
 import { Command } from 'commander';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 import * as yaml from 'yaml';
 import { FSMRuntime } from './fsm-runtime';
 import { SupervisorAgent } from './agents';
 import { monitoringService } from './monitoring';
 import { Component, FSMEvent } from './types';
 
+/**
+ * Resolve file path - supports both local paths and package-installed examples
+ */
+function resolveFilePath(filePath: string): string {
+  // If path starts with 'examples/', resolve to package installation directory
+  if (filePath.startsWith('examples/')) {
+    // __dirname points to dist/, go up one level to package root
+    return path.join(__dirname, '..', filePath);
+  }
+  // Otherwise, use path as-is (relative to current directory)
+  return filePath;
+}
+
 const program = new Command();
 
 program
   .name('xcomponent-ai')
   .description('Agentic FSM tool for fintech workflows')
-  .version('0.1.4');
+  .version('0.1.5');
 
 /**
  * Initialize new project
@@ -223,7 +237,8 @@ program
   .description('Load FSM component from YAML file')
   .action(async (file: string) => {
     try {
-      const content = await fs.readFile(file, 'utf-8');
+      const resolvedPath = resolveFilePath(file);
+      const content = await fs.readFile(resolvedPath, 'utf-8');
       const component = yaml.parse(content) as Component;
       console.log(`✓ Loaded component: ${component.name}`);
       console.log(`  Machines: ${component.stateMachines.length}`);
@@ -246,7 +261,8 @@ program
   .option('-e, --events <json>', 'Events to send as JSON array')
   .action(async (file: string, machine: string, options: any) => {
     try {
-      const content = await fs.readFile(file, 'utf-8');
+      const resolvedPath = resolveFilePath(file);
+      const content = await fs.readFile(resolvedPath, 'utf-8');
       const component = yaml.parse(content) as Component;
       const runtime = new FSMRuntime(component);
 

@@ -332,7 +332,7 @@ export class ComponentRegistry extends EventEmitter {
           eventMap.set(event.id, event);
           allEvents.push(event);
         });
-      } catch (error) {
+      } catch {
         // Component may not have persistence enabled, skip
         continue;
       }
@@ -378,7 +378,7 @@ export class ComponentRegistry extends EventEmitter {
         const events = await runtime.getAllPersistedEvents();
         // Deduplicate by event ID (in case components share event store)
         events.forEach(event => eventMap.set(event.id, event));
-      } catch (error) {
+      } catch {
         // Component may not have persistence enabled, skip
         continue;
       }
@@ -401,7 +401,7 @@ export class ComponentRegistry extends EventEmitter {
         if (instance) {
           return await runtime.getInstanceHistory(instanceId);
         }
-      } catch (error) {
+      } catch {
         continue;
       }
     }

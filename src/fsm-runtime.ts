@@ -566,7 +566,7 @@ export class FSMRuntime extends EventEmitter {
           if (func(event, instanceContext)) {
             return transition;
           }
-        } catch (error) {
+        } catch {
           // Rule evaluation failed, skip this transition
           continue;
         }

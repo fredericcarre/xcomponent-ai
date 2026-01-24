@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Initial npm package preparation
-- Comprehensive publishing documentation
-- Package files configuration
+## [0.1.1] - 2026-01-24
+
+### Fixed
+- Removed unused variables causing CI build failures in timer-wheel.ts, fsm-runtime.ts, and component-registry.ts
+- Fixed GitHub repository displaying .github/README.md instead of main README.md by renaming to WORKFLOWS.md
+
+### Changed
+- Enhanced README and package.json to emphasize LLM-first framework design for AI agents (Claude, GPT)
 
 ## [0.1.0] - 2024-01-23
 

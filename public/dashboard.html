@@ -274,7 +274,14 @@
     function switchTab(tabName) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-      event.target.classList.add('active');
+
+      // Find the tab element by matching the onclick content
+      document.querySelectorAll('.tab').forEach(tab => {
+        if (tab.getAttribute('onclick') === `switchTab('${tabName}')`) {
+          tab.classList.add('active');
+        }
+      });
+
       document.getElementById('tab-' + tabName).classList.add('active');
     }
     
@@ -381,27 +388,27 @@
     }
     
     // Diagram
-    function renderDiagram() {
+    async function renderDiagram() {
       const machineName = document.getElementById('diagram-machine').value;
       if (!machineName || !componentData) return;
 
       const machine = componentData.stateMachines.find(m => m.name === machineName);
       if (!machine) return;
-      
-      // Generate Mermaid diagram
-      let mermaid = 'stateDiagram-v2\\n';
-      mermaid += `  [*] --> ${machine.initialState}\\n`;
-      
-      machine.transitions.forEach(t => {
-        mermaid += `  ${t.from} --> ${t.to}: ${t.event}\\n`;
-      });
-      
-      machine.states.filter(s => s.type === 'final' || s.type === 'error').forEach(s => {
-        mermaid += `  ${s.name} --> [*]\\n`;
-      });
-      
-      document.getElementById('diagram-container').innerHTML = `<div class="mermaid">${mermaid}</div>`;
-      mermaid.init();
+
+      // Fetch Mermaid diagram from API
+      const res = await fetch(`/api/diagrams/${machineName}`);
+      const data = await res.json();
+
+      if (data.diagram) {
+        // Use Mermaid v10 API
+        const container = document.getElementById('diagram-container');
+        container.innerHTML = '<pre class="mermaid">' + data.diagram + '</pre>';
+
+        // Re-render mermaid diagrams
+        await mermaid.run({
+          querySelector: '#diagram-container .mermaid'
+        });
+      }
     }
     
     // Traceability
@@ -488,10 +495,21 @@
     function populateSelectors() {
       if (!componentData || !componentData.stateMachines) return;
 
+      // Populate component selector (currently only one component)
+      const componentSelect = document.getElementById('component-select');
+      componentSelect.innerHTML = `<option value="${componentData.name}" selected>${componentData.name}</option>`;
+
       const machines = componentData.stateMachines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
       document.getElementById('filter-machine').innerHTML = '<option value="">All Machines</option>' + machines;
       document.getElementById('diagram-machine').innerHTML = '<option value="">Select...</option>' + machines;
       document.getElementById('create-machine').innerHTML = '<option value="">Select...</option>' + machines;
+    }
+
+    function selectComponent() {
+      // Currently only supports single component loaded via serve command
+      // In future, this will allow switching between multiple components
+      const selected = document.getElementById('component-select').value;
+      console.log('Component selected:', selected);
     }
     
     function exportState() {

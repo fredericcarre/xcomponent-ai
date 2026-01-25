@@ -13,14 +13,6 @@ export function generateMermaidDiagram(machine: StateMachine): string {
   lines.push('stateDiagram-v2');
   lines.push('');
 
-  // Add note at the top if there's a description in metadata
-  if (machine.metadata?.description) {
-    lines.push(`    note right of ${machine.initialState}`);
-    lines.push(`        ${machine.metadata.description}`);
-    lines.push(`    end note`);
-    lines.push('');
-  }
-
   // Mark initial state
   lines.push(`    [*] --> ${machine.initialState}`);
   lines.push('');
@@ -28,7 +20,6 @@ export function generateMermaidDiagram(machine: StateMachine): string {
   // Add all transitions
   machine.transitions.forEach(transition => {
     const transitionLabel = transition.event;
-
     lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
   });
 
@@ -38,25 +29,6 @@ export function generateMermaidDiagram(machine: StateMachine): string {
   machine.states.forEach(state => {
     if (state.type === 'final') {
       lines.push(`    ${state.name} --> [*]`);
-    }
-  });
-
-  lines.push('');
-
-  // Add state descriptions as notes
-  machine.states.forEach(state => {
-    if (state.metadata?.description) {
-      const desc = state.metadata.description;
-      lines.push(`    note right of ${state.name}`);
-      // Handle multi-line descriptions
-      if (desc.includes('\n')) {
-        desc.split('\n').forEach((line: string) => {
-          lines.push(`        ${line.trim()}`);
-        });
-      } else {
-        lines.push(`        ${desc}`);
-      }
-      lines.push(`    end note`);
     }
   });
 
@@ -70,27 +42,44 @@ export function generateStyledMermaidDiagram(machine: StateMachine): string {
   const baseDiagram = generateMermaidDiagram(machine);
   const styleLines: string[] = [];
 
-  // Add styling based on state type and metadata
-  machine.states.forEach((state, index) => {
-    const stateClass = `state${index}`;
+  // Define color classes once at the end
+  const usedClasses = new Set<string>();
+
+  // Collect state styles
+  const stateStyles: string[] = [];
+  machine.states.forEach(state => {
+    let className = '';
 
     if (state.type === 'entry') {
-      styleLines.push(`    class ${state.name} ${stateClass}`);
-      styleLines.push(`    classDef ${stateClass} fill:#FFA500,stroke:#FF8C00,stroke-width:2px,color:#000`);
+      className = 'entryState';
+      usedClasses.add('entryState');
     } else if (state.type === 'final') {
-      styleLines.push(`    class ${state.name} ${stateClass}`);
-      styleLines.push(`    classDef ${stateClass} fill:#27ae60,stroke:#229954,stroke-width:2px,color:#fff`);
+      className = 'finalState';
+      usedClasses.add('finalState');
     } else if (state.type === 'error') {
-      styleLines.push(`    class ${state.name} ${stateClass}`);
-      styleLines.push(`    classDef ${stateClass} fill:#e74c3c,stroke:#c0392b,stroke-width:2px,color:#fff`);
-    } else if (state.metadata?.displayColor) {
-      styleLines.push(`    class ${state.name} ${stateClass}`);
-      styleLines.push(`    classDef ${stateClass} fill:${state.metadata.displayColor},stroke-width:2px`);
+      className = 'errorState';
+      usedClasses.add('errorState');
+    }
+
+    if (className) {
+      stateStyles.push(`    class ${state.name} ${className}`);
     }
   });
 
-  if (styleLines.length > 0) {
-    return baseDiagram + '\n\n' + styleLines.join('\n');
+  // Add class definitions
+  if (usedClasses.has('entryState')) {
+    styleLines.push(`    classDef entryState fill:#fbbf24,stroke:#f59e0b,stroke-width:3px,color:#000`);
+  }
+  if (usedClasses.has('finalState')) {
+    styleLines.push(`    classDef finalState fill:#10b981,stroke:#059669,stroke-width:3px,color:#fff`);
+  }
+  if (usedClasses.has('errorState')) {
+    styleLines.push(`    classDef errorState fill:#ef4444,stroke:#dc2626,stroke-width:3px,color:#fff`);
+  }
+
+  // Combine: base diagram + class definitions + state class applications
+  if (styleLines.length > 0 || stateStyles.length > 0) {
+    return baseDiagram + '\n\n' + styleLines.join('\n') + '\n' + stateStyles.join('\n');
   }
 
   return baseDiagram;

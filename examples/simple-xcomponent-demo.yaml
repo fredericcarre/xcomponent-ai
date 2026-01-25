@@ -1,0 +1,77 @@
+# Simple XComponent Demo
+# Minimal example showing the XComponent pattern
+
+name: SimpleXComponent
+version: 1.0.0
+
+# Entry point - created automatically on startup
+entryMachine: Coordinator
+
+stateMachines:
+  # Coordinator: Entry point that creates Workers
+  - name: Coordinator
+    initialState: Ready
+
+    states:
+      - name: Ready
+        type: entry
+
+      - name: Working
+        type: regular
+
+      - name: Done
+        type: final  # Persists even in final state (entry point)
+
+    transitions:
+      # Regular transition
+      - from: Ready
+        to: Working
+        event: START
+        type: triggerable
+
+      # Inter-machine transition - creates Worker instance
+      - from: Working
+        to: Ready
+        event: CREATE_WORKER
+        type: inter_machine
+        targetMachine: Worker
+
+      # Complete
+      - from: Ready
+        to: Done
+        event: FINISH
+        type: triggerable
+
+  # Worker: Created dynamically, auto-deallocated when done
+  - name: Worker
+    initialState: Created
+
+    contextSchema:
+      taskId:
+        type: text
+        label: Task ID
+        required: true
+      description:
+        type: text
+        label: Description
+
+    states:
+      - name: Created
+        type: entry
+
+      - name: Processing
+        type: regular
+
+      - name: Completed
+        type: final  # Auto-deallocated when reaching this state
+
+    transitions:
+      - from: Created
+        to: Processing
+        event: PROCESS
+        type: triggerable
+
+      - from: Processing
+        to: Completed
+        event: COMPLETE
+        type: triggerable

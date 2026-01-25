@@ -672,6 +672,7 @@ program
       });
 
       // Mermaid diagram endpoint
+      // Supports optional ?currentState=stateName to highlight the current state
       app.get('/api/components/:componentName/diagrams/:machineName', (req: any, res: any) => {
         const component = registry.getComponent(req.params.componentName);
         if (!component) {
@@ -683,9 +684,11 @@ program
           return res.status(404).json({ error: 'State machine not found' });
         }
 
-        const { generateStyledMermaidDiagram } = require('./mermaid-generator');
-        const diagram = generateStyledMermaidDiagram(machine);
-        res.json({ diagram });
+        const { generateStyledMermaidDiagram, detectTerminalStates } = require('./mermaid-generator');
+        const currentState = req.query.currentState;
+        const diagram = generateStyledMermaidDiagram(machine, currentState);
+        const terminalStates = Array.from(detectTerminalStates(machine));
+        res.json({ diagram, terminalStates });
       });
 
       // WebSocket Integration

@@ -33,7 +33,7 @@
     "test:ci": "jest --coverage --ci --maxWorkers=2",
     "cli": "ts-node src/cli.ts",
     "api": "ts-node src/api.ts",
-    "doc": "typedoc --out docs src",
+    "doc": "typedoc --out docs/api src",
     "lint": "eslint src/**/*.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build && npm test",

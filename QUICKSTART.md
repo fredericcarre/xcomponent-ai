@@ -18,7 +18,7 @@ Use a provided example:
 ls $(npm root -g)/xcomponent-ai/examples/
 
 # Load an example to see its structure
-xcomponent-ai load examples/order-processing-xcomponent.yaml
+xcomponent-ai load examples/explicit-transitions-demo.yaml
 ```
 
 Or create your own project:
@@ -35,7 +35,7 @@ cd my-project
 - ✅ Web dashboard (for real-time visualization)
 
 ```bash
-xcomponent-ai serve examples/order-processing-xcomponent.yaml
+xcomponent-ai serve examples/explicit-transitions-demo.yaml
 ```
 
 **Expected output:**
@@ -43,10 +43,10 @@ xcomponent-ai serve examples/order-processing-xcomponent.yaml
 🚀 xcomponent-ai Runtime Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📦 Component: OrderProcessingComponent
+📦 Component: ExplicitTransitionsComponent
    Machines:
-   - Order (5 states, 6 transitions)
-   - Execution (4 states, 5 transitions)
+   - Order (6 states, 7 transitions)
+   - RiskMonitor (3 states, 3 transitions)
 
 🌐 API Server:    http://localhost:3000
 📊 Dashboard:     http://localhost:3000/dashboard.html
@@ -78,24 +78,23 @@ curl -X POST http://localhost:3000/api/instances \
   -d '{
     "machineName": "Order",
     "context": {
-      "Id": 1,
-      "AssetName": "AAPL",
-      "Quantity": 1000,
-      "ExecutedQuantity": 0,
-      "RemainingQuantity": 1000
+      "orderId": "ORD-001",
+      "customerId": "CUST-123",
+      "symbol": "AAPL",
+      "totalQuantity": 1000,
+      "side": "BUY",
+      "startTime": 0
     }
   }'
 
 # Response: {"instanceId": "abc-123"}
 
-# Send an event
+# Send an event to submit the order
 curl -X POST http://localhost:3000/api/instances/abc-123/events \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "FILL",
-    "payload": {
-      "Quantity": 500
-    }
+    "type": "SUBMIT",
+    "payload": {}
   }'
 
 # Check instance state
@@ -111,11 +110,12 @@ curl http://localhost:3000/api/instances
 2. Go to the **"FSM Diagram"** tab (default view)
 3. Select machine: `Order` from the dropdown
 4. Fill in the context fields:
-   - Id: 1
-   - AssetName: AAPL
-   - Quantity: 1000
-   - ExecutedQuantity: 0
-   - RemainingQuantity: 1000
+   - orderId: ORD-001
+   - customerId: CUST-123
+   - symbol: AAPL
+   - totalQuantity: 1000
+   - side: BUY (from dropdown)
+   - startTime: 0
 5. Click **"Create Instance"**
 6. Watch the instance appear in the "Active Instances" list
 7. Click on instance to view details
@@ -127,8 +127,10 @@ curl http://localhost:3000/api/instances
 In the terminal where `xcomponent-ai serve` is running, you'll see real-time activity:
 ```
 [14:32:15] Instance abc-123 created (Order)
-[14:32:18] abc-123: Pending → PartiallyExecuted (event: FILL)
-[14:32:20] abc-123: PartiallyExecuted → FullyExecuted (event: FILL)
+[14:32:18] abc-123: Created → Submitted (event: SUBMIT)
+[14:32:20] abc-123: Submitted → PartiallyExecuted (event: EXECUTION_NOTIFICATION)
+[14:32:22] abc-123: PartiallyExecuted → PartiallyExecuted (event: EXECUTION_NOTIFICATION)
+[14:32:22] abc-123: PartiallyExecuted → FullyExecuted (event: FULLY_EXECUTED)
 ```
 
 ### Monitor via Dashboard
@@ -156,24 +158,33 @@ curl http://localhost:3000/api/components
 
 ```bash
 # 1. Start runtime
-xcomponent-ai serve examples/order-processing-xcomponent.yaml &
+xcomponent-ai serve examples/explicit-transitions-demo.yaml &
 
 # 2. Create instance
 INSTANCE=$(curl -s -X POST http://localhost:3000/api/instances \
   -H "Content-Type: application/json" \
-  -d '{"machineName": "Order", "context": {"Id": 1, "AssetName": "AAPL", "Quantity": 1000, "ExecutedQuantity": 0, "RemainingQuantity": 1000}}' \
+  -d '{"machineName": "Order", "context": {"orderId": "ORD-001", "customerId": "CUST-123", "symbol": "AAPL", "totalQuantity": 1000, "side": "BUY", "startTime": 0}}' \
   | jq -r '.instanceId')
 
-# 3. Send events in sequence (partial fill, then complete fill)
+# 3. Send events in sequence
+# Submit the order
 curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
   -H "Content-Type: application/json" \
-  -d '{"type": "FILL", "payload": {"Quantity": 500}}'
+  -d '{"type": "SUBMIT", "payload": {}}'
 
 sleep 1
 
+# Send execution notification (partial fill)
 curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
   -H "Content-Type: application/json" \
-  -d '{"type": "FILL", "payload": {"Quantity": 500}}'
+  -d '{"type": "EXECUTION_NOTIFICATION", "payload": {"quantity": 600, "price": 150.0, "executionId": "EXEC-001"}}'
+
+sleep 1
+
+# Send another execution notification (complete fill)
+curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
+  -H "Content-Type: application/json" \
+  -d '{"type": "EXECUTION_NOTIFICATION", "payload": {"quantity": 400, "price": 150.5, "executionId": "EXEC-002"}}'
 
 # 4. Check final state
 curl http://localhost:3000/api/instances/$INSTANCE

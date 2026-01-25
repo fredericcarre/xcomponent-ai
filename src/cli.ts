@@ -506,6 +506,12 @@ program
       console.log('🚀 xcomponent-ai Runtime Started');
       console.log('━'.repeat(40));
 
+      // Listen to registry events for entry points (before loading components)
+      registry.on('entry_point_created', (data: any) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] [${data.componentName}] ⭐ Entry point instance created: ${data.instanceId.substring(0, 8)} (${data.machineName})`);
+      });
+
       // Load all component files
       for (const file of files) {
         const resolvedPath = resolveFilePath(file);
@@ -517,6 +523,9 @@ program
         registry.registerComponent(component, runtime);
 
         console.log(`\n📦 Component: ${component.name}`);
+        if (component.entryMachine) {
+          console.log(`   ⭐ Entry Point: ${component.entryMachine}`);
+        }
         console.log(`   Machines:`);
         component.stateMachines.forEach(machine => {
           console.log(`   - ${machine.name} (${machine.states.length} states, ${machine.transitions.length} transitions)`);
@@ -538,7 +547,7 @@ program
           console.error(`[${timestamp}] [${component.name}] ✗ Error in ${data.instanceId}: ${data.error}`);
         });
       }
-      
+
       const port = parseInt(options.port);
       console.log(`\n🌐 API Server:    http://localhost:${port}`);
       console.log(`📊 Dashboard:     http://localhost:${port}/dashboard.html`);

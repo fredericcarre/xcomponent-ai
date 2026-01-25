@@ -42,6 +42,18 @@ export function generateStyledMermaidDiagram(machine: StateMachine): string {
   const baseDiagram = generateMermaidDiagram(machine);
   const styleLines: string[] = [];
 
+  // Find terminal states (states with no outgoing transitions except type: final/error)
+  const statesWithOutgoingTransitions = new Set<string>();
+  machine.transitions.forEach(t => {
+    statesWithOutgoingTransitions.add(t.from);
+  });
+
+  const terminalStates = machine.states.filter(state =>
+    !statesWithOutgoingTransitions.has(state.name) ||
+    state.type === 'final' ||
+    state.type === 'error'
+  );
+
   // Define color classes once at the end
   const usedClasses = new Set<string>();
 
@@ -53,9 +65,10 @@ export function generateStyledMermaidDiagram(machine: StateMachine): string {
     if (state.type === 'entry') {
       className = 'entryState';
       usedClasses.add('entryState');
-    } else if (state.type === 'final') {
-      className = 'finalState';
-      usedClasses.add('finalState');
+    } else if (terminalStates.includes(state)) {
+      // Terminal states (no outgoing transitions) in green
+      className = 'terminalState';
+      usedClasses.add('terminalState');
     } else if (state.type === 'error') {
       className = 'errorState';
       usedClasses.add('errorState');
@@ -70,8 +83,8 @@ export function generateStyledMermaidDiagram(machine: StateMachine): string {
   if (usedClasses.has('entryState')) {
     styleLines.push(`    classDef entryState fill:#fbbf24,stroke:#f59e0b,stroke-width:3px,color:#000`);
   }
-  if (usedClasses.has('finalState')) {
-    styleLines.push(`    classDef finalState fill:#10b981,stroke:#059669,stroke-width:3px,color:#fff`);
+  if (usedClasses.has('terminalState')) {
+    styleLines.push(`    classDef terminalState fill:#10b981,stroke:#059669,stroke-width:3px,color:#fff`);
   }
   if (usedClasses.has('errorState')) {
     styleLines.push(`    classDef errorState fill:#ef4444,stroke:#dc2626,stroke-width:3px,color:#fff`);

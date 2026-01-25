@@ -252,6 +252,177 @@ program
   });
 
 /**
+ * Validate component
+ */
+program
+  .command('validate <file>')
+  .description('Validate FSM component YAML file')
+  .option('--strict', 'Enable strict validation (warnings become errors)')
+  .action(async (file: string, options: any) => {
+    try {
+      const resolvedPath = resolveFilePath(file);
+      const content = await fs.readFile(resolvedPath, 'utf-8');
+      const component = yaml.parse(content) as Component;
+
+      console.log(`\n🔍 Validating component: ${component.name}\n`);
+
+      let errors: string[] = [];
+      let warnings: string[] = [];
+
+      // Check required fields
+      if (!component.name) {
+        errors.push('Missing required field: name');
+      }
+      if (!component.stateMachines || component.stateMachines.length === 0) {
+        errors.push('Component must have at least one state machine');
+      }
+
+      // First pass: collect all machine names
+      const machineNames = new Set<string>();
+      component.stateMachines?.forEach(machine => {
+        if (machine.name) {
+          machineNames.add(machine.name);
+        }
+      });
+
+      // Second pass: validate each state machine
+      component.stateMachines?.forEach((machine, idx) => {
+        const prefix = `Machine "${machine.name || `#${idx}`}"`;
+
+        if (!machine.name) {
+          errors.push(`${prefix}: Missing required field: name`);
+        } else {
+          // Check for duplicate names
+          const count = component.stateMachines.filter(m => m.name === machine.name).length;
+          if (count > 1) {
+            errors.push(`${prefix}: Duplicate machine name`);
+          }
+        }
+
+        if (!machine.initialState) {
+          errors.push(`${prefix}: Missing required field: initialState`);
+        }
+
+        if (!machine.states || machine.states.length === 0) {
+          errors.push(`${prefix}: Must have at least one state`);
+        }
+
+        // Build state set
+        const stateNames = new Set<string>();
+        machine.states?.forEach(state => {
+          if (stateNames.has(state.name)) {
+            errors.push(`${prefix}: Duplicate state name "${state.name}"`);
+          }
+          stateNames.add(state.name);
+        });
+
+        // Check initialState exists
+        if (machine.initialState && !stateNames.has(machine.initialState)) {
+          errors.push(`${prefix}: initialState "${machine.initialState}" does not exist in states`);
+        }
+
+        // Validate transitions
+        const statesWithOutgoing = new Set<string>();
+        const terminalStates = new Set<string>();
+
+        machine.states?.forEach(state => {
+          if (state.type === 'final' || state.type === 'error') {
+            terminalStates.add(state.name);
+          }
+        });
+
+        machine.transitions?.forEach((transition, tidx) => {
+          const tPrefix = `${prefix} transition #${tidx + 1}`;
+
+          if (!transition.from) {
+            errors.push(`${tPrefix}: Missing required field: from`);
+          } else if (!stateNames.has(transition.from)) {
+            errors.push(`${tPrefix}: "from" state "${transition.from}" does not exist`);
+          } else {
+            statesWithOutgoing.add(transition.from);
+          }
+
+          if (!transition.to) {
+            errors.push(`${tPrefix}: Missing required field: to`);
+          } else if (!stateNames.has(transition.to)) {
+            errors.push(`${tPrefix}: "to" state "${transition.to}" does not exist`);
+          }
+
+          if (!transition.event) {
+            errors.push(`${tPrefix}: Missing required field: event`);
+          }
+
+          // Check inter_machine transitions
+          if (transition.type === 'inter_machine') {
+            if (!transition.targetMachine) {
+              errors.push(`${tPrefix}: inter_machine transition must have targetMachine`);
+            } else if (!machineNames.has(transition.targetMachine) && transition.targetMachine !== machine.name) {
+              warnings.push(`${tPrefix}: targetMachine "${transition.targetMachine}" not found in this component (may be external)`);
+            }
+          }
+
+          // Check timeout transitions
+          if (transition.type === 'timeout' && !transition.timeoutMs) {
+            errors.push(`${tPrefix}: timeout transition must have timeoutMs value`);
+          }
+        });
+
+        // Check for terminal states (states with no outgoing transitions)
+        machine.states?.forEach(state => {
+          if (!statesWithOutgoing.has(state.name) && state.type !== 'final' && state.type !== 'error') {
+            terminalStates.add(state.name);
+          }
+        });
+
+        // Check reachability from initial state (simplified)
+        if (terminalStates.size === 0) {
+          warnings.push(`${prefix}: No terminal states detected (final, error, or states without outgoing transitions)`);
+        }
+      });
+
+      // Check entryMachine
+      if (component.entryMachine && !machineNames.has(component.entryMachine)) {
+        errors.push(`entryMachine "${component.entryMachine}" does not exist in stateMachines`);
+      }
+
+      // Report results
+      console.log('📊 Validation Results\n');
+
+      if (errors.length === 0 && warnings.length === 0) {
+        console.log('✅ Component is valid!\n');
+        console.log(`   ${component.stateMachines.length} state machine(s)`);
+        let totalStates = 0;
+        let totalTransitions = 0;
+        component.stateMachines.forEach(m => {
+          totalStates += m.states?.length || 0;
+          totalTransitions += m.transitions?.length || 0;
+        });
+        console.log(`   ${totalStates} state(s) total`);
+        console.log(`   ${totalTransitions} transition(s) total`);
+      } else {
+        if (errors.length > 0) {
+          console.log(`❌ ${errors.length} error(s):\n`);
+          errors.forEach(e => console.log(`   • ${e}`));
+          console.log('');
+        }
+
+        if (warnings.length > 0) {
+          console.log(`⚠️  ${warnings.length} warning(s):\n`);
+          warnings.forEach(w => console.log(`   • ${w}`));
+          console.log('');
+        }
+
+        if (errors.length > 0 || (options.strict && warnings.length > 0)) {
+          process.exit(1);
+        }
+      }
+    } catch (error: any) {
+      console.error(`\n❌ Validation failed: ${error.message}\n`);
+      process.exit(1);
+    }
+  });
+
+/**
  * Run FSM instance
  */
 program

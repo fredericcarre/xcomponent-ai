@@ -1,0 +1,285 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xcomponent-ai.dev/schemas/component.json",
+  "title": "xcomponent-ai Component",
+  "description": "Schema for xcomponent-ai state machine components",
+  "type": "object",
+  "required": ["name", "stateMachines"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique name of the component",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "entryMachine": {
+      "type": "string",
+      "description": "Name of the entry state machine (first machine to receive events)"
+    },
+    "stateMachines": {
+      "type": "array",
+      "description": "List of state machines in this component",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/StateMachine"
+      }
+    }
+  },
+  "definitions": {
+    "StateMachine": {
+      "type": "object",
+      "required": ["name", "initialState", "states", "transitions"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique name of the state machine",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "initialState": {
+          "type": "string",
+          "description": "Name of the initial state"
+        },
+        "publicMemberType": {
+          "type": "string",
+          "description": "Type name for the public business object (enables property matching)"
+        },
+        "contextSchema": {
+          "type": "object",
+          "description": "Schema for the instance context",
+          "additionalProperties": {
+            "$ref": "#/definitions/ContextField"
+          }
+        },
+        "states": {
+          "type": "array",
+          "description": "List of states in this machine",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/State"
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "description": "List of transitions between states",
+          "items": {
+            "$ref": "#/definitions/Transition"
+          }
+        }
+      }
+    },
+    "State": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique name of the state within this machine",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of state",
+          "enum": ["entry", "regular", "final", "error"],
+          "default": "regular"
+        },
+        "onEntry": {
+          "type": "string",
+          "description": "Method to call when entering this state"
+        },
+        "onExit": {
+          "type": "string",
+          "description": "Method to call when exiting this state"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this state"
+        }
+      }
+    },
+    "Transition": {
+      "type": "object",
+      "required": ["from", "to", "event"],
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Source state name"
+        },
+        "to": {
+          "type": "string",
+          "description": "Target state name"
+        },
+        "event": {
+          "type": "string",
+          "description": "Event that triggers this transition",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of transition",
+          "enum": ["regular", "inter_machine", "timeout", "auto", "internal"],
+          "default": "regular"
+        },
+        "targetMachine": {
+          "type": "string",
+          "description": "Target machine for inter_machine transitions"
+        },
+        "targetState": {
+          "type": "string",
+          "description": "Initial state in target machine for inter_machine transitions"
+        },
+        "contextMapping": {
+          "type": "object",
+          "description": "Context mapping for inter_machine transitions",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "description": "Timeout in milliseconds for timeout transitions",
+          "minimum": 0
+        },
+        "resetOnTransition": {
+          "type": "boolean",
+          "description": "Whether to reset timeout timer on self-transitions",
+          "default": false
+        },
+        "guard": {
+          "$ref": "#/definitions/Guard"
+        },
+        "triggeredMethod": {
+          "type": "string",
+          "description": "Method to call when this transition fires"
+        },
+        "matchingRules": {
+          "type": "array",
+          "description": "Rules for property-based event routing",
+          "items": {
+            "$ref": "#/definitions/MatchingRule"
+          }
+        },
+        "specificTriggeringRules": {
+          "type": "array",
+          "description": "Rules to disambiguate between multiple possible transitions",
+          "items": {
+            "$ref": "#/definitions/TriggeringRule"
+          }
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this transition"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "inter_machine" } }
+          },
+          "then": {
+            "required": ["targetMachine"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "timeout" } }
+          },
+          "then": {
+            "required": ["timeoutMs"]
+          }
+        }
+      ]
+    },
+    "Guard": {
+      "type": "object",
+      "description": "Condition that must be true for the transition to fire",
+      "properties": {
+        "keys": {
+          "type": "array",
+          "description": "Required keys that must exist in event payload",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expression": {
+          "type": "string",
+          "description": "JavaScript expression that must evaluate to true"
+        }
+      }
+    },
+    "MatchingRule": {
+      "type": "object",
+      "description": "Rule for routing events to instances by property matching",
+      "required": ["eventProperty", "instanceProperty"],
+      "properties": {
+        "eventProperty": {
+          "type": "string",
+          "description": "Property path in the event payload"
+        },
+        "instanceProperty": {
+          "type": "string",
+          "description": "Property path in the instance context/publicMember"
+        },
+        "operator": {
+          "type": "string",
+          "description": "Comparison operator",
+          "enum": ["===", "!==", ">", "<", ">=", "<="],
+          "default": "==="
+        }
+      }
+    },
+    "TriggeringRule": {
+      "type": "object",
+      "description": "Rule to select this transition when multiple transitions match",
+      "required": ["expression"],
+      "properties": {
+        "expression": {
+          "type": "string",
+          "description": "JavaScript expression that must evaluate to true"
+        }
+      }
+    },
+    "ContextField": {
+      "type": "object",
+      "description": "Schema for a context field",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Field type",
+          "enum": ["string", "number", "boolean", "select"]
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable label"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this field is required",
+          "default": false
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Placeholder text for input"
+        },
+        "description": {
+          "type": "string",
+          "description": "Help text"
+        },
+        "options": {
+          "type": "array",
+          "description": "Options for select type",
+          "items": {
+            "type": "object",
+            "required": ["value", "label"],
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

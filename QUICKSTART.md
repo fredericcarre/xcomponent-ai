@@ -18,7 +18,7 @@ Use a provided example:
 ls $(npm root -g)/xcomponent-ai/examples/
 
 # Load an example to see its structure
-xcomponent-ai load examples/trading.yaml
+xcomponent-ai load examples/order-processing-xcomponent.yaml
 ```
 
 Or create your own project:
@@ -35,7 +35,7 @@ cd my-project
 - ✅ Web dashboard (for real-time visualization)
 
 ```bash
-xcomponent-ai serve examples/trading.yaml
+xcomponent-ai serve examples/order-processing-xcomponent.yaml
 ```
 
 **Expected output:**
@@ -43,10 +43,10 @@ xcomponent-ai serve examples/trading.yaml
 🚀 xcomponent-ai Runtime Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📦 Component: TradingComponent
+📦 Component: OrderProcessingComponent
    Machines:
-   - OrderEntry (5 states, 7 transitions)
-   - Settlement (3 states, 3 transitions)
+   - Order (5 states, 6 transitions)
+   - Execution (4 states, 5 transitions)
 
 🌐 API Server:    http://localhost:3000
 📊 Dashboard:     http://localhost:3000/dashboard.html
@@ -76,11 +76,13 @@ You'll see:
 curl -X POST http://localhost:3000/api/instances \
   -H "Content-Type: application/json" \
   -d '{
-    "machineName": "OrderEntry",
+    "machineName": "Order",
     "context": {
-      "orderId": "ORD-001",
-      "amount": 1000,
-      "symbol": "AAPL"
+      "Id": 1,
+      "AssetName": "AAPL",
+      "Quantity": 1000,
+      "ExecutedQuantity": 0,
+      "RemainingQuantity": 1000
     }
   }'
 
@@ -90,8 +92,10 @@ curl -X POST http://localhost:3000/api/instances \
 curl -X POST http://localhost:3000/api/instances/abc-123/events \
   -H "Content-Type: application/json" \
   -d '{
-    "type": "VALIDATE",
-    "payload": {}
+    "type": "FILL",
+    "payload": {
+      "Quantity": 500
+    }
   }'
 
 # Check instance state
@@ -101,86 +105,75 @@ curl http://localhost:3000/api/instances/abc-123
 curl http://localhost:3000/api/instances
 ```
 
-**Option B: Via CLI (interactive mode)**
-
-```bash
-# Start REPL mode
-xcomponent-ai repl examples/trading.yaml
-
-# Then type commands:
-> create OrderEntry { orderId: "ORD-001", amount: 1000 }
-Instance created: abc-123
-
-> send abc-123 VALIDATE
-Transition: Pending → Validated
-
-> list
-Instances:
-- abc-123 (OrderEntry) : Validated
-
-> inspect abc-123
-Instance: abc-123
-Machine: OrderEntry
-State: Validated
-Context: { orderId: "ORD-001", amount: 1000, symbol: "AAPL" }
-```
-
-**Option C: Via Web Dashboard**
+**Option B: Via Web Dashboard**
 
 1. Open http://localhost:3000/dashboard.html
-2. Click **"Create Instance"** button
-3. Select machine: `OrderEntry`
-4. Enter context: `{ "orderId": "ORD-001", "amount": 1000 }`
-5. Click **"Create"**
-6. Watch the instance appear in the table
-7. Click on instance to send events
+2. Go to the **"FSM Diagram"** tab (default view)
+3. Select machine: `Order` from the dropdown
+4. Fill in the context fields:
+   - Id: 1
+   - AssetName: AAPL
+   - Quantity: 1000
+   - ExecutedQuantity: 0
+   - RemainingQuantity: 1000
+5. Click **"Create Instance"**
+6. Watch the instance appear in the "Active Instances" list
+7. Click on instance to view details
 
 ## 🔍 Monitor FSM
 
 ### View real-time logs
 
-In the terminal where `xcomponent-ai serve` is running:
+In the terminal where `xcomponent-ai serve` is running, you'll see real-time activity:
 ```
-[14:32:15] Instance abc-123 created (OrderEntry)
-[14:32:18] abc-123: Pending → Validated (event: VALIDATE)
-[14:32:20] abc-123: Validated → Executed (event: EXECUTE)
+[14:32:15] Instance abc-123 created (Order)
+[14:32:18] abc-123: Pending → PartiallyExecuted (event: FILL)
+[14:32:20] abc-123: PartiallyExecuted → FullyExecuted (event: FILL)
 ```
 
-### Analyze logs
+### Monitor via Dashboard
+
+The web dashboard at **http://localhost:3000/dashboard.html** provides:
+- **📊 Event Blotter**: Real-time event stream with filtering
+- **📈 Statistics**: Instance counts by state (active, final, error)
+- **🎨 FSM Diagrams**: Visual state machine representations
+- **🔍 Traceability**: Instance history and transitions
+
+### Check Instance Status via API
 
 ```bash
-# In another terminal
-xcomponent-ai logs --component TradingComponent
+# Get specific instance details
+curl http://localhost:3000/api/instances/abc-123
 
-# Filter by instance
-xcomponent-ai logs --instance abc-123
+# List all instances
+curl http://localhost:3000/api/instances
 
-# View statistics
-xcomponent-ai stats
+# Get component info
+curl http://localhost:3000/api/components
 ```
 
 ## 🧪 Test Complete Scenario
 
 ```bash
 # 1. Start runtime
-xcomponent-ai serve examples/trading.yaml &
+xcomponent-ai serve examples/order-processing-xcomponent.yaml &
 
 # 2. Create instance
 INSTANCE=$(curl -s -X POST http://localhost:3000/api/instances \
   -H "Content-Type: application/json" \
-  -d '{"machineName": "OrderEntry", "context": {"orderId": "ORD-001"}}' \
+  -d '{"machineName": "Order", "context": {"Id": 1, "AssetName": "AAPL", "Quantity": 1000, "ExecutedQuantity": 0, "RemainingQuantity": 1000}}' \
   | jq -r '.instanceId')
 
-# 3. Send events in sequence
+# 3. Send events in sequence (partial fill, then complete fill)
 curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
   -H "Content-Type: application/json" \
-  -d '{"type": "VALIDATE"}'
+  -d '{"type": "FILL", "payload": {"Quantity": 500}}'
 
 sleep 1
 
 curl -X POST http://localhost:3000/api/instances/$INSTANCE/events \
   -H "Content-Type: application/json" \
-  -d '{"type": "EXECUTE"}'
+  -d '{"type": "FILL", "payload": {"Quantity": 500}}'
 
 # 4. Check final state
 curl http://localhost:3000/api/instances/$INSTANCE

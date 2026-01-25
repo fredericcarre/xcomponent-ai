@@ -28,6 +28,7 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
+    "dev": "npm run build && node dist/cli.js serve examples/simple-xcomponent-demo.yaml --port 3000",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "test:ci": "jest --coverage --ci --maxWorkers=2",

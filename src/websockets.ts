@@ -14,6 +14,7 @@ import { StateChangeMessage } from './types';
 export class WebSocketManager {
   private io: SocketIOServer;
   private runtimes: Map<string, FSMRuntime>;
+  private registry: any; // ComponentRegistry
 
   constructor(httpServer: HTTPServer) {
     this.io = new SocketIOServer(httpServer, {
@@ -23,8 +24,16 @@ export class WebSocketManager {
       },
     });
     this.runtimes = new Map();
+    this.registry = null;
 
     this.setupHandlers();
+  }
+
+  /**
+   * Set component registry for broadcasting component list
+   */
+  setRegistry(registry: any): void {
+    this.registry = registry;
   }
 
   /**
@@ -61,6 +70,12 @@ export class WebSocketManager {
   private setupHandlers(): void {
     this.io.on('connection', (socket) => {
       console.log(`Client connected: ${socket.id}`);
+
+      // Send components list immediately upon connection
+      if (this.registry) {
+        const components = this.registry.getAllComponents();
+        socket.emit('components_list', { components });
+      }
 
       // Subscribe to component events
       socket.on('subscribe_component', (componentName: string) => {
@@ -123,6 +138,16 @@ export class WebSocketManager {
 
     // Broadcast to instance subscribers
     this.io.to(`instance:${data.instanceId}`).emit('state_change', data);
+  }
+
+  /**
+   * Broadcast updated component list to all connected clients
+   */
+  broadcastComponentsList(): void {
+    if (this.registry) {
+      const components = this.registry.getAllComponents();
+      this.io.emit('components_list', { components });
+    }
   }
 
   /**

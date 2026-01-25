@@ -684,11 +684,12 @@ program
           return res.status(404).json({ error: 'State machine not found' });
         }
 
-        const { generateStyledMermaidDiagram, detectTerminalStates } = require('./mermaid-generator');
+        const { generateStyledMermaidDiagram, detectTerminalStates, getTransitionsInfo } = require('./mermaid-generator');
         const currentState = req.query.currentState;
         const diagram = generateStyledMermaidDiagram(machine, currentState);
         const terminalStates = Array.from(detectTerminalStates(machine));
-        res.json({ diagram, terminalStates });
+        const transitions = getTransitionsInfo(machine);
+        res.json({ diagram, terminalStates, transitions });
       });
 
       // WebSocket Integration

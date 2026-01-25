@@ -24,9 +24,10 @@
       --success: #10b981;
       --error: #ef4444;
       --info: #3b82f6;
-      --sidebar-width: 280px;
+      --inter-machine: #10b981;
+      --sidebar-width: 300px;
       --header-height: 60px;
-      --history-height: 280px;
+      --history-height: 260px;
     }
 
     body {
@@ -94,6 +95,39 @@
       box-shadow: 0 0 10px var(--success);
     }
 
+    .header-center {
+      display: flex;
+      gap: 8px;
+    }
+
+    .view-toggle {
+      display: flex;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      padding: 4px;
+    }
+
+    .view-toggle-btn {
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .view-toggle-btn.active {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .view-toggle-btn:hover:not(.active) {
+      color: var(--text-primary);
+    }
+
     .header-stats {
       display: flex;
       gap: 24px;
@@ -158,6 +192,80 @@
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.2);
+    }
+
+    /* Transitions Panel */
+    .transitions-panel {
+      padding: 16px;
+      border-bottom: 1px solid var(--glass-border);
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .transition-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .transition-item:hover {
+      border-color: var(--accent);
+      background: rgba(251, 191, 36, 0.05);
+    }
+
+    .transition-item.inter-machine {
+      border-left: 3px solid var(--inter-machine);
+    }
+
+    .transition-info {
+      flex: 1;
+    }
+
+    .transition-event {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .transition-path {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .transition-target {
+      font-size: 10px;
+      color: var(--inter-machine);
+      margin-top: 2px;
+    }
+
+    .transition-send-btn {
+      padding: 6px 12px;
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      color: #000;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .transition-send-btn:hover {
+      background: var(--accent-hover);
+    }
+
+    .transition-send-btn:disabled {
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      cursor: not-allowed;
     }
 
     /* Instance List */
@@ -315,10 +423,17 @@
       border-radius: 3px;
     }
 
+    .legend-line {
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+    }
+
     .legend-dot.entry { background: #fbbf24; }
     .legend-dot.current { background: #3b82f6; }
     .legend-dot.terminal { background: #10b981; }
     .legend-dot.error { background: #ef4444; }
+    .legend-line.inter-machine { background: #10b981; }
 
     .diagram-container {
       flex: 1;
@@ -336,6 +451,94 @@
       box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
       max-width: 100%;
       overflow: auto;
+    }
+
+    /* Component View */
+    .component-view {
+      flex: 1;
+      padding: 24px;
+      overflow: auto;
+      position: relative;
+    }
+
+    .component-graph {
+      position: relative;
+      min-height: 600px;
+      width: 100%;
+    }
+
+    .machine-card {
+      position: absolute;
+      background: var(--bg-secondary);
+      border: 2px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 16px;
+      min-width: 180px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .machine-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .machine-card.entry-machine {
+      border-color: var(--accent);
+    }
+
+    .machine-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .machine-card-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    .machine-card-badge {
+      padding: 4px 8px;
+      background: var(--accent);
+      color: #000;
+      font-size: 10px;
+      font-weight: 600;
+      border-radius: 10px;
+    }
+
+    .machine-card-stats {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .machine-card-instances {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--glass-border);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .inter-machine-arrow {
+      position: absolute;
+      pointer-events: none;
+    }
+
+    .inter-machine-label {
+      position: absolute;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--inter-machine);
+      color: var(--inter-machine);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
     }
 
     /* History Panel */
@@ -368,6 +571,11 @@
     .history-instance-info {
       font-size: 12px;
       color: var(--text-muted);
+    }
+
+    .history-actions {
+      display: flex;
+      gap: 8px;
     }
 
     .history-content {
@@ -603,67 +811,6 @@
       background: var(--bg-primary);
     }
 
-    /* Transitions dropdown */
-    .transitions-dropdown {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--glass-border);
-      border-radius: 8px;
-      margin-top: 4px;
-      padding: 8px;
-      z-index: 100;
-      display: none;
-    }
-
-    .transitions-dropdown.active {
-      display: block;
-    }
-
-    .transition-btn {
-      width: 100%;
-      padding: 8px 12px;
-      background: transparent;
-      border: none;
-      border-radius: 6px;
-      color: var(--text-primary);
-      font-size: 13px;
-      text-align: left;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .transition-btn:hover {
-      background: rgba(251, 191, 36, 0.1);
-      color: var(--accent);
-    }
-
-    /* Quick actions */
-    .quick-actions {
-      display: flex;
-      gap: 8px;
-      margin-top: 8px;
-    }
-
-    .quick-action-btn {
-      flex: 1;
-      padding: 6px 8px;
-      background: var(--bg-primary);
-      border: 1px solid var(--glass-border);
-      border-radius: 6px;
-      color: var(--text-secondary);
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .quick-action-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
     /* Scrollbar */
     ::-webkit-scrollbar {
       width: 8px;
@@ -723,6 +870,10 @@
         opacity: 1;
       }
     }
+
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -734,6 +885,16 @@
         <div class="connection-status">
           <span class="status-dot" id="ws-status"></span>
           <span id="connection-text">Connecting...</span>
+        </div>
+      </div>
+      <div class="header-center">
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" id="btn-view-machine" onclick="setView('machine')">
+            Machine View
+          </button>
+          <button class="view-toggle-btn" id="btn-view-component" onclick="setView('component')">
+            Component View
+          </button>
         </div>
       </div>
       <div class="header-stats">
@@ -761,11 +922,21 @@
         </select>
       </div>
 
-      <div class="sidebar-section">
+      <div class="sidebar-section" id="machine-selector-section">
         <div class="sidebar-section-title">State Machine</div>
         <select class="selector" id="machine-select" onchange="selectMachine()">
           <option value="">Select a machine...</option>
         </select>
+      </div>
+
+      <!-- Transitions Panel -->
+      <div class="transitions-panel" id="transitions-panel">
+        <div class="sidebar-section-title">Available Transitions</div>
+        <div id="transitions-list">
+          <div class="empty-state" style="padding: 20px 0;">
+            <div style="font-size: 12px;">Select an instance to see transitions</div>
+          </div>
+        </div>
       </div>
 
       <div class="instance-list-container">
@@ -785,34 +956,68 @@
 
     <!-- Main Content -->
     <main class="main-content">
-      <div class="diagram-header">
-        <div class="diagram-title" id="diagram-title">
-          Select a state machine to view its diagram
+      <!-- Machine View -->
+      <div id="machine-view">
+        <div class="diagram-header">
+          <div class="diagram-title" id="diagram-title">
+            Select a state machine to view its diagram
+          </div>
+          <div class="diagram-legend">
+            <div class="legend-item">
+              <div class="legend-dot entry"></div>
+              <span>Entry</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot current"></div>
+              <span>Current</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot terminal"></div>
+              <span>Terminal</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot error"></div>
+              <span>Error</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-line inter-machine"></div>
+              <span>Inter-machine</span>
+            </div>
+          </div>
         </div>
-        <div class="diagram-legend">
-          <div class="legend-item">
-            <div class="legend-dot entry"></div>
-            <span>Entry</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-dot current"></div>
-            <span>Current</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-dot terminal"></div>
-            <span>Terminal</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-dot error"></div>
-            <span>Error</span>
+        <div class="diagram-container">
+          <div class="mermaid-wrapper" id="diagram-container">
+            <div class="empty-state">
+              <div class="empty-state-icon">&#128202;</div>
+              <div>Select a state machine to view its diagram</div>
+            </div>
           </div>
         </div>
       </div>
-      <div class="diagram-container">
-        <div class="mermaid-wrapper" id="diagram-container">
-          <div class="empty-state">
-            <div class="empty-state-icon">&#128202;</div>
-            <div>Select a state machine to view its diagram</div>
+
+      <!-- Component View -->
+      <div id="component-view" class="hidden">
+        <div class="diagram-header">
+          <div class="diagram-title" id="component-title">
+            Component Overview
+          </div>
+          <div class="diagram-legend">
+            <div class="legend-item">
+              <div class="legend-dot entry"></div>
+              <span>Entry Machine</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-line inter-machine"></div>
+              <span>Inter-machine Transition</span>
+            </div>
+          </div>
+        </div>
+        <div class="component-view">
+          <div class="component-graph" id="component-graph">
+            <div class="empty-state">
+              <div class="empty-state-icon">&#127959;</div>
+              <div>Select a component to view its machines</div>
+            </div>
           </div>
         </div>
       </div>
@@ -825,7 +1030,7 @@
           Transition History
           <span class="history-instance-info" id="history-instance-info"></span>
         </div>
-        <div id="available-transitions"></div>
+        <div class="history-actions" id="history-actions"></div>
       </div>
       <div class="history-content">
         <div class="history-timeline" id="history-timeline">
@@ -890,7 +1095,10 @@
     let selectedMachineName = null;
     let selectedInstanceId = null;
     let instances = [];
+    let allInstances = [];
     let terminalStates = new Set();
+    let currentTransitions = [];
+    let currentView = 'machine'; // 'machine' or 'component'
 
     // Initialize Mermaid
     mermaid.initialize({
@@ -916,6 +1124,9 @@
         selectedComponentName = componentsData[0].name;
         populateComponentSelector();
         populateMachineSelector();
+        if (currentView === 'component') {
+          renderComponentView();
+        }
       }
     });
 
@@ -929,6 +1140,7 @@
       if (selectedInstanceId === data.instanceId) {
         loadInstanceHistory(selectedInstanceId);
         renderDiagram();
+        loadTransitionsForInstance(selectedInstanceId);
       }
     });
 
@@ -940,6 +1152,22 @@
     socket.on('instance_disposed', () => {
       loadInstances();
     });
+
+    // View Toggle
+    function setView(view) {
+      currentView = view;
+      document.getElementById('btn-view-machine').classList.toggle('active', view === 'machine');
+      document.getElementById('btn-view-component').classList.toggle('active', view === 'component');
+      document.getElementById('machine-view').classList.toggle('hidden', view !== 'machine');
+      document.getElementById('component-view').classList.toggle('hidden', view !== 'component');
+      document.getElementById('machine-selector-section').classList.toggle('hidden', view === 'component');
+
+      if (view === 'component') {
+        renderComponentView();
+      } else if (selectedMachineName) {
+        renderDiagram();
+      }
+    }
 
     // Component/Machine Selection
     function getCurrentComponent() {
@@ -982,6 +1210,12 @@
       clearDiagram();
       clearHistory();
       clearInstanceList();
+      clearTransitions();
+      loadInstances();
+
+      if (currentView === 'component') {
+        renderComponentView();
+      }
     }
 
     function selectMachine() {
@@ -996,6 +1230,131 @@
         clearInstanceList();
       }
       clearHistory();
+      clearTransitions();
+    }
+
+    // Component View - Show all machines with inter-machine connections
+    function renderComponentView() {
+      const component = getCurrentComponent();
+      if (!component) {
+        document.getElementById('component-graph').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">&#127959;</div>
+            <div>No component loaded</div>
+          </div>`;
+        return;
+      }
+
+      document.getElementById('component-title').innerHTML = `<span>${component.name}</span> - Component Overview`;
+
+      const machines = component.stateMachines || [];
+      const container = document.getElementById('component-graph');
+
+      // Collect inter-machine transitions
+      const interMachineLinks = [];
+      machines.forEach(machine => {
+        (machine.transitions || []).forEach(transition => {
+          if (transition.type === 'inter_machine' && transition.targetMachine) {
+            interMachineLinks.push({
+              from: machine.name,
+              to: transition.targetMachine,
+              event: transition.event,
+              fromState: transition.from
+            });
+          }
+        });
+      });
+
+      // Layout machines in a grid
+      const cols = Math.ceil(Math.sqrt(machines.length));
+      const cardWidth = 200;
+      const cardHeight = 140;
+      const spacingX = 120;
+      const spacingY = 100;
+
+      // Calculate positions
+      const positions = {};
+      machines.forEach((machine, idx) => {
+        const row = Math.floor(idx / cols);
+        const col = idx % cols;
+        positions[machine.name] = {
+          x: col * (cardWidth + spacingX) + 40,
+          y: row * (cardHeight + spacingY) + 40
+        };
+      });
+
+      // Build SVG for arrows
+      const svgWidth = cols * (cardWidth + spacingX) + 100;
+      const svgHeight = Math.ceil(machines.length / cols) * (cardHeight + spacingY) + 100;
+
+      let svgHtml = `<svg width="${svgWidth}" height="${svgHeight}" style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#10b981" />
+          </marker>
+        </defs>`;
+
+      // Draw inter-machine arrows
+      interMachineLinks.forEach((link, idx) => {
+        const fromPos = positions[link.from];
+        const toPos = positions[link.to];
+        if (fromPos && toPos) {
+          const x1 = fromPos.x + cardWidth / 2;
+          const y1 = fromPos.y + cardHeight / 2;
+          const x2 = toPos.x + cardWidth / 2;
+          const y2 = toPos.y + cardHeight / 2;
+
+          // Calculate curve control point
+          const midX = (x1 + x2) / 2;
+          const midY = (y1 + y2) / 2;
+          const offset = 30;
+
+          svgHtml += `
+            <path d="M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}"
+                  fill="none" stroke="#10b981" stroke-width="3"
+                  marker-end="url(#arrowhead)" />
+            <text x="${midX}" y="${midY - offset - 8}" fill="#10b981" font-size="11"
+                  text-anchor="middle" font-weight="600">${link.event}</text>`;
+        }
+      });
+
+      svgHtml += '</svg>';
+
+      // Build machine cards
+      let cardsHtml = svgHtml;
+      machines.forEach(machine => {
+        const pos = positions[machine.name];
+        const isEntry = component.entryMachine === machine.name;
+        const machineInstances = allInstances.filter(i => i.machineName === machine.name);
+
+        cardsHtml += `
+          <div class="machine-card ${isEntry ? 'entry-machine' : ''}"
+               style="left: ${pos.x}px; top: ${pos.y}px; width: ${cardWidth}px;"
+               onclick="selectMachineFromComponent('${machine.name}')">
+            <div class="machine-card-header">
+              <span class="machine-card-name">${machine.name}</span>
+              ${isEntry ? '<span class="machine-card-badge">Entry</span>' : ''}
+            </div>
+            <div class="machine-card-stats">
+              ${machine.states?.length || 0} states<br>
+              ${machine.transitions?.length || 0} transitions
+            </div>
+            <div class="machine-card-instances">
+              <strong>${machineInstances.length}</strong> instance${machineInstances.length !== 1 ? 's' : ''}
+            </div>
+          </div>`;
+      });
+
+      container.innerHTML = cardsHtml;
+      container.style.minHeight = `${svgHeight}px`;
+    }
+
+    function selectMachineFromComponent(machineName) {
+      selectedMachineName = machineName;
+      document.getElementById('machine-select').value = machineName;
+      setView('machine');
+      renderDiagram();
+      loadInstances();
     }
 
     // Diagram Rendering
@@ -1027,6 +1386,7 @@
 
       if (data.diagram) {
         terminalStates = new Set(data.terminalStates || []);
+        currentTransitions = data.transitions || [];
 
         container.innerHTML = `<div class="mermaid">${data.diagram}</div>`;
 
@@ -1054,16 +1414,86 @@
         'Select a state machine to view its diagram';
     }
 
+    // Transitions Panel
+    function loadTransitionsForInstance(instanceId) {
+      const instance = instances.find(i => i.id === instanceId);
+      if (!instance) {
+        clearTransitions();
+        return;
+      }
+
+      // Filter transitions that start from current state
+      const availableTransitions = currentTransitions.filter(t => t.from === instance.currentState);
+      renderTransitions(availableTransitions, instance);
+    }
+
+    function renderTransitions(transitions, instance) {
+      const container = document.getElementById('transitions-list');
+
+      if (!transitions || transitions.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 20px 0;">
+            <div style="font-size: 12px;">No transitions available from current state</div>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = transitions.map(t => `
+        <div class="transition-item ${t.type === 'inter_machine' ? 'inter-machine' : ''}"
+             onclick="sendTransitionEvent('${instance.id}', '${t.event}')">
+          <div class="transition-info">
+            <div class="transition-event">${t.event}</div>
+            <div class="transition-path">${t.from} → ${t.to}</div>
+            ${t.targetMachine ? `<div class="transition-target">Creates instance in: ${t.targetMachine}</div>` : ''}
+          </div>
+          <button class="transition-send-btn" onclick="event.stopPropagation(); sendTransitionEvent('${instance.id}', '${t.event}')">
+            Send
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function clearTransitions() {
+      document.getElementById('transitions-list').innerHTML = `
+        <div class="empty-state" style="padding: 20px 0;">
+          <div style="font-size: 12px;">Select an instance to see transitions</div>
+        </div>`;
+    }
+
+    async function sendTransitionEvent(instanceId, eventType) {
+      const component = getCurrentComponent();
+      if (!component) return;
+
+      try {
+        await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: eventType, payload: {} })
+        });
+        showToast(`Event "${eventType}" sent`, 'success');
+      } catch (error) {
+        showToast('Failed to send event', 'error');
+      }
+    }
+
     // Instance Management
     async function loadInstances() {
-      if (!selectedMachineName) return;
-
       const res = await fetch('/api/instances');
       const data = await res.json();
-      instances = (data.instances || []).filter(i => i.machineName === selectedMachineName);
+      allInstances = data.instances || [];
+
+      if (selectedMachineName) {
+        instances = allInstances.filter(i => i.machineName === selectedMachineName);
+      } else {
+        instances = [];
+      }
 
       renderInstanceList();
       updateStats();
+
+      if (currentView === 'component') {
+        renderComponentView();
+      }
     }
 
     function renderInstanceList() {
@@ -1096,11 +1526,6 @@
             <div class="instance-meta">
               ${inst.status} &bull; ${new Date(inst.updatedAt).toLocaleTimeString()}
             </div>
-            <div class="quick-actions">
-              <button class="quick-action-btn" onclick="event.stopPropagation(); openEventModal('${inst.id}')">
-                Send Event
-              </button>
-            </div>
           </div>`;
       }).join('');
     }
@@ -1119,15 +1544,15 @@
       renderInstanceList();
       renderDiagram();
       loadInstanceHistory(id);
-      loadAvailableTransitions(id);
+      loadTransitionsForInstance(id);
     }
 
     function updateStats() {
-      const allInstances = instances;
-      const terminalCount = allInstances.filter(i => terminalStates.has(i.currentState)).length;
-      const activeCount = allInstances.filter(i => i.status === 'active' && !terminalStates.has(i.currentState)).length;
+      const total = instances.length;
+      const terminalCount = instances.filter(i => terminalStates.has(i.currentState)).length;
+      const activeCount = instances.filter(i => i.status === 'active' && !terminalStates.has(i.currentState)).length;
 
-      document.getElementById('stat-instances').textContent = allInstances.length;
+      document.getElementById('stat-instances').textContent = total;
       document.getElementById('stat-active').textContent = activeCount;
       document.getElementById('stat-terminal').textContent = terminalCount;
     }
@@ -1224,48 +1649,7 @@
       document.getElementById('history-timeline').innerHTML =
         '<div class="history-empty">Select an instance to view its transition history</div>';
       document.getElementById('history-instance-info').textContent = '';
-      document.getElementById('available-transitions').innerHTML = '';
-    }
-
-    // Available Transitions
-    async function loadAvailableTransitions(instanceId) {
-      const component = getCurrentComponent();
-      if (!component) return;
-
-      try {
-        const res = await fetch(`/api/components/${component.name}/instances/${instanceId}/transitions`);
-        const data = await res.json();
-
-        if (data.transitions && data.transitions.length > 0) {
-          const container = document.getElementById('available-transitions');
-          container.innerHTML = data.transitions.map(t => `
-            <button class="btn btn-secondary" style="margin-left: 8px; padding: 6px 12px; font-size: 12px;"
-                    onclick="sendQuickEvent('${instanceId}', '${t.event}')">
-              ${t.event} &rarr; ${t.to}
-            </button>
-          `).join('');
-        } else {
-          document.getElementById('available-transitions').innerHTML = '';
-        }
-      } catch (error) {
-        document.getElementById('available-transitions').innerHTML = '';
-      }
-    }
-
-    async function sendQuickEvent(instanceId, eventType) {
-      const component = getCurrentComponent();
-      if (!component) return;
-
-      try {
-        await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: eventType, payload: {} })
-        });
-        showToast(`Event "${eventType}" sent`, 'success');
-      } catch (error) {
-        showToast('Failed to send event', 'error');
-      }
+      document.getElementById('history-actions').innerHTML = '';
     }
 
     // Create Instance Modal

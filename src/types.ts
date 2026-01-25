@@ -298,8 +298,17 @@ export interface Component {
   version: string;
   /** State machines */
   stateMachines: StateMachine[];
+  /** Entry point machine - auto-created on component start */
+  entryMachine?: string;
   /** Metadata */
   metadata?: Record<string, any>;
+  /** Layout configuration for dashboard visualization */
+  layout?: {
+    /** Machine positions for component overview */
+    machines?: Record<string, { x: number; y: number }>;
+    /** Auto-layout algorithm: force, grid, hierarchical */
+    algorithm?: 'force' | 'grid' | 'hierarchical';
+  };
 }
 
 /**
@@ -346,6 +355,8 @@ export interface FSMInstance {
   updatedAt: number;
   /** Instance status */
   status: 'active' | 'completed' | 'error';
+  /** Entry point flag - prevents auto-deallocation in final state */
+  isEntryPoint?: boolean;
 }
 
 /**

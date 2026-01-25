@@ -271,12 +271,17 @@ export class FSMRuntime extends EventEmitter {
         this.clearTimeouts(instanceId);
       }
 
+      // Find new state to get its type
+      const newStateObj = machine.states.find(s => s.name === transition.to);
+      const stateType = newStateObj?.type || 'regular';
+
       // Emit state change
       this.emit('state_change', {
         instanceId,
         machineName: instance.machineName,
         previousState,
         newState: transition.to,
+        stateType, // Add state type for auto-deallocation detection
         event,
         eventId,
         timestamp: Date.now(),
@@ -305,11 +310,16 @@ export class FSMRuntime extends EventEmitter {
       if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
         instance.status = targetState.type === StateType.FINAL ? 'completed' : 'error';
 
-        // Remove from indexes before disposing
-        this.removeFromIndex(instance);
+        // Don't dispose entry point instances - they persist even in final state
+        if (!instance.isEntryPoint) {
+          // Remove from indexes before disposing
+          this.removeFromIndex(instance);
 
-        this.emit('instance_disposed', instance);
-        this.instances.delete(instanceId);
+          this.emit('instance_disposed', instance);
+          this.instances.delete(instanceId);
+          return;
+        }
+        // Entry point stays alive - don't delete
         return;
       }
 

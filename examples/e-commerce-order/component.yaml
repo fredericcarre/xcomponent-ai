@@ -1,0 +1,294 @@
+# E-Commerce Order Processing
+#
+# Ce composant gère le cycle de vie complet d'une commande e-commerce:
+# - Validation de la commande
+# - Traitement du paiement
+# - Gestion de l'expédition
+# - Compensation en cas d'échec (remboursement)
+#
+# Pattern: Saga avec compensation
+
+name: ECommerceOrder
+entryMachine: OrderOrchestrator
+
+stateMachines:
+  # Machine principale qui orchestre le flux
+  - name: OrderOrchestrator
+    initialState: Created
+    publicMemberType: Order
+
+    contextSchema:
+      orderId:
+        type: string
+        label: "Order ID"
+        required: true
+        placeholder: "ORD-001"
+      customerId:
+        type: string
+        label: "Customer ID"
+        required: true
+      totalAmount:
+        type: number
+        label: "Total Amount"
+        required: true
+      currency:
+        type: select
+        label: "Currency"
+        options:
+          - value: EUR
+            label: "Euro (EUR)"
+          - value: USD
+            label: "US Dollar (USD)"
+          - value: GBP
+            label: "British Pound (GBP)"
+
+    states:
+      - name: Created
+        type: entry
+        description: "Order has been created, awaiting validation"
+
+      - name: Validating
+        description: "Order is being validated (stock, customer, etc.)"
+        onEntry: validateOrderDetails
+
+      - name: ValidationFailed
+        type: error
+        description: "Order validation failed"
+
+      - name: PaymentPending
+        description: "Waiting for payment processing"
+
+      - name: PaymentFailed
+        type: error
+        description: "Payment was declined or failed"
+
+      - name: Paid
+        description: "Payment confirmed, ready for fulfillment"
+        onEntry: notifyWarehouse
+
+      - name: Preparing
+        description: "Order is being prepared in warehouse"
+
+      - name: Shipped
+        description: "Order has been shipped"
+        onEntry: sendShippingNotification
+
+      - name: Delivered
+        type: final
+        description: "Order successfully delivered"
+
+      - name: Refunding
+        description: "Processing refund due to cancellation or return"
+        onEntry: processRefund
+
+      - name: Refunded
+        type: final
+        description: "Order has been refunded"
+
+      - name: Cancelled
+        type: final
+        description: "Order was cancelled"
+
+    transitions:
+      # Happy path
+      - from: Created
+        to: Validating
+        event: SUBMIT
+        description: "Customer submits the order"
+
+      - from: Validating
+        to: PaymentPending
+        event: VALIDATION_SUCCESS
+        type: inter_machine
+        targetMachine: PaymentProcessor
+        contextMapping:
+          orderId: "context.orderId"
+          amount: "context.totalAmount"
+          currency: "context.currency"
+
+      - from: Validating
+        to: ValidationFailed
+        event: VALIDATION_FAILED
+
+      - from: PaymentPending
+        to: Paid
+        event: PAYMENT_SUCCESS
+
+      - from: PaymentPending
+        to: PaymentFailed
+        event: PAYMENT_FAILED
+
+      - from: Paid
+        to: Preparing
+        event: START_PREPARATION
+
+      - from: Preparing
+        to: Shipped
+        event: SHIP
+        type: inter_machine
+        targetMachine: ShippingTracker
+        contextMapping:
+          orderId: "context.orderId"
+          customerId: "context.customerId"
+
+      - from: Shipped
+        to: Delivered
+        event: DELIVERY_CONFIRMED
+
+      # Cancellation path
+      - from: Created
+        to: Cancelled
+        event: CANCEL
+
+      - from: Validating
+        to: Cancelled
+        event: CANCEL
+
+      - from: PaymentPending
+        to: Cancelled
+        event: CANCEL
+
+      # Refund path (after payment)
+      - from: Paid
+        to: Refunding
+        event: REQUEST_REFUND
+
+      - from: Preparing
+        to: Refunding
+        event: REQUEST_REFUND
+
+      - from: Refunding
+        to: Refunded
+        event: REFUND_COMPLETED
+
+      # Return after delivery
+      - from: Delivered
+        to: Refunding
+        event: RETURN_REQUESTED
+
+  # Payment processing sub-machine
+  - name: PaymentProcessor
+    initialState: Initiated
+    publicMemberType: Payment
+
+    states:
+      - name: Initiated
+        type: entry
+        description: "Payment process initiated"
+        onEntry: initiatePaymentWithProvider
+
+      - name: AwaitingConfirmation
+        description: "Waiting for payment provider confirmation"
+
+      - name: Authorized
+        description: "Payment authorized, pending capture"
+
+      - name: Captured
+        type: final
+        description: "Payment successfully captured"
+        onEntry: notifyOrderPaymentSuccess
+
+      - name: Declined
+        type: error
+        description: "Payment was declined"
+        onEntry: notifyOrderPaymentFailed
+
+      - name: Timeout
+        type: error
+        description: "Payment timed out"
+
+    transitions:
+      - from: Initiated
+        to: AwaitingConfirmation
+        event: SENT_TO_PROVIDER
+
+      - from: AwaitingConfirmation
+        to: Authorized
+        event: AUTHORIZATION_SUCCESS
+
+      - from: AwaitingConfirmation
+        to: Declined
+        event: AUTHORIZATION_FAILED
+
+      - from: AwaitingConfirmation
+        to: Timeout
+        event: PROVIDER_TIMEOUT
+        type: timeout
+        timeoutMs: 30000
+
+      - from: Authorized
+        to: Captured
+        event: CAPTURE_SUCCESS
+
+      - from: Authorized
+        to: Declined
+        event: CAPTURE_FAILED
+
+  # Shipping tracking sub-machine
+  - name: ShippingTracker
+    initialState: LabelCreated
+    publicMemberType: Shipment
+
+    states:
+      - name: LabelCreated
+        type: entry
+        description: "Shipping label created"
+        onEntry: createShippingLabel
+
+      - name: PickedUp
+        description: "Package picked up by carrier"
+
+      - name: InTransit
+        description: "Package in transit"
+
+      - name: OutForDelivery
+        description: "Package out for delivery"
+
+      - name: Delivered
+        type: final
+        description: "Package delivered"
+        onEntry: notifyOrderDelivered
+
+      - name: DeliveryFailed
+        description: "Delivery attempt failed"
+
+      - name: ReturnedToSender
+        type: error
+        description: "Package returned to sender"
+
+    transitions:
+      - from: LabelCreated
+        to: PickedUp
+        event: CARRIER_PICKUP
+
+      - from: PickedUp
+        to: InTransit
+        event: SCAN_IN_TRANSIT
+
+      - from: InTransit
+        to: InTransit
+        event: SCAN_IN_TRANSIT
+        type: internal
+        triggeredMethod: updateTrackingLocation
+
+      - from: InTransit
+        to: OutForDelivery
+        event: OUT_FOR_DELIVERY
+
+      - from: OutForDelivery
+        to: Delivered
+        event: DELIVERY_SUCCESS
+
+      - from: OutForDelivery
+        to: DeliveryFailed
+        event: DELIVERY_FAILED
+
+      - from: DeliveryFailed
+        to: OutForDelivery
+        event: RETRY_DELIVERY
+        guard:
+          expression: "context.deliveryAttempts < 3"
+
+      - from: DeliveryFailed
+        to: ReturnedToSender
+        event: RETURN_TO_SENDER

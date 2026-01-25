@@ -1,6 +1,6 @@
 {
   "name": "xcomponent-ai",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "LLM-first framework for AI agents (Claude, GPT) to build apps with sanctuarized business logic. Event-driven FSM runtime with multi-instance state machines, cross-component communication, event sourcing, and production-ready persistence (PostgreSQL, MongoDB)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -33,7 +33,7 @@
     "test:ci": "jest --coverage --ci --maxWorkers=2",
     "cli": "ts-node src/cli.ts",
     "api": "ts-node src/api.ts",
-    "doc": "typedoc --out docs src",
+    "doc": "typedoc --out docs/api src",
     "lint": "eslint src/**/*.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build && npm test",

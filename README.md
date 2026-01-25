@@ -8,9 +8,34 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
-> **LLM-First Framework**: Event-driven FSM runtime designed for AI agents (Claude, GPT) to build applications with sanctuarized business logic. Multi-instance state machines, cross-component communication, event sourcing, and production-ready persistence.
+> **La logique métier que l'IA ne peut pas deviner.**
 
-**🎯 Built for LLMs**: xcomponent-ai is specifically designed for AI agents to structure applications with immutable business logic in YAML, while code remains a thin integration layer.
+## 💡 Le problème
+
+Les LLM peuvent générer du code, mais ils ne peuvent pas inventer votre logique métier. Un workflow d'approbation, un circuit de validation, les règles de compliance de votre domaine - tout cela vient de **vous**.
+
+**xcomponent-ai** sépare ce qui est **durable** (la logique métier en YAML) de ce qui est **jetable** (le code d'implémentation généré par l'IA).
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  📋 YAML (Logique métier)          │  💻 Code (Implémentation)  │
+│  ─────────────────────────         │  ────────────────────────  │
+│  • États et transitions            │  • API routes              │
+│  • Règles de compliance            │  • UI components           │
+│  • Guards et conditions            │  • Intégrations externes   │
+│  • Workflows d'approbation         │  • Triggered methods       │
+│                                    │                            │
+│  ✅ Durable, auditable             │  ♻️  Régénérable par LLM   │
+│  ✅ Versionné dans Git             │  ♻️  Adaptable facilement  │
+│  ✅ Lisible par non-devs           │                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 🎯 Pour qui ?
+
+- **Développeurs** utilisant des LLM (Claude, GPT) pour générer du code
+- **Équipes** qui veulent sanctuariser leur logique métier
+- **Entreprises** avec des besoins de traçabilité et compliance
 
 ## 📦 Installation
 
@@ -114,10 +139,13 @@ npm install
 ### CLI Usage Examples
 
 ```bash
+# Validate a component YAML file
+xcomponent-ai validate examples/e-commerce-order/component.yaml
+
 # Create FSM from natural language (AI-powered)
 xcomponent-ai ai-create "Trading order with compliance guards for amounts over 100k" -o trading.yaml
 
-# Load and validate FSM
+# Load and inspect FSM
 xcomponent-ai load examples/trading.yaml
 
 # Run instance with events
@@ -556,14 +584,22 @@ Coverage target: **>80%** (branches, functions, lines, statements)
 # Generate API docs
 npm run doc
 
-# Open docs/index.html
+# Open docs/api/index.html
 ```
 
 **Guides**:
+- **[LLM Generation Guide](docs/llm-guide.md)** - Complete guide for LLM-based YAML generation
 - **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage for LLMs (Claude/GPT)
 - **[Persistence Guide](PERSISTENCE.md)** - Database configuration and event sourcing
 - **[Quick Start](QUICKSTART.md)** - Getting started guide
-- **[Full Project Example](examples/full-project-structure.md)** - E-commerce application
+
+**Business Examples**:
+- **[E-Commerce Order](examples/e-commerce-order/)** - Order processing with payment and shipping (Saga pattern)
+- **[Approval Workflow](examples/approval-workflow/)** - Multi-level approval with escalation
+- **[Subscription Lifecycle](examples/subscription-lifecycle/)** - SaaS subscription management
+
+**Schema**:
+- **[JSON Schema](schemas/component.schema.json)** - Validation schema for component YAML files
 
 **JSDoc coverage**: All public APIs documented
 
@@ -594,7 +630,7 @@ Apache License 2.0 - see [LICENSE](LICENSE)
 
 ## 🔗 Links
 
-- **Documentation**: [API Docs](docs/index.html)
+- **Documentation**: [API Docs](docs/api/index.html)
 - **Examples**: [examples/](examples/)
 - **Issues**: [GitHub Issues](https://github.com/fredericcarre/mayele-ai/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/fredericcarre/mayele-ai/discussions)

@@ -1,0 +1,202 @@
+# Multi-Level Approval Workflow
+#
+# Ce composant gère un workflow d'approbation à plusieurs niveaux:
+# - Demande initiale par un employé
+# - Approbation par le manager
+# - Approbation par le directeur (si montant > seuil)
+# - Approbation finale par les finances
+#
+# Pattern: Workflow conditionnel avec escalade
+
+name: ApprovalWorkflow
+entryMachine: ExpenseRequest
+
+stateMachines:
+  - name: ExpenseRequest
+    initialState: Draft
+    publicMemberType: ExpenseRequest
+
+    contextSchema:
+      requestId:
+        type: string
+        label: "Request ID"
+        required: true
+        placeholder: "EXP-001"
+      employeeId:
+        type: string
+        label: "Employee ID"
+        required: true
+      employeeName:
+        type: string
+        label: "Employee Name"
+        required: true
+      amount:
+        type: number
+        label: "Amount (EUR)"
+        required: true
+        description: "Expense amount in euros"
+      category:
+        type: select
+        label: "Category"
+        required: true
+        options:
+          - value: travel
+            label: "Travel"
+          - value: equipment
+            label: "Equipment"
+          - value: training
+            label: "Training"
+          - value: software
+            label: "Software"
+          - value: other
+            label: "Other"
+      description:
+        type: string
+        label: "Description"
+        placeholder: "Brief description of the expense"
+
+    states:
+      - name: Draft
+        type: entry
+        description: "Request is being drafted by employee"
+
+      - name: PendingManagerApproval
+        description: "Waiting for manager approval"
+        onEntry: notifyManager
+
+      - name: ManagerApproved
+        description: "Manager has approved"
+
+      - name: PendingDirectorApproval
+        description: "Waiting for director approval (amount > 5000)"
+        onEntry: notifyDirector
+
+      - name: DirectorApproved
+        description: "Director has approved"
+
+      - name: PendingFinanceReview
+        description: "Waiting for finance review"
+        onEntry: notifyFinance
+
+      - name: Approved
+        type: final
+        description: "Request fully approved"
+        onEntry: initiatePayment
+
+      - name: Rejected
+        type: final
+        description: "Request rejected"
+        onEntry: notifyRejection
+
+      - name: NeedsRevision
+        description: "Request needs changes from employee"
+        onEntry: notifyRevisionNeeded
+
+      - name: Cancelled
+        type: final
+        description: "Request cancelled by employee"
+
+      - name: Expired
+        type: error
+        description: "Request expired due to inactivity"
+
+    transitions:
+      # Submission
+      - from: Draft
+        to: PendingManagerApproval
+        event: SUBMIT
+        triggeredMethod: validateRequest
+
+      - from: Draft
+        to: Cancelled
+        event: CANCEL
+
+      # Manager decisions
+      - from: PendingManagerApproval
+        to: ManagerApproved
+        event: MANAGER_APPROVE
+
+      - from: PendingManagerApproval
+        to: Rejected
+        event: MANAGER_REJECT
+
+      - from: PendingManagerApproval
+        to: NeedsRevision
+        event: REQUEST_CHANGES
+
+      - from: PendingManagerApproval
+        to: Expired
+        event: APPROVAL_TIMEOUT
+        type: timeout
+        timeoutMs: 604800000  # 7 days
+
+      # After manager approval - route based on amount
+      - from: ManagerApproved
+        to: PendingDirectorApproval
+        event: ROUTE_FOR_APPROVAL
+        guard:
+          expression: "context.amount > 5000"
+
+      - from: ManagerApproved
+        to: PendingFinanceReview
+        event: ROUTE_FOR_APPROVAL
+        guard:
+          expression: "context.amount <= 5000"
+
+      # Director decisions
+      - from: PendingDirectorApproval
+        to: DirectorApproved
+        event: DIRECTOR_APPROVE
+
+      - from: PendingDirectorApproval
+        to: Rejected
+        event: DIRECTOR_REJECT
+
+      - from: PendingDirectorApproval
+        to: NeedsRevision
+        event: REQUEST_CHANGES
+
+      - from: PendingDirectorApproval
+        to: Expired
+        event: APPROVAL_TIMEOUT
+        type: timeout
+        timeoutMs: 604800000  # 7 days
+
+      # After director approval
+      - from: DirectorApproved
+        to: PendingFinanceReview
+        event: ROUTE_FOR_APPROVAL
+
+      # Finance decisions
+      - from: PendingFinanceReview
+        to: Approved
+        event: FINANCE_APPROVE
+
+      - from: PendingFinanceReview
+        to: Rejected
+        event: FINANCE_REJECT
+
+      - from: PendingFinanceReview
+        to: NeedsRevision
+        event: REQUEST_CHANGES
+
+      - from: PendingFinanceReview
+        to: Expired
+        event: APPROVAL_TIMEOUT
+        type: timeout
+        timeoutMs: 604800000  # 7 days
+
+      # Revision loop
+      - from: NeedsRevision
+        to: Draft
+        event: REVISE
+
+      - from: NeedsRevision
+        to: Cancelled
+        event: CANCEL
+
+      - from: NeedsRevision
+        to: Expired
+        event: REVISION_TIMEOUT
+        type: timeout
+        timeoutMs: 1209600000  # 14 days

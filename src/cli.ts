@@ -835,6 +835,23 @@ program
         }
       });
 
+      // Send event to instance (component-scoped route for dashboard compatibility)
+      app.post('/api/components/:componentName/instances/:id/events', async (req: any, res: any) => {
+        try {
+          const runtime = registry.getRuntime(req.params.componentName);
+          if (!runtime) {
+            return res.status(404).json({ error: 'Component not found' });
+          }
+          if (!runtime.getInstance(req.params.id)) {
+            return res.status(404).json({ error: 'Instance not found' });
+          }
+          await runtime.sendEvent(req.params.id, req.body);
+          return res.json({ success: true });
+        } catch (error: any) {
+          res.status(400).json({ error: error.message });
+        }
+      });
+
       // Get instance history
       app.get('/api/instances/:id/history', async (req: any, res: any) => {
         try {
@@ -872,13 +889,33 @@ program
         res.json({ diagram, terminalStates, transitions });
       });
 
+      // Mermaid diagram endpoint (auto-detects component by machine name)
+      app.get('/api/machines/:machineName/diagram', (req: any, res: any) => {
+        // Search for machine across all components
+        for (const componentName of registry.getComponentNames()) {
+          const component = registry.getComponent(componentName);
+          if (component) {
+            const machine = component.stateMachines.find(m => m.name === req.params.machineName);
+            if (machine) {
+              const { generateStyledMermaidDiagram, detectTerminalStates, getTransitionsInfo } = require('./mermaid-generator');
+              const currentState = req.query.currentState;
+              const diagram = generateStyledMermaidDiagram(machine, currentState);
+              const terminalStates = Array.from(detectTerminalStates(machine));
+              const transitions = getTransitionsInfo(machine);
+              return res.json({ diagram, terminalStates, transitions });
+            }
+          }
+        }
+        res.status(404).json({ error: 'State machine not found' });
+      });
+
       // WebSocket Integration
       io.on('connection', (socket) => {
         console.log(`[WebSocket] Client connected: ${socket.id}`);
 
         // Send all components data on connection
         const components = registry.getComponentNames().map(name => registry.getComponent(name));
-        socket.emit('components_data', { components });
+        socket.emit('components_list', { components });
 
         socket.on('disconnect', () => {
           console.log(`[WebSocket] Client disconnected: ${socket.id}`);

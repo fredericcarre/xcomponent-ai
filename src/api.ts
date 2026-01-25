@@ -29,8 +29,9 @@ export class APIServer {
   constructor() {
     this.app = express();
     this.httpServer = createServer(this.app);
-    this.wsManager = new WebSocketManager(this.httpServer);
     this.registry = new ComponentRegistry();
+    this.wsManager = new WebSocketManager(this.httpServer);
+    this.wsManager.setRegistry(this.registry);
     this.supervisor = new SupervisorAgent();
 
     this.setupMiddleware();
@@ -319,6 +320,71 @@ export class APIServer {
 
         const history = await this.registry.getInstanceHistory(instanceId);
         return res.json({ success: true, data: { history, count: history.length } });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get all components
+    this.app.get('/api/components', (_req: Request, res: Response) => {
+      try {
+        const componentNames = this.registry.getComponentNames();
+        const components = componentNames.map(name => this.registry.getComponent(name)).filter(c => c !== undefined);
+        return res.json({ success: true, components });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get all instances across all components
+    this.app.get('/api/instances', (_req: Request, res: Response) => {
+      try {
+        const instances: any[] = [];
+        const componentNames = this.registry.getComponentNames();
+
+        componentNames.forEach(componentName => {
+          const runtime = this.registry.getRuntime(componentName);
+          if (runtime) {
+            const componentInstances = runtime.getAllInstances();
+            instances.push(...componentInstances);
+          }
+        });
+
+        return res.json({ success: true, instances });
+      } catch (error: any) {
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get Mermaid diagram for a specific machine
+    this.app.get('/api/machines/:machineName/diagram', (req: Request, res: Response) => {
+      try {
+        const machineName = req.params.machineName as string;
+
+        // Find the machine in any component
+        const componentNames = this.registry.getComponentNames();
+        let foundMachine = null;
+
+        for (const componentName of componentNames) {
+          const component = this.registry.getComponent(componentName);
+          if (component) {
+            const machine = component.stateMachines.find(m => m.name === machineName);
+            if (machine) {
+              foundMachine = machine;
+              break;
+            }
+          }
+        }
+
+        if (!foundMachine) {
+          return res.status(404).json({ success: false, error: 'Machine not found' });
+        }
+
+        // Generate Mermaid diagram
+        const { generateStyledMermaidDiagram } = require('./mermaid-generator');
+        const diagram = generateStyledMermaidDiagram(foundMachine);
+
+        return res.json({ success: true, diagram });
       } catch (error: any) {
         return res.status(500).json({ success: false, error: error.message });
       }

@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # Development service with hot reload
+  dev:
+    build:
+      context: .
+      target: development
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src:ro
+      - ./public:/app/public:ro
+      - ./examples:/app/examples:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      # Use named volume for node_modules to avoid conflicts
+      - node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: sh -c "npm run build && node dist/cli.js serve examples/simple-xcomponent-demo.yaml --port 3000"
+
+  # Production service
+  prod:
+    build:
+      context: .
+      target: production
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    # Override to use different example file
+    # command: node dist/cli.js serve examples/e-commerce-order/component.yaml --port 3000
+
+  # Test service for running tests
+  test:
+    build:
+      context: .
+      target: development
+    volumes:
+      - ./src:/app/src:ro
+      - ./test:/app/test:ro
+      - node_modules:/app/node_modules
+    command: npm test
+
+volumes:
+  node_modules:

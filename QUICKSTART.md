@@ -199,11 +199,28 @@ xcomponent-ai init loan-approval
 cd loan-approval
 
 # Edit fsm/LoanApprovalComponent.yaml
-# (Add your states, transitions, guards)
+# (Add your states, transitions)
 
 # Test your FSM
 xcomponent-ai serve fsm/LoanApprovalComponent.yaml
 ```
+
+## 🏗️ XComponent Pattern (Advanced)
+
+For orchestrating multiple state machines with automatic instance creation:
+
+```bash
+# Use the XComponent pattern demo
+xcomponent-ai serve examples/xcomponent-pattern-demo.yaml
+```
+
+This demonstrates:
+- **Entry Point** auto-created on startup (⭐ OrderManager)
+- **Inter-machine transitions** creating new instances (green arrows in dashboard)
+- **Auto-deallocation** of completed instances
+- **Component View** showing all machines and their connections
+
+See [XCOMPONENT-PATTERN.md](./XCOMPONENT-PATTERN.md) for complete guide.
 
 ## 🎓 Next Steps
 

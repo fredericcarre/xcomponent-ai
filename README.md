@@ -584,7 +584,7 @@ Coverage target: **>80%** (branches, functions, lines, statements)
 # Generate API docs
 npm run doc
 
-# Open docs/index.html
+# Open docs/api/index.html
 ```
 
 **Guides**:
@@ -630,7 +630,7 @@ Apache License 2.0 - see [LICENSE](LICENSE)
 
 ## 🔗 Links
 
-- **Documentation**: [API Docs](docs/index.html)
+- **Documentation**: [API Docs](docs/api/index.html)
 - **Examples**: [examples/](examples/)
 - **Issues**: [GitHub Issues](https://github.com/fredericcarre/mayele-ai/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/fredericcarre/mayele-ai/discussions)

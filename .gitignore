@@ -11,8 +11,9 @@ build/
 coverage/
 *.log
 
-# Documentation
-docs/
+# Generated documentation (keep docs/*.md files)
+docs/api/
+docs/generated/
 
 # Environment
 .env

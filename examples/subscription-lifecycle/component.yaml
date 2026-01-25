@@ -1,0 +1,279 @@
+# Subscription Lifecycle Management
+#
+# Ce composant gère le cycle de vie d'un abonnement SaaS:
+# - Période d'essai
+# - Activation et renouvellement
+# - Suspension pour non-paiement
+# - Mise à niveau / rétrogradation
+# - Annulation avec période de grâce
+#
+# Pattern: Lifecycle avec états récurrents
+
+name: SubscriptionLifecycle
+entryMachine: Subscription
+
+stateMachines:
+  - name: Subscription
+    initialState: Trial
+    publicMemberType: Subscription
+
+    contextSchema:
+      subscriptionId:
+        type: string
+        label: "Subscription ID"
+        required: true
+        placeholder: "SUB-001"
+      customerId:
+        type: string
+        label: "Customer ID"
+        required: true
+      customerEmail:
+        type: string
+        label: "Customer Email"
+        required: true
+      plan:
+        type: select
+        label: "Plan"
+        required: true
+        options:
+          - value: starter
+            label: "Starter - 9€/month"
+          - value: professional
+            label: "Professional - 29€/month"
+          - value: enterprise
+            label: "Enterprise - 99€/month"
+      billingCycle:
+        type: select
+        label: "Billing Cycle"
+        options:
+          - value: monthly
+            label: "Monthly"
+          - value: yearly
+            label: "Yearly (2 months free)"
+
+    states:
+      - name: Trial
+        type: entry
+        description: "Free trial period (14 days)"
+        onEntry: sendWelcomeEmail
+
+      - name: TrialExpiring
+        description: "Trial about to expire (3 days left)"
+        onEntry: sendTrialExpiringReminder
+
+      - name: Active
+        description: "Subscription is active and paid"
+        onEntry: provisionResources
+
+      - name: PastDue
+        description: "Payment failed, grace period"
+        onEntry: sendPaymentFailedNotification
+
+      - name: Suspended
+        description: "Service suspended due to non-payment"
+        onEntry: suspendService
+
+      - name: Cancelled
+        description: "Subscription cancelled, access until period end"
+        onEntry: scheduleCancellation
+
+      - name: Expired
+        type: final
+        description: "Subscription has ended"
+        onEntry: deprovisionResources
+
+      - name: Churned
+        type: final
+        description: "Customer churned (no reactivation)"
+        onEntry: recordChurn
+
+    transitions:
+      # Trial flow
+      - from: Trial
+        to: TrialExpiring
+        event: TRIAL_EXPIRING_SOON
+        type: timeout
+        timeoutMs: 950400000  # 11 days (14 - 3)
+
+      - from: Trial
+        to: Active
+        event: SUBSCRIBE
+        triggeredMethod: createInitialInvoice
+
+      - from: Trial
+        to: Expired
+        event: TRIAL_ENDED
+        type: timeout
+        timeoutMs: 1209600000  # 14 days
+
+      - from: TrialExpiring
+        to: Active
+        event: SUBSCRIBE
+        triggeredMethod: createInitialInvoice
+
+      - from: TrialExpiring
+        to: Expired
+        event: TRIAL_ENDED
+        type: timeout
+        timeoutMs: 259200000  # 3 days
+
+      # Active subscription
+      - from: Active
+        to: Active
+        event: PAYMENT_SUCCESS
+        type: internal
+        triggeredMethod: extendSubscription
+
+      - from: Active
+        to: Active
+        event: PLAN_CHANGED
+        type: internal
+        triggeredMethod: handlePlanChange
+
+      - from: Active
+        to: PastDue
+        event: PAYMENT_FAILED
+        triggeredMethod: scheduleRetryPayment
+
+      - from: Active
+        to: Cancelled
+        event: CANCEL
+        triggeredMethod: calculateEndDate
+
+      # Past due (grace period)
+      - from: PastDue
+        to: Active
+        event: PAYMENT_SUCCESS
+        triggeredMethod: clearPastDueStatus
+
+      - from: PastDue
+        to: PastDue
+        event: PAYMENT_FAILED
+        type: internal
+        triggeredMethod: scheduleRetryPayment
+        guard:
+          expression: "context.retryCount < 3"
+
+      - from: PastDue
+        to: Suspended
+        event: PAYMENT_FAILED
+        guard:
+          expression: "context.retryCount >= 3"
+
+      - from: PastDue
+        to: Suspended
+        event: GRACE_PERIOD_ENDED
+        type: timeout
+        timeoutMs: 1209600000  # 14 days grace period
+
+      - from: PastDue
+        to: Cancelled
+        event: CANCEL
+
+      # Suspended
+      - from: Suspended
+        to: Active
+        event: PAYMENT_SUCCESS
+        triggeredMethod: reactivateService
+
+      - from: Suspended
+        to: Churned
+        event: SUSPENSION_TIMEOUT
+        type: timeout
+        timeoutMs: 2592000000  # 30 days
+
+      - from: Suspended
+        to: Cancelled
+        event: CANCEL
+
+      # Cancelled (access until period end)
+      - from: Cancelled
+        to: Expired
+        event: PERIOD_ENDED
+        description: "Triggered when current billing period ends"
+
+      - from: Cancelled
+        to: Active
+        event: REACTIVATE
+        triggeredMethod: resumeSubscription
+
+  # Billing processor (handles recurring payments)
+  - name: BillingCycle
+    initialState: Scheduled
+    publicMemberType: Invoice
+
+    contextSchema:
+      invoiceId:
+        type: string
+        label: "Invoice ID"
+        required: true
+      subscriptionId:
+        type: string
+        label: "Subscription ID"
+        required: true
+      amount:
+        type: number
+        label: "Amount"
+        required: true
+
+    states:
+      - name: Scheduled
+        type: entry
+        description: "Invoice scheduled for future date"
+
+      - name: Pending
+        description: "Invoice due, awaiting payment"
+        onEntry: chargePaymentMethod
+
+      - name: Processing
+        description: "Payment being processed"
+
+      - name: Paid
+        type: final
+        description: "Invoice paid successfully"
+        onEntry: notifySubscriptionPaymentSuccess
+
+      - name: Failed
+        description: "Payment failed"
+        onEntry: notifySubscriptionPaymentFailed
+
+      - name: Voided
+        type: final
+        description: "Invoice cancelled/voided"
+
+    transitions:
+      - from: Scheduled
+        to: Pending
+        event: DUE_DATE_REACHED
+        type: timeout
+        timeoutMs: 2592000000  # Configurable billing date
+
+      - from: Pending
+        to: Processing
+        event: CHARGE_INITIATED
+
+      - from: Processing
+        to: Paid
+        event: CHARGE_SUCCESS
+
+      - from: Processing
+        to: Failed
+        event: CHARGE_FAILED
+
+      - from: Failed
+        to: Processing
+        event: RETRY_CHARGE
+        guard:
+          expression: "context.attempts < 3"
+
+      - from: Failed
+        to: Voided
+        event: MAX_RETRIES_REACHED
+
+      - from: Scheduled
+        to: Voided
+        event: SUBSCRIPTION_CANCELLED
+
+      - from: Pending
+        to: Voided
+        event: SUBSCRIPTION_CANCELLED

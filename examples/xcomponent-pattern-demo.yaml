@@ -1,0 +1,218 @@
+# XComponent Pattern Demo
+# Demonstrates the XComponent pattern with:
+# - Entry point machine (OrderManager) that persists
+# - Inter-machine transitions that create new instances
+# - Auto-deallocation of completed instances (except entry point)
+# - Component-level orchestration
+
+name: OrderProcessingXComponent
+version: 1.0.0
+metadata:
+  description: XComponent pattern demo - orchestration of multiple state machines
+  domain: fintech
+
+# Entry point - automatically created when component starts
+entryMachine: OrderManager
+
+# Optional layout configuration for dashboard visualization
+layout:
+  algorithm: grid  # auto-layout algorithm: grid, force, hierarchical
+  # machines:  # manual positioning (overrides algorithm)
+  #   OrderManager: { x: 100, y: 100 }
+  #   OrderExecution: { x: 400, y: 100 }
+  #   Settlement: { x: 700, y: 100 }
+
+stateMachines:
+  # Entry Point: OrderManager
+  # This machine is created automatically and persists even in final state
+  # It orchestrates the creation of other machines via inter_machine transitions
+  - name: OrderManager
+    initialState: Ready
+    metadata:
+      description: Entry point - orchestrates order processing lifecycle
+
+    states:
+      - name: Ready
+        type: entry
+        metadata:
+          description: Ready to receive new orders
+
+      - name: OrderReceived
+        type: regular
+        metadata:
+          description: Order received, creating execution instance
+
+      - name: Processing
+        type: regular
+        metadata:
+          description: Order being processed
+
+      - name: Completed
+        type: final
+        metadata:
+          description: All orders completed (stays alive as entry point)
+
+    transitions:
+      # Receive new order - normal transition
+      - from: Ready
+        to: OrderReceived
+        event: NEW_ORDER
+        type: triggerable
+
+      # Create OrderExecution instance via inter_machine transition
+      - from: OrderReceived
+        to: Processing
+        event: START_EXECUTION
+        type: inter_machine
+        targetMachine: OrderExecution
+        metadata:
+          description: Creates new OrderExecution instance
+
+      # Back to ready for next order
+      - from: Processing
+        to: Ready
+        event: EXECUTION_COMPLETE
+        type: triggerable
+
+      # Shutdown entry point (but instance persists)
+      - from: Ready
+        to: Completed
+        event: SHUTDOWN
+        type: triggerable
+
+  # OrderExecution: Created dynamically by OrderManager
+  # Handles the execution of a single order
+  # Auto-deallocated when it reaches final state
+  - name: OrderExecution
+    initialState: Created
+    metadata:
+      description: Handles execution of a single order (auto-deallocated when complete)
+
+    contextSchema:
+      orderId:
+        type: text
+        required: true
+      symbol:
+        type: text
+        required: true
+      quantity:
+        type: number
+        required: true
+      executedQuantity:
+        type: number
+        default: 0
+
+    states:
+      - name: Created
+        type: entry
+        metadata:
+          description: Execution instance created
+
+      - name: Validating
+        type: regular
+        metadata:
+          description: Validating order parameters
+
+      - name: Executing
+        type: regular
+        metadata:
+          description: Executing on market
+
+      - name: Executed
+        type: regular
+        metadata:
+          description: Order executed, starting settlement
+
+      - name: Settled
+        type: final
+        metadata:
+          description: Order settled and complete (instance auto-deallocated)
+
+      - name: Failed
+        type: error
+        metadata:
+          description: Execution failed (instance auto-deallocated)
+
+    transitions:
+      - from: Created
+        to: Validating
+        event: VALIDATE
+        type: triggerable
+
+      - from: Validating
+        to: Executing
+        event: VALIDATION_OK
+        type: triggerable
+
+      - from: Validating
+        to: Failed
+        event: VALIDATION_FAILED
+        type: triggerable
+
+      - from: Executing
+        to: Executed
+        event: EXECUTION_OK
+        type: triggerable
+
+      - from: Executing
+        to: Failed
+        event: EXECUTION_FAILED
+        type: triggerable
+
+      # Create Settlement instance via inter_machine transition
+      - from: Executed
+        to: Settled
+        event: START_SETTLEMENT
+        type: inter_machine
+        targetMachine: Settlement
+        metadata:
+          description: Creates Settlement instance and completes execution
+
+  # Settlement: Created dynamically by OrderExecution
+  # Handles settlement process
+  # Auto-deallocated when complete
+  - name: Settlement
+    initialState: Pending
+    metadata:
+      description: Handles settlement (auto-deallocated when complete)
+
+    contextSchema:
+      orderId:
+        type: text
+        required: true
+      amount:
+        type: number
+        required: true
+
+    states:
+      - name: Pending
+        type: entry
+        metadata:
+          description: Settlement pending
+
+      - name: Confirmed
+        type: final
+        metadata:
+          description: Settlement confirmed (instance auto-deallocated)
+
+      - name: Failed
+        type: error
+        metadata:
+          description: Settlement failed (instance auto-deallocated)
+
+    transitions:
+      - from: Pending
+        to: Confirmed
+        event: SETTLEMENT_CONFIRMED
+        type: triggerable
+
+      - from: Pending
+        to: Failed
+        event: SETTLEMENT_FAILED
+        type: triggerable
+
+      - from: Pending
+        to: Failed
+        event: TIMEOUT
+        type: timeout
+        timeoutMs: 30000

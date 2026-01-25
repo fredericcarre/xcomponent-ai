@@ -638,7 +638,8 @@
     </div>
     
     <div class="tabs">
-      <div class="tab active" onclick="switchTab('diagram')">🎨 FSM Diagram</div>
+      <div class="tab active" onclick="switchTab('component')">🏗️ Component View</div>
+      <div class="tab" onclick="switchTab('diagram')">🎨 FSM Diagram</div>
       <div class="tab" onclick="switchTab('overview')">📋 Instances</div>
       <div class="tab" onclick="switchTab('blotter')">📊 Event Blotter</div>
       <div class="tab" onclick="switchTab('traceability')">🔍 Traceability</div>
@@ -661,8 +662,25 @@
         </div>
       </div>
     </div>
-    
-    <div class="tab-content active" id="tab-diagram">
+
+    <div class="tab-content active" id="tab-component">
+      <div class="card" style="margin-bottom: 20px;">
+        <h2>🏗️ Component Overview: <span id="component-overview-name"></span></h2>
+        <div style="color: rgba(255,255,255,0.7); margin-top: 10px;">
+          This view shows all state machines in the component and their inter-machine transitions.
+          Click on a machine to see details. Click on a transition (green arrow) to execute it.
+        </div>
+      </div>
+
+      <div id="component-graph-container" style="position: relative; min-height: 600px; background: rgba(0,0,0,0.3); border-radius: 12px; padding: 20px; overflow: auto;">
+        <div class="empty-state">
+          <div class="empty-state-icon">🏗️</div>
+          <div>Loading component...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-diagram">
       <div class="grid-2">
         <div>
           <div class="form-group">
@@ -768,6 +786,7 @@
         selectedComponentName = componentsData[0].name;
         document.getElementById('component-name').textContent = `${componentsData.length} component(s) loaded`;
         populateSelectors();
+        renderComponentView(); // Render component overview
       }
     });
     
@@ -810,6 +829,7 @@
       updateStats();
       renderInstances();
       updateTraceSelector();
+      renderComponentView(); // Update component view with instance counts
 
       // Update diagram instances list if a machine is selected
       const selectedMachine = document.getElementById('diagram-machine')?.value;
@@ -1075,7 +1095,164 @@
         instances.map(i => `<option value="${i.id}">${i.id.substring(0, 8)} - ${i.machineName}</option>`).join('');
     }
     
-    
+
+    // Component View - show all state machines with their connections
+    function renderComponentView() {
+      const component = getCurrentComponent();
+      if (!component) {
+        document.getElementById('component-graph-container').innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏗️</div><div>No component loaded</div></div>';
+        return;
+      }
+
+      document.getElementById('component-overview-name').textContent = component.name;
+
+      // Find all inter-machine transitions
+      const interMachineLinks = [];
+      component.stateMachines.forEach(machine => {
+        machine.transitions.forEach(transition => {
+          if (transition.type === 'inter_machine' && transition.targetMachine) {
+            interMachineLinks.push({
+              from: machine.name,
+              to: transition.targetMachine,
+              event: transition.event,
+              fromState: transition.from
+            });
+          }
+        });
+      });
+
+      // Simple grid layout
+      const machinesPerRow = Math.ceil(Math.sqrt(component.stateMachines.length));
+      const machineWidth = 200;
+      const machineHeight = 150;
+      const spacing = 100;
+
+      let html = '<svg width="100%" height="800" style="position: absolute; top: 0; left: 0; pointer-events: none;">';
+
+      // Draw connections first (behind machines)
+      component.stateMachines.forEach((machine, idx) => {
+        const row = Math.floor(idx / machinesPerRow);
+        const col = idx % machinesPerRow;
+        const x1 = col * (machineWidth + spacing) + machineWidth / 2 + 20;
+        const y1 = row * (machineHeight + spacing) + machineHeight / 2 + 20;
+
+        // Find outgoing inter-machine transitions
+        interMachineLinks.forEach(link => {
+          if (link.from === machine.name) {
+            const targetIdx = component.stateMachines.findIndex(m => m.name === link.to);
+            if (targetIdx >= 0) {
+              const targetRow = Math.floor(targetIdx / machinesPerRow);
+              const targetCol = targetIdx % machinesPerRow;
+              const x2 = targetCol * (machineWidth + spacing) + machineWidth / 2 + 20;
+              const y2 = targetRow * (machineHeight + spacing) + machineHeight / 2 + 20;
+
+              // Draw arrow (green for inter-machine transitions)
+              html += `
+                <defs>
+                  <marker id="arrowhead-${idx}-${targetIdx}" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                    <polygon points="0 0, 10 3, 0 6" fill="#10b981" />
+                  </marker>
+                </defs>
+                <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+                      stroke="#10b981" stroke-width="3"
+                      marker-end="url(#arrowhead-${idx}-${targetIdx})"
+                      style="pointer-events: auto; cursor: pointer;"
+                      onclick="triggerInterMachineTransition('${link.from}', '${link.to}', '${link.event}', '${link.fromState}')"
+                      title="${link.from}.${link.fromState} -> ${link.to} (${link.event})">
+                  <title>${link.from}.${link.fromState} -> ${link.to} (${link.event})</title>
+                </line>
+                <text x="${(x1+x2)/2}" y="${(y1+y2)/2 - 10}" fill="#10b981" font-size="12" text-anchor="middle" style="pointer-events: none;">
+                  ${link.event}
+                </text>
+              `;
+            }
+          }
+        });
+      });
+
+      html += '</svg>';
+
+      // Draw machines
+      component.stateMachines.forEach((machine, idx) => {
+        const row = Math.floor(idx / machinesPerRow);
+        const col = idx % machinesPerRow;
+        const x = col * (machineWidth + spacing);
+        const y = row * (machineHeight + spacing);
+
+        // Count instances for this machine
+        const instanceCount = instances.filter(i => i.machineName === machine.name).length;
+        const isEntryPoint = component.entryMachine === machine.name;
+
+        html += `
+          <div class="card" style="position: absolute; left: ${x}px; top: ${y}px; width: ${machineWidth}px; cursor: pointer; border: 2px solid ${isEntryPoint ? '#fbbf24' : 'rgba(255,255,255,0.2)'};"
+               onclick="switchTab('diagram'); document.getElementById('diagram-machine').value='${machine.name}'; renderDiagram();">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h3 style="font-size: 14px; color: white; margin: 0;">
+                ${isEntryPoint ? '⭐ ' : ''}${machine.name}
+              </h3>
+              <span class="badge active" style="font-size: 11px;">${instanceCount}</span>
+            </div>
+            <div style="font-size: 11px; color: rgba(255,255,255,0.6);">
+              ${machine.states.length} states, ${machine.transitions.length} transitions
+            </div>
+            <div style="font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 8px;">
+              Initial: ${machine.initialState}
+            </div>
+            ${isEntryPoint ? '<div style="font-size: 10px; color: #fbbf24; margin-top: 5px;">⭐ Entry Point</div>' : ''}
+          </div>
+        `;
+      });
+
+      document.getElementById('component-graph-container').innerHTML = html;
+    }
+
+    // Trigger inter-machine transition
+    async function triggerInterMachineTransition(fromMachine, toMachine, event, fromState) {
+      const component = getCurrentComponent();
+      if (!component) return;
+
+      // Find instances of fromMachine in fromState
+      const candidates = instances.filter(i =>
+        i.machineName === fromMachine &&
+        i.currentState === fromState
+      );
+
+      if (candidates.length === 0) {
+        alert(`No instances of ${fromMachine} in state ${fromState} to trigger this transition`);
+        return;
+      }
+
+      // If multiple candidates, show selection
+      let instanceId;
+      if (candidates.length === 1) {
+        instanceId = candidates[0].id;
+      } else {
+        const selection = prompt(
+          `Multiple instances found. Enter instance ID (first few characters):\n\n` +
+          candidates.map(c => `${c.id.substring(0, 8)} - ${c.currentState}`).join('\n')
+        );
+        if (!selection) return;
+        instanceId = candidates.find(c => c.id.startsWith(selection))?.id;
+        if (!instanceId) {
+          alert('Instance not found');
+          return;
+        }
+      }
+
+      // Send event to trigger the transition
+      await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          type: event,
+          payload: {}
+        })
+      });
+
+      // Reload to show new instance
+      setTimeout(() => loadInstances(), 500);
+    }
+
     function populateSelectors() {
       if (!componentsData || componentsData.length === 0) return;
 

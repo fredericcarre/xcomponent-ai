@@ -140,6 +140,31 @@ export class ComponentRegistry extends EventEmitter {
       version: component.version,
       machineCount: component.stateMachines.length,
     });
+
+    // Auto-create entry point instance if specified
+    if (component.entryMachine) {
+      const entryMachineExists = component.stateMachines.some(
+        m => m.name === component.entryMachine
+      );
+      if (!entryMachineExists) {
+        throw new Error(
+          `Entry machine "${component.entryMachine}" not found in component ${component.name}`
+        );
+      }
+
+      // Create entry point instance with empty context
+      const entryInstanceId = runtime.createInstance(component.entryMachine, {});
+      const instance = runtime['instances'].get(entryInstanceId);
+      if (instance) {
+        instance.isEntryPoint = true; // Mark as entry point (won't be auto-deallocated)
+      }
+
+      this.emit('entry_point_created', {
+        componentName: component.name,
+        machineName: component.entryMachine,
+        instanceId: entryInstanceId,
+      });
+    }
   }
 
   /**

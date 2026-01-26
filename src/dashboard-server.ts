@@ -53,6 +53,7 @@ export const DashboardChannels = {
   // Commands to runtimes
   TRIGGER_EVENT: 'fsm:commands:trigger_event',
   CREATE_INSTANCE: 'fsm:commands:create_instance',
+  CROSS_COMPONENT_EVENT: 'fsm:commands:cross_component_event',
   QUERY_INSTANCES: 'fsm:commands:query_instances',
 
   // Query responses from runtimes

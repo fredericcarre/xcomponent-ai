@@ -193,20 +193,33 @@ export class RuntimeBroadcaster {
       }
     });
 
-    // Cross-component transition (creates instance in another component via RabbitMQ)
+    // Cross-component transition
     this.runtime.on('cross_component_transition', async (data) => {
       console.log(`[RuntimeBroadcaster] Cross-component transition: ${data.sourceComponent} -> ${data.targetComponent}`);
 
-      // Send CREATE_INSTANCE command to target component via message broker
-      await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
-        componentName: data.targetComponent,
-        machineName: data.targetMachine,
-        context: data.context,
-        sourceComponent: data.sourceComponent,
-        sourceInstanceId: data.sourceInstanceId,
-        event: data.targetEvent ? { type: data.targetEvent, payload: data.context } : undefined,
-        timestamp: Date.now()
-      } as any);
+      if (data.targetEvent) {
+        // Send event to existing instances (e.g., Payment.COMPLETE -> Order.PAYMENT_CONFIRMED)
+        // Uses CROSS_COMPONENT_EVENT to broadcast to matching instances
+        await this.broker.publish(DashboardChannels.CROSS_COMPONENT_EVENT, {
+          targetComponent: data.targetComponent,
+          targetMachine: data.targetMachine,
+          event: { type: data.targetEvent, payload: data.context, timestamp: Date.now() },
+          matchContext: data.context, // For property matching (e.g., orderId)
+          sourceComponent: data.sourceComponent,
+          sourceInstanceId: data.sourceInstanceId,
+          timestamp: Date.now()
+        } as any);
+      } else {
+        // Create new instance in target component (e.g., Order.SUBMIT -> creates Payment)
+        await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
+          componentName: data.targetComponent,
+          machineName: data.targetMachine,
+          context: data.context,
+          sourceComponent: data.sourceComponent,
+          sourceInstanceId: data.sourceInstanceId,
+          timestamp: Date.now()
+        } as any);
+      }
     });
   }
 
@@ -271,6 +284,49 @@ export class RuntimeBroadcaster {
         instances,
         timestamp: Date.now()
       } as any);
+    });
+
+    // Cross-component event command (send event to existing instances)
+    await this.broker.subscribe(DashboardChannels.CROSS_COMPONENT_EVENT, async (msg: any) => {
+      if (msg.targetComponent === this.component.name) {
+        try {
+          // Find matching instances by context properties
+          const allInstances = this.runtime.getAllInstances();
+          const matchingInstances = allInstances.filter(inst => {
+            // If targetMachine is specified, filter by machine
+            if (msg.targetMachine && inst.machineName !== msg.targetMachine) {
+              return false;
+            }
+            // Match by context properties (e.g., orderId)
+            if (msg.matchContext) {
+              const context = inst.context || inst.publicMember || {};
+              for (const [key, value] of Object.entries(msg.matchContext)) {
+                if (context[key] !== value) {
+                  return false;
+                }
+              }
+            }
+            return true;
+          });
+
+          if (matchingInstances.length === 0) {
+            console.log(`[RuntimeBroadcaster] No matching instances for cross-component event ${msg.event.type}`);
+            return;
+          }
+
+          // Send event to all matching instances
+          for (const inst of matchingInstances) {
+            try {
+              await this.runtime.sendEvent(inst.id, msg.event);
+              console.log(`[RuntimeBroadcaster] Sent cross-component event ${msg.event.type} to ${inst.id}`);
+            } catch (error: any) {
+              console.error(`[RuntimeBroadcaster] Failed to send event to ${inst.id}:`, error.message);
+            }
+          }
+        } catch (error: any) {
+          console.error(`[RuntimeBroadcaster] Failed to handle cross-component event:`, error.message);
+        }
+      }
     });
   }
 

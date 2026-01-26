@@ -1003,8 +1003,9 @@
 
       // Check if there's no active instance (no current state)
       const hasActiveInstance = currentState && currentState.length > 0;
-      const grayOpacity = hasActiveInstance ? '0.35' : '0.25';  // More faded if no instance
-      const grayStroke = hasActiveInstance ? '#444' : '#333';
+      const grayOpacity = hasActiveInstance ? '0.5' : '0.4';  // Keep readable even when grayed
+      const grayStroke = hasActiveInstance ? '#555' : '#444';
+      const grayTextColor = hasActiveInstance ? '#888' : '#777';  // Lighter text for visibility
 
       // STEP 1: Gray out EVERYTHING first (states, transitions, labels)
       // This ensures all Mermaid native colors are overridden
@@ -1016,13 +1017,13 @@
       });
       // Gray out all text elements (including in foreignObject)
       svg.querySelectorAll('text, tspan').forEach(text => {
-        text.style.setProperty('fill', '#555', 'important');
-        text.style.setProperty('opacity', grayOpacity, 'important');
+        text.style.setProperty('fill', grayTextColor, 'important');
+        text.style.setProperty('opacity', '1', 'important');  // Keep text fully opaque for readability
       });
       // Gray out foreignObject content (Mermaid uses these for edge labels)
       svg.querySelectorAll('foreignObject span, foreignObject div, .edgeLabel span, .edgeLabel div').forEach(el => {
-        el.style.setProperty('color', '#555', 'important');
-        el.style.setProperty('opacity', grayOpacity, 'important');
+        el.style.setProperty('color', grayTextColor, 'important');
+        el.style.setProperty('opacity', '1', 'important');  // Keep text fully opaque for readability
       });
       // Gray out paths/lines (transitions) - keep them visible but dimmed
       svg.querySelectorAll('path, line').forEach(path => {
@@ -1739,10 +1740,11 @@
 
           machineStateInfo.forEach(info => {
             const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
-            if (card && info.currentState) {
-              console.log(`Applying styles for ${info.machineName}: state=${info.currentState}, timeouts=`, info.pendingTimeouts);
-              const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
-              applyStateStyles(card, info.currentState, reachableStates, info.pendingTimeouts, info.transitions);
+            if (card) {
+              // Always apply styles - will gray out completely if no currentState (no instance)
+              console.log(`Applying styles for ${info.machineName}: state=${info.currentState || 'NONE'}, timeouts=`, info.pendingTimeouts);
+              const reachableStates = info.currentState ? computeReachableStatesJS(info.transitions, info.currentState) : new Set();
+              applyStateStyles(card, info.currentState || null, reachableStates, info.pendingTimeouts || [], info.transitions || []);
             }
           });
 

@@ -17,8 +17,8 @@ COPY public ./public
 # Build TypeScript
 RUN npm run build 2>/dev/null || npx tsc
 
-# Remove dev dependencies after build
-RUN npm prune --omit=dev
+# Prune dev deps but keep amqplib needed for distributed mode
+RUN npm prune --omit=dev && npm install --no-save amqplib
 
 # Expose dashboard port
 EXPOSE 3000

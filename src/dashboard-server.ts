@@ -108,6 +108,11 @@ export class DashboardServer {
     // Serve static files
     const publicPath = path.join(__dirname, '..', 'public');
     this.app.use(express.static(publicPath));
+
+    // Serve dashboard.html as index
+    this.app.get('/', (_req, res) => {
+      res.sendFile(path.join(publicPath, 'dashboard.html'));
+    });
   }
 
   private setupRoutes(): void {

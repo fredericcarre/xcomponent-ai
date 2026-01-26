@@ -891,9 +891,10 @@
     });
 
     socket.on('state_change', (data) => {
+      console.log('state_change event received:', data);
       // Force refresh instances and re-render
       loadInstances().then(() => {
-        // Also refresh diagram and transitions if the selected instance changed state
+        // Refresh diagram and transitions if the selected instance changed state
         if (selectedInstanceId && data.instanceId === selectedInstanceId) {
           renderMachineDiagram();
           loadTransitionsForInstance(selectedInstanceId);
@@ -1000,6 +1001,7 @@
             if (pendingTimeouts.length > 0) {
               const timeout = pendingTimeouts[0]; // Show first timeout
               const bbox = shape.getBBox ? shape.getBBox() : { x: 0, y: 0, width: 100, height: 40 };
+              console.log(`Adding timeout badge for ${stateName}:`, { timeout, bbox });
 
               // Create countdown group
               const countdownGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1617,9 +1619,12 @@
           // Clear any existing state countdowns before re-applying
           clearStateCountdowns();
 
+          console.log('Applying state styles, machineStateInfo:', machineStateInfo);
+
           machineStateInfo.forEach(info => {
             const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
             if (card && info.currentState) {
+              console.log(`Applying styles for ${info.machineName}: state=${info.currentState}, timeouts=`, info.pendingTimeouts);
               const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
               applyStateStyles(card, info.currentState, reachableStates, info.pendingTimeouts);
             }
@@ -1629,7 +1634,7 @@
           if (interMachineLinks.length > 0) {
             drawInterMachineArrows(container, interMachineLinks, machineInitialStates);
           }
-        }, 200);
+        }, 300);
 
       } else {
         // Cards mode: Use Mermaid flowchart to show inter-machine connections

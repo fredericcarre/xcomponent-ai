@@ -268,15 +268,22 @@ export class DashboardServer {
     });
 
     // Trigger event on specific component instance
+    // Accepts both { event: 'NAME' } and { type: 'NAME', payload: {} } formats
     this.app.post('/api/components/:componentName/instances/:instanceId/events', async (req, res) => {
       const { componentName, instanceId } = req.params;
-      const { type, payload } = req.body;
+      const { type, event, payload } = req.body;
+      const eventType = type || event; // Support both formats
+
+      if (!eventType) {
+        res.status(400).json({ error: 'Missing event type. Send { event: "NAME" } or { type: "NAME" }' });
+        return;
+      }
 
       try {
         await this.broker.publish(DashboardChannels.TRIGGER_EVENT, {
           componentName,
           instanceId,
-          event: { type, payload: payload || {}, timestamp: Date.now() }
+          event: { type: eventType, payload: payload || {}, timestamp: Date.now() }
         });
 
         res.json({ success: true, message: 'Event sent to runtime' });
@@ -376,7 +383,7 @@ export class DashboardServer {
 
   private updateInstanceCache(componentName: string, data: any): void {
     const instances = this.instanceCache.get(componentName) || [];
-    const idx = instances.findIndex((i: any) => i.id === data.instanceId);
+    const idx = instances.findIndex((i: any) => i.instanceId === data.instanceId || i.id === data.instanceId);
     if (idx >= 0) {
       instances[idx] = { ...instances[idx], currentState: data.newState, context: data.context };
     }
@@ -386,7 +393,8 @@ export class DashboardServer {
   private addToInstanceCache(componentName: string, data: any): void {
     const instances = this.instanceCache.get(componentName) || [];
     instances.push({
-      id: data.instanceId,
+      instanceId: data.instanceId,
+      id: data.instanceId, // Alias for compatibility
       machineName: data.machineName,
       currentState: data.currentState,
       context: data.context || {}

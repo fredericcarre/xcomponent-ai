@@ -125,9 +125,6 @@ export function generateStyledMermaidDiagram(
   // Detect terminal states automatically
   const terminalStates = detectTerminalStates(machine);
 
-  // Detect inter-machine transitions for link styling
-  const interMachineTransitions = detectInterMachineTransitions(machine);
-
   // Collect state styles
   const stateStyles: string[] = [];
   machine.states.forEach(state => {
@@ -168,21 +165,16 @@ export function generateStyledMermaidDiagram(
     styleLines.push(`    classDef errorState fill:#ef4444,stroke:#dc2626,stroke-width:3px,color:#fff`);
   }
 
-  // Add link styles for inter-machine transitions (green arrows)
-  const linkStyles: string[] = [];
-  interMachineTransitions.forEach(t => {
-    linkStyles.push(`    linkStyle ${t.index} stroke:#10b981`);
-  });
+  // Note: linkStyle doesn't work well in stateDiagram-v2 with our setup
+  // Inter-machine transitions are indicated in the label with [→TargetMachine]
+  // No need for additional styling
 
-  // Combine: base diagram + class definitions + state class applications + link styles
+  // Combine: base diagram + class definitions + state class applications
   let result = baseDiagram;
-  if (styleLines.length > 0 || stateStyles.length > 0 || linkStyles.length > 0) {
+  if (styleLines.length > 0 || stateStyles.length > 0) {
     result += '\n\n' + styleLines.join('\n');
     if (stateStyles.length > 0) {
       result += '\n' + stateStyles.join('\n');
-    }
-    if (linkStyles.length > 0) {
-      result += '\n' + linkStyles.join('\n');
     }
   }
 

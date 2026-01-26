@@ -728,8 +728,8 @@
         <div class="overview-header">
           <div class="overview-title" id="overview-title">Component Overview</div>
           <div class="overview-controls">
-            <button class="view-mode-btn active" id="btn-cards" onclick="setOverviewMode('cards')">📊 Cards</button>
-            <button class="view-mode-btn" id="btn-diagrams" onclick="setOverviewMode('diagrams')">📈 Diagrams</button>
+            <button class="view-mode-btn" id="btn-cards" onclick="setOverviewMode('cards')">📊 Cards</button>
+            <button class="view-mode-btn active" id="btn-diagrams" onclick="setOverviewMode('diagrams')">📈 Diagrams</button>
             <div class="overview-legend">
               <div class="legend-item">
                 <div class="legend-box entry"></div>
@@ -810,7 +810,7 @@
     let selectedInstanceId = null;
     let allInstances = [];
     let currentTransitions = [];
-    let overviewMode = 'cards'; // 'cards' or 'diagrams'
+    let overviewMode = 'diagrams'; // 'cards' or 'diagrams' - default to diagrams
 
     // Socket.IO connection
     socket = io();
@@ -830,6 +830,7 @@
       if (componentsData.length > 0 && !selectedComponentName) {
         selectedComponentName = componentsData[0].name;
         populateComponentSelector();
+        loadInstances();  // Load instances after component is selected
         renderComponentOverview();
       }
     });
@@ -842,8 +843,13 @@
       loadInstances();
     });
 
-    socket.on('state_change', () => {
+    socket.on('state_change', (data) => {
       loadInstances();
+
+      // Refresh diagram if the selected instance changed state
+      if (selectedInstanceId && data.instanceId === selectedInstanceId) {
+        renderMachineDiagram();
+      }
     });
 
     // Component selector
@@ -1078,12 +1084,29 @@
       }));
 
       try {
-        const res = await fetch(`/api/machines/${selectedMachineName}/diagram`);
+        // Add instanceId to URL if an instance is selected
+        let url = `/api/machines/${selectedMachineName}/diagram`;
+        if (selectedInstanceId) {
+          url += `?instanceId=${selectedInstanceId}`;
+        }
+
+        const res = await fetch(url);
         const data = await res.json();
 
         const container = document.getElementById('diagram-container');
         container.innerHTML = '<div class="mermaid">' + data.diagram + '</div>';
         await mermaid.run({ querySelector: '#diagram-container .mermaid' });
+
+        // Show current state badge if available
+        if (data.currentState) {
+          const instance = allInstances.find(i => i.id === selectedInstanceId);
+          if (instance) {
+            const badge = `<div style="margin-top: 12px; padding: 8px 12px; background: #3b82f6; border-radius: 8px; color: #fff; font-size: 13px; font-weight: 600; text-align: center;">
+              Current State: ${data.currentState}
+            </div>`;
+            container.innerHTML += badge;
+          }
+        }
       } catch (error) {
         console.error('Error rendering diagram:', error);
         document.getElementById('diagram-container').innerHTML = `
@@ -1167,6 +1190,9 @@
       if (instance && instance.machineName !== selectedMachineName) {
         // Switch to the machine view if not already there
         selectMachine(instance.machineName);
+      } else {
+        // Refresh diagram to highlight current state
+        renderMachineDiagram();
       }
 
       renderInstanceList();
@@ -1254,8 +1280,7 @@
       }, 3000);
     }
 
-    // Initialize
-    loadInstances();
+    // Initialize - instances will be loaded after components_list is received
   </script>
 </body>
 </html>

@@ -346,7 +346,14 @@ export class APIServer {
           const runtime = this.registry.getRuntime(componentName);
           if (runtime) {
             const componentInstances = runtime.getAllInstances();
-            instances.push(...componentInstances);
+            // Add timeout info to each instance
+            componentInstances.forEach(inst => {
+              const pendingTimeouts = runtime.getPendingTimeouts(inst.id);
+              instances.push({
+                ...inst,
+                pendingTimeouts
+              });
+            });
           }
         });
 

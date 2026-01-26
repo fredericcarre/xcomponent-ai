@@ -263,12 +263,30 @@ export interface Transition {
    */
   specificTriggeringRule?: string;
   /**
+   * Guard condition for conditional transitions
+   * When multiple transitions from same state use same event,
+   * guards determine which transition fires
+   */
+  guard?: TransitionGuard;
+  /**
    * Notify parent instance when this transition is executed
    * Allows child state machines to communicate state changes back to parent
    */
   notifyParent?: NotifyParent;
   /** Metadata */
   metadata?: Record<string, any>;
+}
+
+/**
+ * Guard condition for conditional transitions
+ */
+export interface TransitionGuard {
+  /**
+   * JavaScript expression evaluated with (context, event)
+   * Must return boolean
+   * Example: "context.amount > 5000"
+   */
+  expression: string;
 }
 
 /**

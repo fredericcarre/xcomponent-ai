@@ -670,6 +670,12 @@
     ::-webkit-scrollbar-thumb:hover {
       background: var(--glass-bg);
     }
+
+    /* Pulse animation for urgent countdowns */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
   </style>
 </head>
 <body>
@@ -1000,6 +1006,167 @@
       }
     }
 
+    // Draw inter-machine arrows between state machine cards
+    function drawInterMachineArrows(container, links) {
+      const svg = container.querySelector('#inter-machine-arrows');
+      if (!svg) return;
+
+      // Clear existing arrows
+      svg.innerHTML = '';
+
+      // Get container position for offset calculations
+      const containerRect = container.getBoundingClientRect();
+      const scrollLeft = container.scrollLeft;
+      const scrollTop = container.scrollTop;
+
+      // Build arrow definitions
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = `
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" />
+        </marker>
+        <filter id="arrow-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      `;
+      svg.appendChild(defs);
+
+      // Group arrows by source-target pair to handle multiple arrows
+      const arrowGroups = {};
+      links.forEach(link => {
+        const key = `${link.fromMachine}-${link.to}`;
+        if (!arrowGroups[key]) {
+          arrowGroups[key] = { from: link.fromMachine, to: link.to, events: [] };
+        }
+        arrowGroups[key].events.push(link.event);
+      });
+
+      // Draw arrows for each unique connection
+      Object.values(arrowGroups).forEach((group, groupIndex) => {
+        const fromCard = container.querySelector(`.diagram-card[data-machine="${group.from}"]`);
+        const toCard = container.querySelector(`.diagram-card[data-machine="${group.to}"]`);
+
+        if (!fromCard || !toCard) return;
+
+        const fromRect = fromCard.getBoundingClientRect();
+        const toRect = toCard.getBoundingClientRect();
+
+        // Calculate positions relative to container
+        const fromX = fromRect.left - containerRect.left + scrollLeft;
+        const fromY = fromRect.top - containerRect.top + scrollTop;
+        const fromWidth = fromRect.width;
+        const fromHeight = fromRect.height;
+
+        const toX = toRect.left - containerRect.left + scrollLeft;
+        const toY = toRect.top - containerRect.top + scrollTop;
+        const toWidth = toRect.width;
+        const toHeight = toRect.height;
+
+        // Determine the best connection points based on relative positions
+        let startX, startY, endX, endY, cpX1, cpY1, cpX2, cpY2;
+
+        // Check if cards are side by side or stacked
+        const horizontalDistance = Math.abs((fromX + fromWidth/2) - (toX + toWidth/2));
+        const verticalDistance = Math.abs((fromY + fromHeight/2) - (toY + toHeight/2));
+
+        if (horizontalDistance > verticalDistance) {
+          // Cards are more horizontally separated - draw horizontal arrow
+          if (fromX < toX) {
+            // From is on the left
+            startX = fromX + fromWidth;
+            startY = fromY + fromHeight / 2;
+            endX = toX;
+            endY = toY + toHeight / 2;
+          } else {
+            // From is on the right
+            startX = fromX;
+            startY = fromY + fromHeight / 2;
+            endX = toX + toWidth;
+            endY = toY + toHeight / 2;
+          }
+          // Control points for horizontal curve
+          const midX = (startX + endX) / 2;
+          cpX1 = midX;
+          cpY1 = startY;
+          cpX2 = midX;
+          cpY2 = endY;
+        } else {
+          // Cards are more vertically separated - draw vertical arrow
+          if (fromY < toY) {
+            // From is above
+            startX = fromX + fromWidth / 2;
+            startY = fromY + fromHeight;
+            endX = toX + toWidth / 2;
+            endY = toY;
+          } else {
+            // From is below
+            startX = fromX + fromWidth / 2;
+            startY = fromY;
+            endX = toX + toWidth / 2;
+            endY = toY + toHeight;
+          }
+          // Control points for vertical curve
+          const midY = (startY + endY) / 2;
+          cpX1 = startX;
+          cpY1 = midY;
+          cpX2 = endX;
+          cpY2 = midY;
+        }
+
+        // Create the curved path
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const d = `M ${startX} ${startY} C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${endX} ${endY}`;
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', '#10b981');
+        path.setAttribute('stroke-width', '3');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        path.setAttribute('filter', 'url(#arrow-glow)');
+        path.style.opacity = '0.9';
+        svg.appendChild(path);
+
+        // Add label for the event(s) at the middle of the curve
+        const labelText = group.events.join(', ');
+        const labelX = (startX + endX) / 2;
+        const labelY = (startY + endY) / 2 - 10;
+
+        // Background for label
+        const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        const textWidth = labelText.length * 7 + 16;
+        labelBg.setAttribute('x', labelX - textWidth / 2);
+        labelBg.setAttribute('y', labelY - 10);
+        labelBg.setAttribute('width', textWidth);
+        labelBg.setAttribute('height', 20);
+        labelBg.setAttribute('rx', '4');
+        labelBg.setAttribute('fill', '#10b981');
+        labelBg.setAttribute('opacity', '0.95');
+        svg.appendChild(labelBg);
+
+        // Label text
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', labelX);
+        text.setAttribute('y', labelY + 4);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('font-size', '11');
+        text.setAttribute('font-weight', '600');
+        text.setAttribute('fill', '#ffffff');
+        text.textContent = labelText;
+        svg.appendChild(text);
+      });
+
+      // Update SVG dimensions to cover all content
+      const gridContainer = container.querySelector('#diagram-grid-container');
+      if (gridContainer) {
+        const gridRect = gridContainer.getBoundingClientRect();
+        svg.style.width = Math.max(gridRect.width, container.scrollWidth) + 'px';
+        svg.style.height = Math.max(gridRect.height + 200, container.scrollHeight) + 'px';
+      }
+    }
+
     // Compute reachable states from current state (BFS)
     function computeReachableStatesJS(transitions, currentState) {
       const reachable = new Set([currentState]);
@@ -1158,9 +1325,12 @@
                     </div>`;
                   }
 
+                  // Escape JSON for HTML attribute context
+                  const paramKeysJson = hasParams ? JSON.stringify(Object.keys(schema)).replace(/"/g, '&quot;') : '[]';
+
                   return `<div style="margin-bottom: 8px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 6px; border-left: 3px solid ${btnColor};">
                     ${paramsHtml}
-                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${hasParams ? JSON.stringify(Object.keys(schema)) : '[]'})"
+                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${paramKeysJson})"
                       style="width: 100%; padding: 8px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;"
                       onmouseover="this.style.opacity='0.85'"
                       onmouseout="this.style.opacity='1'"
@@ -1201,6 +1371,8 @@
         }
 
         diagramsHtml += '</div>';
+        // Add SVG overlay for inter-machine arrows
+        diagramsHtml += '<svg id="inter-machine-arrows" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></svg>';
         container.innerHTML = diagramsHtml;
         container.style.position = 'relative';
         container.style.height = 'auto';
@@ -1222,7 +1394,12 @@
               applyStateStyles(card, info.currentState, reachableStates);
             }
           });
-        }, 150);
+
+          // Draw inter-machine arrows between cards
+          if (interMachineLinks.length > 0) {
+            drawInterMachineArrows(container, interMachineLinks);
+          }
+        }, 200);
 
       } else {
         // Cards mode: Use Mermaid flowchart to show inter-machine connections
@@ -1446,10 +1623,33 @@
       renderInstanceContext(instance);
     }
 
-    // Render instance context/publicMember
+    // Timer interval for countdown updates
+    let countdownInterval = null;
+
+    // Format milliseconds as human-readable time
+    function formatTimeRemaining(ms) {
+      if (ms <= 0) return 'Expired';
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+
+      if (days > 0) return `${days}d ${hours % 24}h`;
+      if (hours > 0) return `${hours}h ${minutes % 60}m`;
+      if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+      return `${seconds}s`;
+    }
+
+    // Render instance context/publicMember with timeout countdown
     function renderInstanceContext(instance) {
       const container = document.getElementById('instance-context');
       if (!container) return;
+
+      // Clear previous countdown interval
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
 
       if (!instance) {
         container.innerHTML = '<div style="font-size: 12px; color: #666;">Select an instance to see its data</div>';
@@ -1458,24 +1658,93 @@
 
       const contextData = instance.publicMember || instance.context || {};
       const entries = Object.entries(contextData);
+      const pendingTimeouts = instance.pendingTimeouts || [];
 
-      if (entries.length === 0) {
-        container.innerHTML = '<div style="font-size: 12px; color: #666;">No context data</div>';
-        return;
+      // Build timeout countdown HTML
+      let timeoutHtml = '';
+      if (pendingTimeouts.length > 0) {
+        timeoutHtml = `
+          <div style="margin-bottom: 12px; padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px;">
+            <div style="font-size: 10px; color: #ef4444; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>⏱️</span> Pending Timeouts
+            </div>
+            ${pendingTimeouts.map((timeout, idx) => {
+              const percentage = Math.max(0, Math.min(100, ((timeout.totalMs - timeout.remainingMs) / timeout.totalMs) * 100));
+              return `
+                <div style="margin-bottom: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 11px; color: #fbbf24;">${timeout.event}</span>
+                    <span id="timeout-countdown-${idx}" style="font-size: 11px; color: #f87171; font-weight: 600;">${formatTimeRemaining(timeout.remainingMs)}</span>
+                  </div>
+                  <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                    <div id="timeout-bar-${idx}" style="height: 100%; width: ${percentage}%; background: linear-gradient(90deg, #ef4444, #f59e0b); border-radius: 3px; transition: width 1s linear;"></div>
+                  </div>
+                  <div style="font-size: 9px; color: #666; margin-top: 2px;">→ ${timeout.targetState}</div>
+                </div>`;
+            }).join('')}
+          </div>`;
+
+        // Start countdown interval
+        const startTime = Date.now();
+        const initialTimeouts = pendingTimeouts.map(t => ({ ...t }));
+
+        countdownInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          let anyActive = false;
+
+          initialTimeouts.forEach((timeout, idx) => {
+            const newRemaining = Math.max(0, timeout.remainingMs - elapsed);
+            const percentage = Math.max(0, Math.min(100, ((timeout.totalMs - newRemaining) / timeout.totalMs) * 100));
+
+            const countdownEl = document.getElementById(`timeout-countdown-${idx}`);
+            const barEl = document.getElementById(`timeout-bar-${idx}`);
+
+            if (countdownEl) {
+              countdownEl.textContent = formatTimeRemaining(newRemaining);
+              if (newRemaining <= 0) {
+                countdownEl.style.color = '#ef4444';
+                countdownEl.style.animation = 'none';
+              } else if (newRemaining < 60000) {
+                countdownEl.style.animation = 'pulse 1s ease-in-out infinite';
+              }
+            }
+            if (barEl) {
+              barEl.style.width = `${percentage}%`;
+            }
+
+            if (newRemaining > 0) anyActive = true;
+          });
+
+          // Stop interval if all timeouts expired
+          if (!anyActive) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+            // Refresh instances to get updated state
+            setTimeout(() => loadInstances(), 500);
+          }
+        }, 1000);
+      }
+
+      // Build context data HTML
+      let contextHtml = '';
+      if (entries.length > 0) {
+        contextHtml = `
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${entries.map(([key, value]) => {
+              const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+              return `
+                <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #3b82f6;">
+                  <span style="color: #888; font-size: 11px;">${key}</span>
+                  <span style="color: #f0f0f0; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayValue}">${displayValue}</span>
+                </div>`;
+            }).join('')}
+          </div>`;
       }
 
       container.innerHTML = `
         <div style="font-size: 10px; color: #888; margin-bottom: 8px;">ID: ${instance.id.substring(0, 8)}... | State: <span style="color: #a855f7; font-weight: 600;">${instance.currentState}</span></div>
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          ${entries.map(([key, value]) => {
-            const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-            return `
-              <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #3b82f6;">
-                <span style="color: #888; font-size: 11px;">${key}</span>
-                <span style="color: #f0f0f0; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayValue}">${displayValue}</span>
-              </div>`;
-          }).join('')}
-        </div>
+        ${timeoutHtml}
+        ${contextHtml || '<div style="font-size: 11px; color: #666;">No context data</div>'}
       `;
     }
 
@@ -1698,6 +1967,38 @@
         toast.classList.remove('show');
       }, 3000);
     }
+
+    // Redraw arrows on window resize
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!document.getElementById('component-overview').classList.contains('hidden')) {
+          const container = document.getElementById('component-graph');
+          const component = getCurrentComponent();
+          if (component) {
+            // Collect inter-machine links
+            const machines = component.stateMachines || [];
+            const interMachineLinks = [];
+            machines.forEach(machine => {
+              (machine.transitions || []).forEach(transition => {
+                if (transition.type === 'inter_machine' && transition.targetMachine) {
+                  interMachineLinks.push({
+                    fromMachine: machine.name,
+                    fromState: transition.from,
+                    to: transition.targetMachine,
+                    event: transition.event
+                  });
+                }
+              });
+            });
+            if (interMachineLinks.length > 0) {
+              drawInterMachineArrows(container, interMachineLinks);
+            }
+          }
+        }
+      }, 250);
+    });
 
     // Initialize - instances will be loaded after components_list is received
   </script>

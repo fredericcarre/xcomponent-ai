@@ -48,9 +48,20 @@ stateMachines:
         event: FINISH
         type: triggerable
 
+      # Receive notifications when child Workers change state
+      - from: Working
+        to: Working
+        event: CHILD_STATE_CHANGED
+        type: regular
+
   # Worker: Created dynamically, auto-deallocated when done
   - name: Worker
     initialState: Created
+
+    # Parent notification - notifies Coordinator on every state change
+    parentLink:
+      enabled: true
+      onStateChange: CHILD_STATE_CHANGED
 
     contextSchema:
       taskId:

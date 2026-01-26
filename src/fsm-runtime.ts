@@ -162,7 +162,11 @@ export class FSMRuntime extends EventEmitter {
    * @param initialContext Initial context or public member data
    * @returns Instance ID
    */
-  createInstance(machineName: string, initialContext: Record<string, any> = {}): string {
+  createInstance(
+    machineName: string,
+    initialContext: Record<string, any> = {},
+    parentInfo?: { instanceId: string; machineName: string }
+  ): string {
     const machine = this.machines.get(machineName);
     if (!machine) {
       throw new Error(`Machine ${machineName} not found`);
@@ -181,6 +185,9 @@ export class FSMRuntime extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       status: 'active',
+      // Parent linking for child-to-parent communication
+      parentInstanceId: parentInfo?.instanceId,
+      parentMachineName: parentInfo?.machineName,
     };
 
     this.instances.set(instanceId, instance);
@@ -298,6 +305,9 @@ export class FSMRuntime extends EventEmitter {
         },
       });
 
+      // Notify parent if configured (child-to-parent communication)
+      await this.notifyParentIfConfigured(instance, machine, transition, previousState);
+
       // Save snapshot if needed
       // Note: With timer wheel, we don't pass pending timeouts map
       // Timeouts are resynchronized during restore() based on elapsed time
@@ -337,7 +347,16 @@ export class FSMRuntime extends EventEmitter {
 
       // Handle inter-machine transitions
       if (transition.type === TransitionType.INTER_MACHINE && transition.targetMachine) {
-        const newInstanceId = this.createInstance(transition.targetMachine, { ...instance.context });
+        // Pass parent info so child can notify parent of state changes
+        const parentInfo = {
+          instanceId: instanceId,
+          machineName: instance.machineName,
+        };
+        const newInstanceId = this.createInstance(
+          transition.targetMachine,
+          { ...instance.context },
+          parentInfo
+        );
         this.emit('inter_machine_transition', {
           sourceInstanceId: instanceId,
           targetInstanceId: newInstanceId,
@@ -742,6 +761,85 @@ export class FSMRuntime extends EventEmitter {
         context: instanceContext,
         sender,
       });
+    }
+  }
+
+  /**
+   * Notify parent instance if the child machine has parentLink configured
+   * or if the transition has notifyParent set
+   *
+   * This enables the XComponent pattern where child state machines
+   * can communicate state changes back to their parent orchestrator
+   */
+  private async notifyParentIfConfigured(
+    instance: FSMInstance,
+    machine: StateMachine,
+    transition: Transition,
+    previousState: string
+  ): Promise<void> {
+    // Check if this instance has a parent
+    if (!instance.parentInstanceId || !instance.parentMachineName) {
+      return;
+    }
+
+    // Check if parent instance still exists
+    const parentInstance = this.instances.get(instance.parentInstanceId);
+    if (!parentInstance) {
+      return;
+    }
+
+    let shouldNotify = false;
+    let eventType: string | undefined;
+    let includeState = true;
+    let includeContext = false;
+
+    // Check for transition-specific notifyParent
+    if (transition.notifyParent) {
+      shouldNotify = true;
+      eventType = transition.notifyParent.event;
+      includeState = transition.notifyParent.includeState !== false;
+      includeContext = transition.notifyParent.includeContext === true;
+    }
+    // Check for machine-level parentLink.onStateChange
+    else if (machine.parentLink?.enabled && machine.parentLink?.onStateChange) {
+      shouldNotify = true;
+      eventType = machine.parentLink.onStateChange;
+      includeState = true;
+      includeContext = false;
+    }
+
+    if (shouldNotify && eventType) {
+      // Build payload for parent notification
+      const payload: Record<string, any> = {
+        childInstanceId: instance.id,
+        childMachine: instance.machineName,
+        previousState: previousState,
+      };
+
+      if (includeState) {
+        payload.newState = instance.currentState;
+      }
+
+      if (includeContext) {
+        payload.childContext = instance.publicMember || instance.context;
+      }
+
+      // Send event to parent
+      const notifyEvent: FSMEvent = {
+        type: eventType,
+        payload,
+        timestamp: Date.now(),
+      };
+
+      try {
+        await this.sendEvent(instance.parentInstanceId, notifyEvent);
+      } catch (error: any) {
+        // Log but don't fail - parent might not have a transition for this event
+        console.warn(
+          `Parent notification failed: ${error.message}`,
+          { parentId: instance.parentInstanceId, event: eventType }
+        );
+      }
     }
   }
 

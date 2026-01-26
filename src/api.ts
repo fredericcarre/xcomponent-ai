@@ -346,9 +346,12 @@ export class APIServer {
           const runtime = this.registry.getRuntime(componentName);
           if (runtime) {
             const componentInstances = runtime.getAllInstances();
+            console.log(`[API] Loading ${componentInstances.length} instances for ${componentName}`);
             // Add timeout info to each instance
             componentInstances.forEach(inst => {
+              console.log(`[API] Instance ${inst.id} in state ${inst.currentState}`);
               const pendingTimeouts = runtime.getPendingTimeouts(inst.id);
+              console.log(`[API] pendingTimeouts for ${inst.id}:`, pendingTimeouts);
               // Debug: log transition types when no pending timeouts found
               if (pendingTimeouts.length === 0) {
                 const machine = (runtime as any).machines?.get(inst.machineName);

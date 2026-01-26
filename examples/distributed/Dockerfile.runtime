@@ -1,0 +1,25 @@
+# Mayele Runtime - Distributed Mode
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies including amqplib and pg
+RUN npm ci && npm install amqplib pg
+
+# Copy source and build
+COPY tsconfig.json ./
+COPY src ./src
+COPY public ./public
+COPY examples ./examples
+
+# Build TypeScript
+RUN npm run build 2>/dev/null || npx tsc
+
+# Copy runtime script
+COPY examples/distributed/runtime.js ./runtime.js
+
+# Start runtime
+CMD ["node", "runtime.js"]

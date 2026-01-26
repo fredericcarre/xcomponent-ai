@@ -33,6 +33,7 @@ export {
   MessageBroker,
   InMemoryMessageBroker,
   RedisMessageBroker,
+  RabbitMQMessageBroker,
   createMessageBroker,
   CrossComponentMessage,
   PropertyFilter
@@ -45,3 +46,15 @@ export {
   publishExternalCommand,
   subscribeToFSMEvents
 } from './external-broker-api';
+
+// Distributed dashboard
+export { DashboardServer, DashboardChannels, RuntimeRegistration, FSMEventBroadcast } from './dashboard-server';
+export { RuntimeBroadcaster, RuntimeBroadcasterConfig, createRuntimeBroadcaster } from './runtime-broadcaster';
+
+// PostgreSQL persistence
+export {
+  PostgresEventStore,
+  PostgresSnapshotStore,
+  PostgresConfig,
+  createPostgresStores
+} from './postgres-persistence';

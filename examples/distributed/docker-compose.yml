@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: mayele-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: mayele
+      RABBITMQ_DEFAULT_PASS: mayele123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mayele-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: mayele
+      POSTGRES_PASSWORD: mayele123
+      POSTGRES_DB: mayele_fsm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mayele -d mayele_fsm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mayele Dashboard (Distributed Mode)
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: examples/distributed/Dockerfile.dashboard
+    container_name: mayele-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      BROKER_URL: amqp://mayele:mayele123@rabbitmq:5672
+      PORT: 3000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Example Runtime 1: ApprovalWorkflow
+  runtime-approval:
+    build:
+      context: ../..
+      dockerfile: examples/distributed/Dockerfile.runtime
+    container_name: mayele-runtime-approval
+    environment:
+      BROKER_URL: amqp://mayele:mayele123@rabbitmq:5672
+      DATABASE_URL: postgresql://mayele:mayele123@postgres:5432/mayele_fsm
+      COMPONENT_FILE: /app/examples/approval-workflow.yaml
+      RUNTIME_NAME: approval-runtime-1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Example Runtime 2: Another instance of ApprovalWorkflow (for scaling demo)
+  runtime-approval-2:
+    build:
+      context: ../..
+      dockerfile: examples/distributed/Dockerfile.runtime
+    container_name: mayele-runtime-approval-2
+    environment:
+      BROKER_URL: amqp://mayele:mayele123@rabbitmq:5672
+      DATABASE_URL: postgresql://mayele:mayele123@postgres:5432/mayele_fsm
+      COMPONENT_FILE: /app/examples/approval-workflow.yaml
+      RUNTIME_NAME: approval-runtime-2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+  postgres_data:
+
+networks:
+  default:
+    name: mayele-network

@@ -1001,41 +1001,55 @@
 
       console.log('Found states:', [...foundStates.keys()]);
 
+      // Check if there's no active instance (no current state)
+      const hasActiveInstance = currentState && currentState.length > 0;
+      const grayOpacity = hasActiveInstance ? '0.35' : '0.25';  // More faded if no instance
+      const grayStroke = hasActiveInstance ? '#444' : '#333';
+
       // STEP 1: Gray out EVERYTHING first (states, transitions, labels)
       // This ensures all Mermaid native colors are overridden
       svg.querySelectorAll('rect, polygon, ellipse, circle').forEach(shape => {
         shape.style.setProperty('fill', '#1a1a1a', 'important');
-        shape.style.setProperty('stroke', '#333', 'important');
+        shape.style.setProperty('stroke', grayStroke, 'important');
         shape.style.setProperty('stroke-width', '1px', 'important');
-        shape.style.setProperty('opacity', '0.3', 'important');
+        shape.style.setProperty('opacity', grayOpacity, 'important');
       });
       // Gray out all text elements (including in foreignObject)
       svg.querySelectorAll('text, tspan').forEach(text => {
-        text.style.setProperty('fill', '#444', 'important');
-        text.style.setProperty('opacity', '0.3', 'important');
+        text.style.setProperty('fill', '#555', 'important');
+        text.style.setProperty('opacity', grayOpacity, 'important');
       });
       // Gray out foreignObject content (Mermaid uses these for edge labels)
       svg.querySelectorAll('foreignObject span, foreignObject div, .edgeLabel span, .edgeLabel div').forEach(el => {
-        el.style.setProperty('color', '#444', 'important');
-        el.style.setProperty('opacity', '0.3', 'important');
+        el.style.setProperty('color', '#555', 'important');
+        el.style.setProperty('opacity', grayOpacity, 'important');
       });
-      // Gray out paths/lines (transitions)
+      // Gray out paths/lines (transitions) - keep them visible but dimmed
       svg.querySelectorAll('path, line').forEach(path => {
-        // Skip paths that are part of state shapes (not transitions)
         const parent = path.parentElement;
+        // Check if this is a transition path (has marker or is in edgePath)
         if (path.hasAttribute('marker-end') ||
             parent?.classList.contains('edgePath') ||
             parent?.classList.contains('transition') ||
-            path.getAttribute('class')?.includes('transition')) {
-          path.style.setProperty('stroke', '#333', 'important');
-          path.style.setProperty('opacity', '0.2', 'important');
+            path.getAttribute('class')?.includes('transition') ||
+            path.getAttribute('class')?.includes('flowchart')) {
+          path.style.setProperty('stroke', grayStroke, 'important');
+          path.style.setProperty('opacity', grayOpacity, 'important');
+          path.style.setProperty('stroke-width', '1.5px', 'important');
         }
       });
       // Gray out arrow markers
       svg.querySelectorAll('marker path, marker polygon').forEach(marker => {
-        marker.style.setProperty('fill', '#333', 'important');
-        marker.style.setProperty('stroke', '#333', 'important');
+        marker.style.setProperty('fill', grayStroke, 'important');
+        marker.style.setProperty('stroke', grayStroke, 'important');
+        marker.style.setProperty('opacity', grayOpacity, 'important');
       });
+
+      // If no active instance, stop here - everything stays grayed
+      if (!hasActiveInstance) {
+        console.log('No active instance - diagram fully grayed out');
+        return;
+      }
 
       // STEP 2: Restore colors for active elements
       foundStates.forEach((data, stateName) => {

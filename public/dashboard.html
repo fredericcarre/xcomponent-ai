@@ -1519,8 +1519,10 @@
                 🎯 Current: ${currentState}
               </div>`;
 
-              // Get available transitions from current state (deduplicated by event name)
-              const allTransitions = (machine.transitions || []).filter(t => t.from === currentState);
+              // Get available transitions from current state (deduplicated by event name, excluding timeouts)
+              const allTransitions = (machine.transitions || []).filter(t =>
+                t.from === currentState && t.type !== 'timeout'  // Timeout transitions are automatic, not manual
+              );
               // Deduplicate by event name - keep first occurrence (guards/matching rules handle routing)
               const seenEvents = new Set();
               const availableTransitions = allTransitions.filter(t => {
@@ -2060,8 +2062,10 @@
         return;
       }
 
-      // Filter transitions that start from current state (deduplicated by event name)
-      const allTransitions = currentTransitions.filter(t => t.from === instance.currentState);
+      // Filter transitions that start from current state (deduplicated by event name, excluding timeouts)
+      const allTransitions = currentTransitions.filter(t =>
+        t.from === instance.currentState && t.type !== 'timeout'  // Timeout transitions are automatic, not manual
+      );
       // Deduplicate by event name - keep first occurrence (guards/matching rules handle routing)
       const seenEvents = new Set();
       const availableTransitions = allTransitions.filter(t => {

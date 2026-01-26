@@ -732,7 +732,11 @@
 
       <!-- Instances -->
       <div class="sidebar-section flex">
-        <div class="section-title">Instances</div>
+        <div class="section-title">Instances <span id="instance-count" style="color: var(--text-muted); font-weight: normal;"></span></div>
+        <!-- Search filter for instances -->
+        <input type="text" id="instance-filter" placeholder="Filter by ID, state, or data..."
+          style="width: 100%; padding: 8px 10px; margin-bottom: 12px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); font-size: 12px;"
+          oninput="renderInstanceList()">
         <div class="instance-list" id="instance-list">
           <div class="empty-state" style="padding: 40px 20px;">
             <div class="empty-state-icon">📦</div>
@@ -1692,6 +1696,7 @@
       document.getElementById('component-overview').classList.add('hidden');
       document.getElementById('machine-detail').classList.add('active');
       document.getElementById('detail-title').textContent = machineName;
+      renderInstanceList();  // Refresh to show only this machine's instances
       renderMachineDiagram();
     }
 
@@ -1702,6 +1707,7 @@
       document.getElementById('component-overview').classList.remove('hidden');
       document.getElementById('machine-detail').classList.remove('active');
       clearTransitions();
+      renderInstanceList();  // Refresh to show all instances
     }
 
     // Render machine diagram
@@ -1732,7 +1738,17 @@
         const data = await res.json();
 
         const container = document.getElementById('diagram-container');
-        container.innerHTML = '<div class="mermaid">' + data.diagram + '</div>';
+
+        // Build diagram HTML with current state badge if available
+        let diagramHtml = '<div class="mermaid">' + data.diagram + '</div>';
+
+        if (data.currentState && selectedInstanceId) {
+          diagramHtml += `<div style="margin-top: 12px; padding: 8px 16px; background: linear-gradient(135deg, #a855f7, #7c3aed); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; text-align: center; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);">
+            🎯 Current: ${data.currentState}
+          </div>`;
+        }
+
+        container.innerHTML = diagramHtml;
         await mermaid.run({ querySelector: '#diagram-container .mermaid' });
 
         // Apply state highlighting and timeout countdown if instance is selected
@@ -1779,6 +1795,9 @@
 
     function renderInstanceList() {
       const container = document.getElementById('instance-list');
+      const countEl = document.getElementById('instance-count');
+      const filterInput = document.getElementById('instance-filter');
+      const filterText = (filterInput?.value || '').toLowerCase().trim();
       const component = getCurrentComponent();
 
       if (!component) {
@@ -1787,26 +1806,58 @@
             <div class="empty-state-icon">📦</div>
             <div style="font-size: 12px;">No component selected</div>
           </div>`;
+        if (countEl) countEl.textContent = '';
         return;
       }
 
-      // Group instances by machine
+      // Filter instances: by selected machine (when in detail view) and by search text
+      let filteredInstances = allInstances;
+
+      // If in detail view (machine selected), only show instances of that machine
+      const isInDetailView = selectedMachineName && !document.getElementById('component-overview').classList.contains('hidden') === false;
+      if (selectedMachineName && document.getElementById('machine-detail').classList.contains('active')) {
+        filteredInstances = filteredInstances.filter(i => i.machineName === selectedMachineName);
+      }
+
+      // Apply text filter
+      if (filterText) {
+        filteredInstances = filteredInstances.filter(instance => {
+          const contextData = instance.publicMember || instance.context || {};
+          const searchableText = [
+            instance.id,
+            instance.machineName,
+            instance.currentState,
+            ...Object.values(contextData).map(v => String(v))
+          ].join(' ').toLowerCase();
+          return searchableText.includes(filterText);
+        });
+      }
+
+      // Update count display
+      if (countEl) {
+        const machineFilter = selectedMachineName && document.getElementById('machine-detail').classList.contains('active')
+          ? ` (${selectedMachineName})`
+          : '';
+        countEl.textContent = `(${filteredInstances.length}${machineFilter})`;
+      }
+
+      if (filteredInstances.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 40px 20px;">
+            <div class="empty-state-icon">📦</div>
+            <div style="font-size: 12px;">${filterText ? 'No matching instances' : 'No instances'}</div>
+          </div>`;
+        return;
+      }
+
+      // Group filtered instances by machine
       const instancesByMachine = {};
-      allInstances.forEach(instance => {
+      filteredInstances.forEach(instance => {
         if (!instancesByMachine[instance.machineName]) {
           instancesByMachine[instance.machineName] = [];
         }
         instancesByMachine[instance.machineName].push(instance);
       });
-
-      if (allInstances.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state" style="padding: 40px 20px;">
-            <div class="empty-state-icon">📦</div>
-            <div style="font-size: 12px;">No instances</div>
-          </div>`;
-        return;
-      }
 
       let html = '';
       component.stateMachines.forEach(machine => {

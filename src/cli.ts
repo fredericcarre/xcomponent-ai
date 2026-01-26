@@ -628,7 +628,7 @@ program
   .command('serve <files...>')
   .description('Start runtime with API server and dashboard (supports multiple YAML files)')
   .option('-p, --port <port>', 'Port number', '3000')
-  .option('-b, --broker <url>', 'Message broker URL (memory, redis://...)', process.env.XCOMPONENT_BROKER_URL || 'memory')
+  .option('-b, --broker <url>', 'Message broker URL (memory, redis://..., amqp://...)', process.env.XCOMPONENT_BROKER_URL || 'memory')
   .option('--external-api', 'Enable external API for sending events via message broker')
   .option('--publish-events', 'Publish FSM events to message broker for external subscribers')
   .action(async (files: string[], options: any) => {

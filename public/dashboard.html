@@ -256,30 +256,6 @@
       align-items: center;
     }
 
-    .view-mode-btn {
-      padding: 8px 16px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--glass-border);
-      border-radius: 8px;
-      color: var(--text-secondary);
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .view-mode-btn:hover {
-      background: var(--glass-bg);
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
-    .view-mode-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #000;
-      font-weight: 600;
-    }
-
     .overview-legend {
       display: flex;
       gap: 20px;
@@ -766,8 +742,6 @@
         <div class="overview-header">
           <div class="overview-title" id="overview-title">Component Overview</div>
           <div class="overview-controls">
-            <button class="view-mode-btn" id="btn-cards" onclick="setOverviewMode('cards')">📊 Cards</button>
-            <button class="view-mode-btn active" id="btn-diagrams" onclick="setOverviewMode('diagrams')">📈 Diagrams</button>
             <div class="overview-legend">
               <div class="legend-item">
                 <div class="legend-box entry"></div>
@@ -864,7 +838,6 @@
     let selectedInstanceId = null;
     let allInstances = [];
     let currentTransitions = [];
-    let overviewMode = 'diagrams'; // 'cards' or 'diagrams' - default to diagrams
 
     // Format milliseconds as human-readable time (used by multiple functions)
     function formatTimeRemaining(ms) {
@@ -945,14 +918,6 @@
     function getCurrentComponent() {
       if (!selectedComponentName) return null;
       return componentsData.find(c => c.name === selectedComponentName);
-    }
-
-    // Set overview display mode
-    function setOverviewMode(mode) {
-      overviewMode = mode;
-      document.getElementById('btn-cards').classList.toggle('active', mode === 'cards');
-      document.getElementById('btn-diagrams').classList.toggle('active', mode === 'diagrams');
-      renderComponentOverview();
     }
 
     // Apply current state highlighting and unreachable states graying to Mermaid SVG
@@ -1541,10 +1506,9 @@
       const machines = component.stateMachines || [];
       const container = document.getElementById('component-graph');
 
-      if (overviewMode === 'diagrams') {
-        // Diagram mode: Show full Mermaid diagrams with current state
+      // Show full Mermaid diagrams with current state
 
-        // Collect inter-machine transitions for overview flowchart
+      // Collect inter-machine transitions for overview flowchart
         const interMachineLinks = [];
         const machineInitialStates = {};
         machines.forEach(machine => {
@@ -1774,64 +1738,6 @@
             drawInterMachineArrows(container, interMachineLinks, machineInitialStates);
           }
         }, 300);
-
-      } else {
-        // Cards mode: Use Mermaid flowchart to show inter-machine connections
-        // Build flowchart diagram
-        let flowchartDef = 'flowchart LR\n';
-
-        // Define machine nodes with instance counts
-        machines.forEach(machine => {
-          const isEntry = component.entryMachine === machine.name;
-          const machineInstances = allInstances.filter(i => i.machineName === machine.name);
-          const icon = isEntry ? '⭐ ' : '';
-          const label = `${icon}${machine.name}<br/>${machine.states.length} states | ${machineInstances.length} inst`;
-          flowchartDef += `  ${machine.name}["${label}"]\n`;
-        });
-
-        // Add inter-machine connections with green styling
-        machines.forEach(machine => {
-          (machine.transitions || []).forEach(transition => {
-            if (transition.type === 'inter_machine' && transition.targetMachine) {
-              flowchartDef += `  ${machine.name} -->|"🔗 ${transition.event}"| ${transition.targetMachine}\n`;
-            }
-          });
-        });
-
-        // Add styling
-        flowchartDef += `  classDef entryNode fill:#fbbf24,stroke:#f59e0b,color:#000,stroke-width:2px\n`;
-        flowchartDef += `  classDef normalNode fill:#1f2937,stroke:#4b5563,color:#f0f0f0,stroke-width:1px\n`;
-
-        // Apply styles
-        machines.forEach(machine => {
-          const isEntry = component.entryMachine === machine.name;
-          flowchartDef += `  class ${machine.name} ${isEntry ? 'entryNode' : 'normalNode'}\n`;
-        });
-
-        // Add link styling for green inter-machine arrows
-        flowchartDef += `  linkStyle default stroke:#10b981,stroke-width:3px\n`;
-
-        container.innerHTML = `
-          <div style="padding: 40px; display: flex; flex-direction: column; align-items: center;">
-            <div class="mermaid" id="component-flowchart">${flowchartDef}</div>
-            <div style="margin-top: 24px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">
-              ${machines.map(machine => {
-                const isEntry = component.entryMachine === machine.name;
-                return `<button onclick="selectMachine('${machine.name}')"
-                  style="padding: 12px 20px; background: ${isEntry ? 'linear-gradient(135deg, #fbbf24, #f59e0b)' : 'var(--bg-tertiary)'};
-                         border: 1px solid ${isEntry ? '#f59e0b' : 'var(--glass-border)'}; border-radius: 8px;
-                         color: ${isEntry ? '#000' : 'var(--text-primary)'}; font-size: 13px; font-weight: 600; cursor: pointer;">
-                  ${isEntry ? '⭐ ' : ''}${machine.name}
-                </button>`;
-              }).join('')}
-            </div>
-          </div>`;
-        container.style.position = 'relative';
-        container.style.height = 'auto';
-
-        // Render the flowchart
-        await mermaid.run({ querySelector: '#component-flowchart' });
-      }
     }
 
     // Select machine to view detail

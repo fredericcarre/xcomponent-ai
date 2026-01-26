@@ -59,6 +59,16 @@ async function waitFor(condition, description, timeoutMs = TIMEOUT_MS) {
   throw new Error(`Timeout waiting for: ${description}${errorMsg}`);
 }
 
+// Helper to find instance by ID (handles both instanceId and id fields)
+function findInstanceById(instances, id) {
+  return instances.find(i => i.instanceId === id || i.id === id);
+}
+
+// Helper to get instance ID from instance object
+function getInstanceId(instance) {
+  return instance.instanceId || instance.id;
+}
+
 async function main() {
   console.log('='.repeat(60));
   console.log('  E2E Test: Distributed Order/Payment Cross-Component Flow');
@@ -115,7 +125,8 @@ async function main() {
   };
 
   console.log(`4. Creating Order instance (${orderId})...`);
-  const createOrderResult = await fetchJson(
+  // In distributed mode, instance creation is async via RabbitMQ
+  await fetchJson(
     `${DASHBOARD_URL}/api/components/OrderComponent/instances`,
     {
       method: 'POST',
@@ -125,25 +136,29 @@ async function main() {
       })
     }
   );
+  console.log('  [OK] Create instance command sent');
 
-  const orderInstanceId = createOrderResult.instanceId || createOrderResult.instance?.instanceId;
-  if (!orderInstanceId) {
-    throw new Error(`Failed to create order instance: ${JSON.stringify(createOrderResult)}`);
-  }
-  console.log(`  [OK] Order instance created: ${orderInstanceId}`);
-
-  // Verify order is in Created state
-  console.log('\n5. Verifying Order is in Created state...');
-  await waitFor(
+  // Wait for instance to be created (async via RabbitMQ)
+  console.log('\n5. Waiting for Order instance to be created...');
+  let orderInstanceId = null;
+  const orderInstance = await waitFor(
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
+      // Find the Order instance with our orderId in context
       const order = instances.instances && instances.instances.find(
-        i => i.instanceId === orderInstanceId
+        i => i.componentName === 'OrderComponent' &&
+             i.machineName === 'Order' &&
+             i.context && i.context.orderId === orderId
       );
-      return order && order.currentState === 'Created' ? order : null;
+      if (order) {
+        orderInstanceId = order.instanceId || order.id;
+        return order;
+      }
+      return null;
     },
-    'Order instance in Created state'
+    'Order instance created with matching orderId'
   );
+  console.log(`   Instance ID: ${orderInstanceId}, State: ${orderInstance.currentState}`);
 
   // ============================================================
   // Phase 3: Submit Order (Cross-Component Communication)
@@ -166,7 +181,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const order = instances.instances && instances.instances.find(
-        i => i.instanceId === orderInstanceId
+        i => getInstanceId(i) === orderInstanceId
       );
       return order && order.currentState === 'PendingPayment' ? order : null;
     },
@@ -189,14 +204,13 @@ async function main() {
     },
     'Payment instance created with matching orderId'
   );
-  console.log(`   Payment instance: ${paymentInstance.instanceId}`);
+  const paymentInstanceId = paymentInstance.instanceId || paymentInstance.id;
+  console.log(`   Payment instance: ${paymentInstanceId}`);
 
   // ============================================================
   // Phase 4: Process Payment
   // ============================================================
   console.log('\n--- Phase 4: Process Payment ---\n');
-
-  const paymentInstanceId = paymentInstance.instanceId;
 
   // Send PROCESS event
   console.log('9. Sending PROCESS event to Payment...');
@@ -212,7 +226,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const payment = instances.instances && instances.instances.find(
-        i => i.instanceId === paymentInstanceId
+        i => getInstanceId(i) === paymentInstanceId
       );
       return payment && payment.currentState === 'Processing' ? payment : null;
     },
@@ -233,7 +247,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const payment = instances.instances && instances.instances.find(
-        i => i.instanceId === paymentInstanceId
+        i => getInstanceId(i) === paymentInstanceId
       );
       return payment && payment.currentState === 'Validated' ? payment : null;
     },
@@ -259,7 +273,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const payment = instances.instances && instances.instances.find(
-        i => i.instanceId === paymentInstanceId
+        i => getInstanceId(i) === paymentInstanceId
       );
       return payment && payment.currentState === 'Completed' ? payment : null;
     },
@@ -276,7 +290,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const order = instances.instances && instances.instances.find(
-        i => i.instanceId === orderInstanceId
+        i => getInstanceId(i) === orderInstanceId
       );
       return order && order.currentState === 'Paid' ? order : null;
     },
@@ -301,7 +315,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const order = instances.instances && instances.instances.find(
-        i => i.instanceId === orderInstanceId
+        i => getInstanceId(i) === orderInstanceId
       );
       return order && order.currentState === 'Shipped' ? order : null;
     },
@@ -321,7 +335,7 @@ async function main() {
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
       const order = instances.instances && instances.instances.find(
-        i => i.instanceId === orderInstanceId
+        i => getInstanceId(i) === orderInstanceId
       );
       return order && order.currentState === 'Completed' ? order : null;
     },

@@ -1403,11 +1403,17 @@
               // Get available transitions from current state
               const availableTransitions = (machine.transitions || []).filter(t => t.from === currentState);
               if (availableTransitions.length > 0) {
-                // Check if any transition targets a machine with contextSchema
-                const getTargetSchema = (t) => {
+                // Get schema for transition - either target machine's schema (inter_machine)
+                // or current machine's schema (for regular transitions that need input)
+                const getTransitionSchema = (t) => {
                   if (t.type === 'inter_machine' && t.targetMachine) {
                     const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
                     return targetMachine?.contextSchema || null;
+                  }
+                  // For regular transitions from entry state, use current machine's contextSchema
+                  // This allows entering data like amount, description, etc.
+                  if (machine.contextSchema && currentState === machine.initialState) {
+                    return machine.contextSchema;
                   }
                   return null;
                 };
@@ -1417,7 +1423,7 @@
                   const isInterMachine = t.type === 'inter_machine';
                   const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
                   const icon = isInterMachine ? '🔗' : '→';
-                  const schema = getTargetSchema(t);
+                  const schema = getTransitionSchema(t);
                   const hasParams = schema && Object.keys(schema).length > 0;
                   const formId = `overview-form-${machine.name}-${t.event}`.replace(/[^a-zA-Z0-9-]/g, '-');
 
@@ -1861,8 +1867,8 @@
       renderTransitions(availableTransitions, instance);
     }
 
-    // Get contextSchema for a transition's target machine (for inter_machine) or current machine
-    function getTransitionSchema(transition) {
+    // Get contextSchema for a transition - either target machine (inter_machine) or current machine
+    function getTransitionSchema(transition, instance) {
       const component = getCurrentComponent();
       if (!component) return null;
 
@@ -1870,6 +1876,15 @@
         const targetMachine = component.stateMachines.find(m => m.name === transition.targetMachine);
         return targetMachine?.contextSchema || null;
       }
+
+      // For regular transitions from entry/initial state, use current machine's contextSchema
+      if (instance) {
+        const currentMachine = component.stateMachines.find(m => m.name === instance.machineName);
+        if (currentMachine?.contextSchema && instance.currentState === currentMachine.initialState) {
+          return currentMachine.contextSchema;
+        }
+      }
+
       return null;
     }
 
@@ -1889,7 +1904,7 @@
         const isInterMachine = t.type === 'inter_machine';
         const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
         const icon = isInterMachine ? '🔗' : '→';
-        const schema = getTransitionSchema(t);
+        const schema = getTransitionSchema(t, instance);
 
         // Build parameter form if schema exists
         let paramsForm = '';

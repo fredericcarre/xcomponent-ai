@@ -1130,19 +1130,12 @@
       // Clear existing arrows
       svg.innerHTML = '';
 
-      // Build arrow definitions
+      // Build arrow definitions - semi-transparent arrowhead
       const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
       defs.innerHTML = `
         <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" />
+          <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" opacity="0.7" />
         </marker>
-        <filter id="arrow-glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
       `;
       svg.appendChild(defs);
 
@@ -1265,16 +1258,16 @@
           cpY2 = endY + (dy > 0 ? -curvature : curvature);
         }
 
-        // Create the curved path
+        // Create the curved path - semi-transparent dashed line
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         const d = `M ${startX} ${startY} C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${endX} ${endY}`;
         path.setAttribute('d', d);
         path.setAttribute('stroke', '#10b981');
-        path.setAttribute('stroke-width', '3');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-dasharray', '8,4');  // Dashed line for visibility through
         path.setAttribute('fill', 'none');
         path.setAttribute('marker-end', 'url(#arrowhead)');
-        path.setAttribute('filter', 'url(#arrow-glow)');
-        path.style.opacity = '0.9';
+        path.style.opacity = '0.6';  // More transparent
         svg.appendChild(path);
 
         // Add label for the event(s) at the middle of the curve
@@ -1284,7 +1277,7 @@
         const labelX = Math.pow(1-t, 3) * startX + 3 * Math.pow(1-t, 2) * t * cpX1 + 3 * (1-t) * t * t * cpX2 + Math.pow(t, 3) * endX;
         const labelY = Math.pow(1-t, 3) * startY + 3 * Math.pow(1-t, 2) * t * cpY1 + 3 * (1-t) * t * t * cpY2 + Math.pow(t, 3) * endY - 12;
 
-        // Background for label
+        // Background for label - semi-transparent
         const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         const textWidth = labelText.length * 7 + 16;
         labelBg.setAttribute('x', labelX - textWidth / 2);
@@ -1293,7 +1286,7 @@
         labelBg.setAttribute('height', 20);
         labelBg.setAttribute('rx', '4');
         labelBg.setAttribute('fill', '#10b981');
-        labelBg.setAttribute('opacity', '0.95');
+        labelBg.setAttribute('opacity', '0.75');  // More transparent label bg
         svg.appendChild(labelBg);
 
         // Label text
@@ -1301,7 +1294,7 @@
         text.setAttribute('x', labelX);
         text.setAttribute('y', labelY + 4);
         text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('font-size', '11');
+        text.setAttribute('font-size', '10');  // Slightly smaller
         text.setAttribute('font-weight', '600');
         text.setAttribute('fill', '#ffffff');
         text.textContent = labelText;
@@ -1498,9 +1491,10 @@
                     const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
                     return targetMachine?.contextSchema || null;
                   }
-                  // For regular transitions from entry state, use current machine's contextSchema
-                  // This allows entering data like amount, description, etc.
-                  if (machine.contextSchema && currentState === machine.initialState) {
+                  // For regular transitions from initial state, only show contextSchema if this is the entry machine
+                  // Non-entry machines get their context from the inter_machine transition that creates them
+                  const isEntryMachine = component.entryMachine === machine.name;
+                  if (isEntryMachine && machine.contextSchema && currentState === machine.initialState) {
                     return machine.contextSchema;
                   }
                   return null;
@@ -1958,7 +1952,7 @@
       renderTransitions(availableTransitions, instance);
     }
 
-    // Get contextSchema for a transition - either target machine (inter_machine) or current machine
+    // Get contextSchema for a transition - either target machine (inter_machine) or entry machine
     function getTransitionSchema(transition, instance) {
       const component = getCurrentComponent();
       if (!component) return null;
@@ -1968,10 +1962,12 @@
         return targetMachine?.contextSchema || null;
       }
 
-      // For regular transitions from entry/initial state, use current machine's contextSchema
+      // For regular transitions from initial state, only show contextSchema if this is the entry machine
+      // Non-entry machines get their context from the inter_machine transition that creates them
       if (instance) {
         const currentMachine = component.stateMachines.find(m => m.name === instance.machineName);
-        if (currentMachine?.contextSchema && instance.currentState === currentMachine.initialState) {
+        const isEntryMachine = component.entryMachine === instance.machineName;
+        if (isEntryMachine && currentMachine?.contextSchema && instance.currentState === currentMachine.initialState) {
           return currentMachine.contextSchema;
         }
       }

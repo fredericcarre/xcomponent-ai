@@ -158,6 +158,11 @@ jobs:
           exit 1
         fi
 
+    - name: Run E2E cross-component test
+      run: |
+        echo "Running E2E test for cross-component communication..."
+        node examples/distributed/e2e-test.js
+
     - name: Show logs on failure
       if: failure()
       run: |

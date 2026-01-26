@@ -866,12 +866,12 @@
       document.getElementById('status-text').textContent = 'Disconnected';
     });
 
-    socket.on('components_list', (data) => {
+    socket.on('components_list', async (data) => {
       componentsData = data.components || [];
       if (componentsData.length > 0 && !selectedComponentName) {
         selectedComponentName = componentsData[0].name;
         populateComponentSelector();
-        loadInstances();  // Load instances after component is selected
+        await loadInstances();  // Wait for instances before rendering
         renderComponentOverview();
       }
     });

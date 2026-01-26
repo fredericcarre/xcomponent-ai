@@ -349,6 +349,20 @@ export class APIServer {
             // Add timeout info to each instance
             componentInstances.forEach(inst => {
               const pendingTimeouts = runtime.getPendingTimeouts(inst.id);
+              // Debug: log transition types when no pending timeouts found
+              if (pendingTimeouts.length === 0) {
+                const machine = (runtime as any).machines?.get(inst.machineName);
+                if (machine) {
+                  const relevantTransitions = machine.transitions?.filter(
+                    (t: any) => t.from === inst.currentState
+                  );
+                  const timeoutOnes = relevantTransitions?.filter((t: any) => t.timeoutMs);
+                  if (timeoutOnes?.length > 0) {
+                    console.log(`DEBUG: Instance ${inst.id} in ${inst.currentState} - timeout transitions:`,
+                      timeoutOnes.map((t: any) => ({ type: t.type, typeValue: JSON.stringify(t.type), timeoutMs: t.timeoutMs })));
+                  }
+                }
+              }
               instances.push({
                 ...inst,
                 pendingTimeouts

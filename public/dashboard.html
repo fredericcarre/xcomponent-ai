@@ -883,6 +883,99 @@
       renderComponentOverview();
     }
 
+    // Draw inter-machine arrows in diagram mode
+    function drawInterMachineArrows(interMachineLinks) {
+      const gridContainer = document.getElementById('diagram-grid-container');
+      if (!gridContainer) return;
+
+      // Remove existing SVG if any
+      const existingSvg = gridContainer.querySelector('svg.inter-machine-arrows');
+      if (existingSvg) existingSvg.remove();
+
+      // Get positions of all diagram cards
+      const cards = gridContainer.querySelectorAll('.diagram-card');
+      const positions = {};
+
+      cards.forEach(card => {
+        const machineName = card.getAttribute('data-machine');
+        const rect = card.getBoundingClientRect();
+        const containerRect = gridContainer.getBoundingClientRect();
+        positions[machineName] = {
+          x: rect.left - containerRect.left + rect.width / 2,
+          y: rect.top - containerRect.top + rect.height / 2,
+          width: rect.width,
+          height: rect.height
+        };
+      });
+
+      // Calculate SVG dimensions
+      let maxX = 0, maxY = 0;
+      Object.values(positions).forEach(pos => {
+        maxX = Math.max(maxX, pos.x + pos.width / 2);
+        maxY = Math.max(maxY, pos.y + pos.height / 2);
+      });
+
+      // Create SVG overlay
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.classList.add('inter-machine-arrows');
+      svg.setAttribute('width', maxX + 100);
+      svg.setAttribute('height', maxY + 100);
+      svg.style.position = 'absolute';
+      svg.style.top = '0';
+      svg.style.left = '0';
+      svg.style.pointerEvents = 'none';
+      svg.style.overflow = 'visible';
+      svg.style.zIndex = '10';
+
+      // Add arrowhead marker
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = `
+        <marker id="arrowhead-diagram" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+          <path d="M 0 0 L 10 6 L 0 12 z" fill="#10b981" />
+        </marker>`;
+      svg.appendChild(defs);
+
+      // Draw arrows for each inter-machine link
+      interMachineLinks.forEach((link) => {
+        const fromPos = positions[link.from];
+        const toPos = positions[link.to];
+
+        if (fromPos && toPos) {
+          const x1 = fromPos.x;
+          const y1 = fromPos.y;
+          const x2 = toPos.x;
+          const y2 = toPos.y;
+
+          // Calculate curve control point
+          const midX = (x1 + x2) / 2;
+          const midY = (y1 + y2) / 2;
+          const offset = 40;
+
+          // Create path
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', `M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}`);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#10b981');
+          path.setAttribute('stroke-width', '3');
+          path.setAttribute('marker-end', 'url(#arrowhead-diagram)');
+          svg.appendChild(path);
+
+          // Create label
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', midX);
+          text.setAttribute('y', midY - offset - 8);
+          text.setAttribute('fill', '#10b981');
+          text.setAttribute('font-size', '12');
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('font-weight', '700');
+          text.textContent = `🔗 ${link.event}`;
+          svg.appendChild(text);
+        }
+      });
+
+      gridContainer.appendChild(svg);
+    }
+
     // Component Overview - Show all machines with inter-machine connections
     async function renderComponentOverview() {
       const component = getCurrentComponent();
@@ -902,7 +995,23 @@
 
       if (overviewMode === 'diagrams') {
         // Diagram mode: Show full Mermaid diagrams with current state
-        let diagramsHtml = '<div class="diagram-grid">';
+
+        // Collect inter-machine transitions for arrows
+        const interMachineLinks = [];
+        machines.forEach(machine => {
+          (machine.transitions || []).forEach(transition => {
+            if (transition.type === 'inter_machine' && transition.targetMachine) {
+              interMachineLinks.push({
+                from: machine.name,
+                to: transition.targetMachine,
+                event: transition.event,
+                fromState: transition.from
+              });
+            }
+          });
+        });
+
+        let diagramsHtml = '<div class="diagram-grid" id="diagram-grid-container">';
 
         for (const machine of machines) {
           const isEntry = component.entryMachine === machine.name;
@@ -924,7 +1033,7 @@
             const data = await res.json();
 
             diagramsHtml += `
-              <div class="diagram-card ${isEntry ? 'entry-machine' : ''}" onclick="selectMachine('${machine.name}')">
+              <div class="diagram-card ${isEntry ? 'entry-machine' : ''}" data-machine="${machine.name}" onclick="selectMachine('${machine.name}')">
                 <div class="diagram-card-header">
                   <div class="diagram-card-title">
                     ${machine.name}
@@ -944,11 +1053,18 @@
 
         diagramsHtml += '</div>';
         container.innerHTML = diagramsHtml;
-        container.style.position = 'static';
+        container.style.position = 'relative';
         container.style.height = 'auto';
 
         // Render all Mermaid diagrams
         await mermaid.run({ querySelector: '.diagram-card-content .mermaid' });
+
+        // Add inter-machine arrows after layout is complete
+        if (interMachineLinks.length > 0) {
+          setTimeout(() => {
+            drawInterMachineArrows(interMachineLinks);
+          }, 100);
+        }
 
       } else {
         // Cards mode: Show summary cards with SVG arrows
@@ -1235,18 +1351,60 @@
         return;
       }
 
-      container.innerHTML = transitions.map(t => `
-        <div class="transition-item ${t.type === 'inter_machine' ? 'inter-machine' : ''}">
-          <div class="transition-info">
-            <div class="transition-event">${t.event}</div>
-            <div class="transition-path">${t.from} → ${t.to}</div>
-            ${t.targetMachine ? `<div class="transition-target">Creates instance in: ${t.targetMachine}</div>` : ''}
+      const component = getCurrentComponent();
+
+      container.innerHTML = transitions.map(t => {
+        // Get type label
+        let typeLabel = '';
+        let typeColor = '#666';
+        if (t.type === 'inter_machine') {
+          typeLabel = '🔗 Inter-Machine';
+          typeColor = '#10b981';
+        } else if (t.type === 'triggerable') {
+          typeLabel = '⚡ Triggerable';
+          typeColor = '#3b82f6';
+        } else {
+          typeLabel = '→ Regular';
+          typeColor = '#666';
+        }
+
+        // Get parameters if inter-machine
+        let paramsInfo = '';
+        if (t.targetMachine && component) {
+          const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
+          if (targetMachine && targetMachine.contextSchema) {
+            const params = Object.entries(targetMachine.contextSchema).map(([key, schema]) => {
+              const required = schema.required ? '<span style="color: #ef4444;">*</span>' : '';
+              return `<div style="font-size: 11px; color: #888; margin-left: 8px;">• ${key} <span style="color: #666;">(${schema.type})</span>${required}</div>`;
+            }).join('');
+            if (params) {
+              paramsInfo = `<div style="margin-top: 6px; padding: 6px 8px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border-left: 2px solid #3b82f6;">
+                <div style="font-size: 11px; color: #3b82f6; font-weight: 600; margin-bottom: 4px;">Required Parameters:</div>
+                ${params}
+              </div>`;
+            }
+          }
+        }
+
+        return `
+          <div class="transition-item ${t.type === 'inter_machine' ? 'inter-machine' : ''}">
+            <div class="transition-info">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <div class="transition-event">${t.event}</div>
+                <div style="font-size: 10px; font-weight: 600; color: ${typeColor}; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">${typeLabel}</div>
+              </div>
+              <div class="transition-path">${t.from} → ${t.to}</div>
+              ${t.targetMachine ? `<div class="transition-target" style="margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.15); border-radius: 4px; border-left: 2px solid #10b981;">
+                <div style="font-size: 11px; font-weight: 600; color: #10b981;">⚙️ Creates new instance in machine: <span style="font-weight: 700;">${t.targetMachine}</span></div>
+              </div>` : ''}
+              ${paramsInfo}
+            </div>
+            <button class="transition-send-btn" onclick="sendTransitionEvent('${instance.id}', '${t.event}')">
+              Send Event
+            </button>
           </div>
-          <button class="transition-send-btn" onclick="sendTransitionEvent('${instance.id}', '${t.event}')">
-            Send Event
-          </button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function clearTransitions() {

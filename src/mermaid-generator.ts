@@ -173,22 +173,10 @@ export function generateStyledMermaidDiagram(
     ? computeReachableStates(machine, currentState)
     : null;
 
-  // Get available transitions from current state
-  const availableTransitions = currentState
-    ? getAvailableTransitions(machine, currentState)
-    : null;
-
-  // Add all transitions with styling
-  machine.transitions.forEach((transition, index) => {
+  // Add all transitions
+  machine.transitions.forEach((transition) => {
     const transitionLabel = transition.event;
     lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
-
-    // Gray out unavailable transitions (not starting from current state)
-    if (availableTransitions && !availableTransitions.has(index)) {
-      // linkStyle uses 0-based index, but we have [*] --> initial as index 0
-      // so our transitions start at index 1
-      lines.push(`    linkStyle ${index + 1} stroke:#444,stroke-width:1px,opacity:0.4`);
-    }
   });
 
   lines.push('');
@@ -238,7 +226,8 @@ export function generateStyledMermaidDiagram(
     styleLines.push(`    classDef errorState fill:#ef4444,stroke:#dc2626,stroke-width:3px,color:#fff`);
   }
   if (usedClasses.has('inactiveState')) {
-    styleLines.push(`    classDef inactiveState fill:#333,stroke:#444,stroke-width:1px,color:#666,opacity:0.5`);
+    // Use muted colors for inactive states (opacity doesn't work in Mermaid)
+    styleLines.push(`    classDef inactiveState fill:#2a2a2a,stroke:#3a3a3a,stroke-width:1px,color:#555,stroke-dasharray:3`);
   }
 
   // Combine: base diagram + class definitions + state class applications

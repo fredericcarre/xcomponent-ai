@@ -1751,11 +1751,21 @@
         targetMachine: t.targetMachine
       }));
 
+      // Find the instance to display - use selected or auto-select first instance of this machine
+      let instanceToDisplay = null;
+      if (selectedInstanceId) {
+        instanceToDisplay = allInstances.find(i => i.id === selectedInstanceId);
+      }
+      if (!instanceToDisplay) {
+        // Auto-select first instance of this machine
+        instanceToDisplay = allInstances.find(i => i.machineName === selectedMachineName);
+      }
+
       try {
-        // Add instanceId to URL if an instance is selected
+        // Add instanceId to URL if we have an instance
         let url = `/api/machines/${selectedMachineName}/diagram`;
-        if (selectedInstanceId) {
-          url += `?instanceId=${selectedInstanceId}`;
+        if (instanceToDisplay) {
+          url += `?instanceId=${instanceToDisplay.id}`;
         }
 
         const res = await fetch(url);
@@ -1766,7 +1776,7 @@
         // Build diagram HTML with current state badge if available
         let diagramHtml = '<div class="mermaid">' + data.diagram + '</div>';
 
-        if (data.currentState && selectedInstanceId) {
+        if (data.currentState && instanceToDisplay) {
           diagramHtml += `<div style="margin-top: 12px; padding: 8px 16px; background: linear-gradient(135deg, #a855f7, #7c3aed); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; text-align: center; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);">
             🎯 Current: ${data.currentState}
           </div>`;
@@ -1775,22 +1785,19 @@
         container.innerHTML = diagramHtml;
         await mermaid.run({ querySelector: '#diagram-container .mermaid' });
 
-        // Apply state highlighting and timeout countdown if instance is selected
-        if (data.currentState && selectedInstanceId) {
-          const instance = allInstances.find(i => i.id === selectedInstanceId);
-          if (instance) {
-            // Clear previous countdowns
-            clearStateCountdowns();
+        // Apply state highlighting and timeout countdown if we have an instance
+        if (data.currentState && instanceToDisplay) {
+          // Clear previous countdowns
+          clearStateCountdowns();
 
-            // Compute reachable states and apply styles
-            const reachableStates = computeReachableStatesJS(machine.transitions, data.currentState);
-            const pendingTimeouts = instance.pendingTimeouts || [];
+          // Compute reachable states and apply styles
+          const reachableStates = computeReachableStatesJS(machine.transitions, data.currentState);
+          const pendingTimeouts = instanceToDisplay.pendingTimeouts || [];
 
-            // Apply styles to the diagram container (acts like a card)
-            setTimeout(() => {
-              applyStateStyles(container, data.currentState, reachableStates, pendingTimeouts);
-            }, 100);
-          }
+          // Apply styles to the diagram container (acts like a card)
+          setTimeout(() => {
+            applyStateStyles(container, data.currentState, reachableStates, pendingTimeouts);
+          }, 100);
         }
       } catch (error) {
         console.error('Error rendering diagram:', error);

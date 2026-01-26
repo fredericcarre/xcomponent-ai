@@ -844,12 +844,13 @@
     });
 
     socket.on('state_change', (data) => {
-      loadInstances();
-
-      // Refresh diagram if the selected instance changed state
-      if (selectedInstanceId && data.instanceId === selectedInstanceId) {
-        renderMachineDiagram();
-      }
+      // Force refresh instances and re-render
+      loadInstances().then(() => {
+        // Also refresh diagram if the selected instance changed state
+        if (selectedInstanceId && data.instanceId === selectedInstanceId) {
+          renderMachineDiagram();
+        }
+      });
     });
 
     // Component selector
@@ -884,32 +885,51 @@
     }
 
     // Find the position of a state node within a Mermaid diagram card
-    function findStatePosition(card, stateName, containerRect) {
+    function findStatePosition(card, stateName, containerRect, side = 'center') {
       // Look for the state node in the Mermaid SVG
       const svg = card.querySelector('svg');
       if (!svg) return null;
 
-      // Mermaid uses different selectors for state nodes
-      const stateNodes = svg.querySelectorAll('g.node, g.state');
-      for (const node of stateNodes) {
-        const textEl = node.querySelector('text');
-        if (textEl && textEl.textContent.trim() === stateName) {
-          const rect = node.getBoundingClientRect();
-          return {
-            x: rect.left - containerRect.left + rect.width / 2,
-            y: rect.top - containerRect.top + rect.height / 2
-          };
-        }
-      }
+      // Mermaid stateDiagram-v2 uses various structures for state nodes
+      // Try multiple selectors
+      const selectors = [
+        `g[id*="state-${stateName}"]`,
+        `g[id*="${stateName}"]`,
+        `g.node`,
+        `g.state`,
+        `g.stateGroup`
+      ];
 
-      // Fallback: try to find by id or class containing the state name
-      const stateById = svg.querySelector(`[id*="${stateName}"], [data-id*="${stateName}"]`);
-      if (stateById) {
-        const rect = stateById.getBoundingClientRect();
-        return {
-          x: rect.left - containerRect.left + rect.width / 2,
-          y: rect.top - containerRect.top + rect.height / 2
-        };
+      for (const selector of selectors) {
+        const nodes = svg.querySelectorAll(selector);
+        for (const node of nodes) {
+          // Check if this node contains text matching the state name
+          const textEls = node.querySelectorAll('text, tspan');
+          for (const textEl of textEls) {
+            if (textEl.textContent && textEl.textContent.trim() === stateName) {
+              // Found the state node, get its bounding rect
+              // Try to get the rect/path element for more accurate positioning
+              const shape = node.querySelector('rect, path, polygon, ellipse, circle');
+              const targetEl = shape || node;
+              const rect = targetEl.getBoundingClientRect();
+
+              // Calculate position based on requested side
+              let x, y;
+              if (side === 'right') {
+                x = rect.right - containerRect.left;
+                y = rect.top - containerRect.top + rect.height / 2;
+              } else if (side === 'left') {
+                x = rect.left - containerRect.left;
+                y = rect.top - containerRect.top + rect.height / 2;
+              } else {
+                x = rect.left - containerRect.left + rect.width / 2;
+                y = rect.top - containerRect.top + rect.height / 2;
+              }
+
+              return { x, y, width: rect.width, height: rect.height };
+            }
+          }
+        }
       }
 
       return null;
@@ -980,22 +1000,22 @@
         const toCard = cardPositions[link.to];
 
         if (fromCard && toCard) {
-          // Try to find the exact state positions
-          let sourcePos = findStatePosition(fromCard.card, link.fromState, containerRect);
+          // Try to find the exact state positions - use right side for source, left for target
+          let sourcePos = findStatePosition(fromCard.card, link.fromState, containerRect, 'right');
           const targetMachineInitialState = machineInitialStates[link.to] || 'Created';
-          let targetPos = findStatePosition(toCard.card, targetMachineInitialState, containerRect);
+          let targetPos = findStatePosition(toCard.card, targetMachineInitialState, containerRect, 'left');
 
           // Fallback to card edge if state not found
           if (!sourcePos) {
             sourcePos = {
-              x: fromCard.right,
+              x: fromCard.right - 20,
               y: fromCard.y
             };
           }
           if (!targetPos) {
             targetPos = {
-              x: toCard.left,
-              y: toCard.top + 80
+              x: toCard.left + 20,
+              y: toCard.top + 100
             };
           }
 
@@ -1009,8 +1029,8 @@
           const midY = (y1 + y2) / 2;
           const dx = x2 - x1;
           const dy = y2 - y1;
-          // Curve offset perpendicular to the line
-          const offset = Math.min(60, Math.sqrt(dx*dx + dy*dy) * 0.3);
+          // Curve offset perpendicular to the line - curve upward
+          const offset = Math.min(80, Math.sqrt(dx*dx + dy*dy) * 0.4);
 
           // Create path with better curve
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1024,12 +1044,12 @@
           // Create label showing the source state and event
           const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           text.setAttribute('x', midX);
-          text.setAttribute('y', midY - offset - 8);
+          text.setAttribute('y', midY - offset - 10);
           text.setAttribute('fill', '#10b981');
           text.setAttribute('font-size', '12');
           text.setAttribute('text-anchor', 'middle');
           text.setAttribute('font-weight', '700');
-          text.textContent = `🔗 ${link.event}`;
+          text.textContent = `🔗 ${link.fromState} → ${link.event}`;
           svg.appendChild(text);
         }
       });

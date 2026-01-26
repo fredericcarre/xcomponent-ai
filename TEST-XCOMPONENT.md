@@ -1,50 +1,50 @@
-# 🧪 Test du Pattern XComponent
+# XComponent Pattern Testing Guide
 
-## ⚠️ IMPORTANT : Utilisez le BON Exemple !
+## Important: Use the RIGHT Example!
 
-### ❌ PAS `explicit-transitions-demo.yaml`
-Cet exemple **N'A PAS** :
-- `entryMachine` → aucune instance créée au démarrage
-- Transitions `inter_machine` → pas de flèches vertes dans Component View
-- Il montre seulement le pattern `sender.sendToSelf()`
+### DON'T use `explicit-transitions-demo.yaml`
+This example **DOES NOT** have:
+- `entryMachine` → no instance created at startup
+- `inter_machine` transitions → no green arrows in Component View
+- It only demonstrates the `sender.sendToSelf()` pattern
 
-### ✅ Utilisez `simple-xcomponent-demo.yaml`
-Cet exemple **A TOUT** :
-- `entryMachine: Coordinator` → 1 instance créée automatiquement ⭐
-- 1 transition `inter_machine` → flèche verte Coordinator → Worker
-- Vue Component complète
+### USE `simple-xcomponent-demo.yaml`
+This example **HAS EVERYTHING**:
+- `entryMachine: Coordinator` → 1 instance created automatically
+- 1 `inter_machine` transition → green arrow from Coordinator → Worker
+- Complete Component View
 
-## 🚀 Test Étape par Étape
+## Step-by-Step Testing
 
-### 1. Démarrer le Serveur
+### 1. Start the Server
 
 ```bash
 xcomponent-ai serve examples/simple-xcomponent-demo.yaml
 ```
 
-**Ce que vous DEVEZ voir dans le terminal :**
+**What you MUST see in the terminal:**
 ```
-🚀 xcomponent-ai Runtime Started
+ xcomponent-ai Runtime Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[10:15:46] [SimpleXComponent] ⭐ Entry point instance created: abc12345 (Coordinator)
+[10:15:46] [SimpleXComponent] Entry point instance created: abc12345 (Coordinator)
 
-📦 Component: SimpleXComponent
-   ⭐ Entry Point: Coordinator    ← IMPORTANT : L'entry point est indiqué ici
+ Component: SimpleXComponent
+    Entry Point: Coordinator    ← IMPORTANT: Entry point is shown here
    Machines:
    - Coordinator (3 states, 3 transitions)
    - Worker (3 states, 2 transitions)
 ```
 
-### 2. Vérifier l'Instance Entry Point
+### 2. Verify the Entry Point Instance
 
-Dans un autre terminal :
+In another terminal:
 
 ```bash
-# Vérifier qu'une instance a été créée automatiquement
+# Check that an instance was created automatically
 curl http://localhost:3000/api/instances
 ```
 
-**Résultat attendu :**
+**Expected result:**
 ```json
 {
   "instances": [
@@ -53,86 +53,86 @@ curl http://localhost:3000/api/instances
       "machineName": "Coordinator",
       "currentState": "Ready",
       "status": "active",
-      "isEntryPoint": true,    ← IMPORTANT : Marqué comme entry point
+      "isEntryPoint": true,    ← IMPORTANT: Marked as entry point
       "componentName": "SimpleXComponent"
     }
   ]
 }
 ```
 
-### 3. Ouvrir le Dashboard
+### 3. Open the Dashboard
 
 ```bash
 open http://localhost:3000/dashboard.html
 ```
 
-## 📊 Ce que Vous Devez Voir dans le Dashboard
+## What You Should See in the Dashboard
 
-### Vue "Component View" (Tab par Défaut)
+### Component View (Default Tab)
 
 ```
 ┌─────────────────────────────────────────┐
-│  🏗️ Component Overview: SimpleXComponent │
+│   Component Overview: SimpleXComponent │
 ├─────────────────────────────────────────┤
 │                                         │
 │  ┌──────────────┐                      │
-│  │ ⭐ Coordinator│ [1]  ← Badge avec 1 instance
+│  │  Coordinator│ [1]  ← Badge with 1 instance
 │  │ Entry Point  │                      │
 │  │ 3 states     │                      │
 │  └──────┬───────┘                      │
 │         │                              │
-│         ↓ CREATE_WORKER (flèche verte) ← Cliquez ici !
+│         ↓ CREATE_WORKER (green arrow) ← Click here!
 │         │                              │
 │  ┌──────┴───────┐                      │
-│  │ Worker       │ [0]  ← Pas d'instance encore
+│  │ Worker       │ [0]  ← No instance yet
 │  │ 3 states     │                      │
 │  └──────────────┘                      │
 └─────────────────────────────────────────┘
 ```
 
-**Points Importants :**
-- ⭐ **Étoile jaune** à côté de "Coordinator" → C'est l'entry point
-- **Badge [1]** → 1 instance active du Coordinator
-- **Badge [0]** → 0 instance de Worker (normal, pas encore créée)
-- **Flèche verte** entre Coordinator et Worker → Transition `inter_machine`
+**Key Points:**
+- **Yellow star** next to "Coordinator" → It's the entry point
+- **Badge [1]** → 1 active Coordinator instance
+- **Badge [0]** → 0 Worker instances (normal, not created yet)
+- **Green arrow** between Coordinator and Worker → `inter_machine` transition
 
-### 4. Tester la Création d'Instance via Flèche Verte
+### 4. Test Instance Creation via Green Arrow
 
-#### Étape A : Préparer le Coordinator
+#### Step A: Prepare the Coordinator
 
-Le Coordinator doit être dans l'état `Working` pour déclencher `CREATE_WORKER`.
+The Coordinator must be in the `Working` state to trigger `CREATE_WORKER`.
 
 ```bash
-# Récupérer l'ID de l'instance entry point
+# Get the entry point instance ID
 ENTRY=$(curl -s http://localhost:3000/api/instances | jq -r '.instances[0].id')
 
-# Passer à Working
+# Move to Working state
 curl -X POST http://localhost:3000/api/instances/$ENTRY/events \
   -H "Content-Type: application/json" \
   -d '{"type": "START", "payload": {}}'
 ```
 
-**Dans le dashboard**, vous verrez :
-- Coordinator passe de `Ready` → `Working`
+**In the dashboard**, you'll see:
+- Coordinator moves from `Ready` → `Working`
 
-#### Étape B : Cliquer sur la Flèche Verte
+#### Step B: Click the Green Arrow
 
-1. **Dans Component View**, cliquez sur la **flèche verte** entre Coordinator et Worker
-2. Une popup vous demande l'instance (il n'y en a qu'une, donc validation auto)
-3. L'événement `CREATE_WORKER` est envoyé
+1. **In Component View**, click on the **green arrow** between Coordinator and Worker
+2. A popup asks for the instance (only one exists, so auto-validation)
+3. The `CREATE_WORKER` event is sent
 
-**Résultat Immédiat :**
-- 🎉 Une **nouvelle instance de Worker** est créée !
-- Badge Worker passe de [0] à [1]
-- Dans le terminal, vous voyez : `[10:16:05] Instance xyz789 created (Worker)`
+**Immediate Result:**
+- A **new Worker instance** is created!
+- Worker badge changes from [0] to [1]
+- In the terminal: `[10:16:05] Instance xyz789 created (Worker)`
 
-#### Étape C : Vérifier les Instances
+#### Step C: Verify the Instances
 
 ```bash
 curl http://localhost:3000/api/instances
 ```
 
-**Résultat attendu :**
+**Expected result:**
 ```json
 {
   "instances": [
@@ -140,25 +140,25 @@ curl http://localhost:3000/api/instances
       "id": "abc12345-...",
       "machineName": "Coordinator",
       "currentState": "Ready",
-      "isEntryPoint": true    ← Entry point (persiste)
+      "isEntryPoint": true    ← Entry point (persists)
     },
     {
       "id": "xyz789-...",
       "machineName": "Worker",
       "currentState": "Created",
-      "isEntryPoint": false   ← Instance normale (sera désallouée)
+      "isEntryPoint": false   ← Regular instance (will be deallocated)
     }
   ]
 }
 ```
 
-### 5. Tester l'Auto-Désallocation
+### 5. Test Auto-Deallocation
 
 ```bash
-# Récupérer l'ID du Worker
+# Get the Worker ID
 WORKER=$(curl -s http://localhost:3000/api/instances | jq -r '.instances[] | select(.machineName == "Worker") | .id')
 
-# Compléter le Worker (le mettre en état final)
+# Complete the Worker (move to final state)
 curl -X POST http://localhost:3000/api/instances/$WORKER/events \
   -H "Content-Type: application/json" \
   -d '{"type": "PROCESS", "payload": {}}'
@@ -168,73 +168,73 @@ curl -X POST http://localhost:3000/api/instances/$WORKER/events \
   -d '{"type": "COMPLETE", "payload": {}}'
 ```
 
-**Résultat Attendu :**
-- Worker passe à l'état `Completed` (type: final)
-- **Worker est DÉSALLOUÉ automatiquement** ✓
-- Badge Worker repasse de [1] à [0]
-- Terminal affiche : `Instance xyz789 disposed (Worker)`
+**Expected Result:**
+- Worker moves to `Completed` state (type: final)
+- **Worker is AUTOMATICALLY DEALLOCATED**
+- Worker badge goes from [1] back to [0]
+- Terminal shows: `Instance xyz789 disposed (Worker)`
 
 ```bash
-# Vérifier que le Worker a été désalloué
+# Verify the Worker was deallocated
 curl http://localhost:3000/api/instances
-# → Seulement le Coordinator reste !
+# → Only the Coordinator remains!
 ```
 
-### 6. Tester la Persistance de l'Entry Point
+### 6. Test Entry Point Persistence
 
 ```bash
-# Mettre le Coordinator en état final
+# Move the Coordinator to final state
 curl -X POST http://localhost:3000/api/instances/$ENTRY/events \
   -H "Content-Type: application/json" \
   -d '{"type": "FINISH", "payload": {}}'
 ```
 
-**Résultat Attendu :**
-- Coordinator passe à l'état `Done` (type: final)
-- **Coordinator RESTE VIVANT** ⭐ (car c'est l'entry point)
-- Badge Coordinator reste à [1]
+**Expected Result:**
+- Coordinator moves to `Done` state (type: final)
+- **Coordinator STAYS ALIVE** (because it's the entry point)
+- Coordinator badge remains at [1]
 
 ```bash
-# Vérifier que le Coordinator persiste
+# Verify the Coordinator persists
 curl http://localhost:3000/api/instances
-# → Le Coordinator est toujours là avec isEntryPoint: true
+# → Coordinator is still there with isEntryPoint: true
 ```
 
-## 🎯 Checklist de Validation
+## Validation Checklist
 
-- [ ] Le terminal affiche "⭐ Entry point instance created"
-- [ ] API `/api/instances` retourne 1 instance avec `isEntryPoint: true`
-- [ ] Dashboard Component View affiche ⭐ Coordinator avec badge [1]
-- [ ] Flèche verte visible entre Coordinator et Worker
-- [ ] Clic sur flèche verte crée une instance Worker
-- [ ] Badge Worker s'incrémente
-- [ ] Worker désalloué automatiquement en état final
-- [ ] Coordinator persiste même en état final
+- [ ] Terminal shows "Entry point instance created"
+- [ ] API `/api/instances` returns 1 instance with `isEntryPoint: true`
+- [ ] Dashboard Component View shows Coordinator with badge [1]
+- [ ] Green arrow visible between Coordinator and Worker
+- [ ] Clicking green arrow creates a Worker instance
+- [ ] Worker badge increments
+- [ ] Worker auto-deallocated when reaching final state
+- [ ] Coordinator persists even in final state
 
-## 🐛 Dépannage
+## Troubleshooting
 
-### Problème : "No instances yet"
-**Cause :** Vous utilisez `explicit-transitions-demo.yaml` au lieu de `simple-xcomponent-demo.yaml`
-**Solution :** Relancer avec le bon fichier
+### Problem: "No instances yet"
+**Cause:** You're using `explicit-transitions-demo.yaml` instead of `simple-xcomponent-demo.yaml`
+**Solution:** Restart with the correct file
 
-### Problème : "No inter-machine transitions"
-**Cause :** Le YAML n'a pas de champ `entryMachine` ou pas de transitions `type: inter_machine`
-**Solution :** Vérifier le contenu du fichier :
+### Problem: "No inter-machine transitions"
+**Cause:** The YAML doesn't have an `entryMachine` field or no `type: inter_machine` transitions
+**Solution:** Check the file contents:
 ```bash
 grep "entryMachine:" examples/simple-xcomponent-demo.yaml
 grep "inter_machine" examples/simple-xcomponent-demo.yaml
 ```
 
-### Problème : "Flèches vertes invisibles"
-**Cause :** Le composant n'a pas de transitions `inter_machine` définies
-**Solution :** Utiliser `simple-xcomponent-demo.yaml` ou `xcomponent-pattern-demo.yaml`
+### Problem: "Green arrows invisible"
+**Cause:** The component has no `inter_machine` transitions defined
+**Solution:** Use `simple-xcomponent-demo.yaml` or `xcomponent-pattern-demo.yaml`
 
-## 📚 Exemples Disponibles
+## Available Examples
 
-| Fichier | Entry Point | Inter-Machine | Difficulté |
-|---------|-------------|---------------|------------|
-| `simple-xcomponent-demo.yaml` | ✅ | ✅ (1) | ⭐ Facile |
-| `xcomponent-pattern-demo.yaml` | ✅ | ✅ (2) | ⭐⭐ Moyen |
-| `explicit-transitions-demo.yaml` | ❌ | ❌ | ⭐ (Autre pattern) |
+| File | Entry Point | Inter-Machine | Difficulty |
+|------|-------------|---------------|------------|
+| `simple-xcomponent-demo.yaml` | Yes | Yes (1) | Easy |
+| `xcomponent-pattern-demo.yaml` | Yes | Yes (2) | Medium |
+| `explicit-transitions-demo.yaml` | No | No | Easy (Different pattern) |
 
-**Recommandation :** Commencez par `simple-xcomponent-demo.yaml` !
+**Recommendation:** Start with `simple-xcomponent-demo.yaml`!

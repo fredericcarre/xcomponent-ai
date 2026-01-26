@@ -346,30 +346,12 @@ export class APIServer {
           const runtime = this.registry.getRuntime(componentName);
           if (runtime) {
             const componentInstances = runtime.getAllInstances();
-            console.log(`[API] Loading ${componentInstances.length} instances for ${componentName}`);
-            // Add timeout info to each instance
             componentInstances.forEach(inst => {
-              console.log(`[API] Instance ${inst.id} in state ${inst.currentState}`);
               const pendingTimeouts = runtime.getPendingTimeouts(inst.id);
-              console.log(`[API] pendingTimeouts for ${inst.id}:`, pendingTimeouts);
-              // Debug: add transition info to response for debugging
-              let debugTransitions: any[] = [];
-              const machine = (runtime as any).machines?.get(inst.machineName);
-              if (machine) {
-                const relevantTransitions = machine.transitions?.filter(
-                  (t: any) => t.from === inst.currentState
-                );
-                debugTransitions = relevantTransitions?.map((t: any) => ({
-                  event: t.event,
-                  type: t.type,
-                  typeofType: typeof t.type,
-                  timeoutMs: t.timeoutMs
-                })) || [];
-              }
               instances.push({
                 ...inst,
-                pendingTimeouts,
-                _debug: { transitions: debugTransitions }
+                componentName,
+                pendingTimeouts
               });
             });
           }

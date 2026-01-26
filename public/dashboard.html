@@ -883,8 +883,40 @@
       renderComponentOverview();
     }
 
+    // Find the position of a state node within a Mermaid diagram card
+    function findStatePosition(card, stateName, containerRect) {
+      // Look for the state node in the Mermaid SVG
+      const svg = card.querySelector('svg');
+      if (!svg) return null;
+
+      // Mermaid uses different selectors for state nodes
+      const stateNodes = svg.querySelectorAll('g.node, g.state');
+      for (const node of stateNodes) {
+        const textEl = node.querySelector('text');
+        if (textEl && textEl.textContent.trim() === stateName) {
+          const rect = node.getBoundingClientRect();
+          return {
+            x: rect.left - containerRect.left + rect.width / 2,
+            y: rect.top - containerRect.top + rect.height / 2
+          };
+        }
+      }
+
+      // Fallback: try to find by id or class containing the state name
+      const stateById = svg.querySelector(`[id*="${stateName}"], [data-id*="${stateName}"]`);
+      if (stateById) {
+        const rect = stateById.getBoundingClientRect();
+        return {
+          x: rect.left - containerRect.left + rect.width / 2,
+          y: rect.top - containerRect.top + rect.height / 2
+        };
+      }
+
+      return null;
+    }
+
     // Draw inter-machine arrows in diagram mode
-    function drawInterMachineArrows(interMachineLinks) {
+    function drawInterMachineArrows(interMachineLinks, machineInitialStates) {
       const gridContainer = document.getElementById('diagram-grid-container');
       if (!gridContainer) return;
 
@@ -892,27 +924,34 @@
       const existingSvg = gridContainer.querySelector('svg.inter-machine-arrows');
       if (existingSvg) existingSvg.remove();
 
-      // Get positions of all diagram cards
+      const containerRect = gridContainer.getBoundingClientRect();
+
+      // Get positions of all diagram cards and their states
       const cards = gridContainer.querySelectorAll('.diagram-card');
-      const positions = {};
+      const cardPositions = {};
+      const statePositions = {};
 
       cards.forEach(card => {
         const machineName = card.getAttribute('data-machine');
         const rect = card.getBoundingClientRect();
-        const containerRect = gridContainer.getBoundingClientRect();
-        positions[machineName] = {
+        cardPositions[machineName] = {
           x: rect.left - containerRect.left + rect.width / 2,
           y: rect.top - containerRect.top + rect.height / 2,
+          left: rect.left - containerRect.left,
+          right: rect.right - containerRect.left,
+          top: rect.top - containerRect.top,
+          bottom: rect.bottom - containerRect.top,
           width: rect.width,
-          height: rect.height
+          height: rect.height,
+          card: card
         };
       });
 
       // Calculate SVG dimensions
       let maxX = 0, maxY = 0;
-      Object.values(positions).forEach(pos => {
-        maxX = Math.max(maxX, pos.x + pos.width / 2);
-        maxY = Math.max(maxY, pos.y + pos.height / 2);
+      Object.values(cardPositions).forEach(pos => {
+        maxX = Math.max(maxX, pos.right + 50);
+        maxY = Math.max(maxY, pos.bottom + 50);
       });
 
       // Create SVG overlay
@@ -937,21 +976,43 @@
 
       // Draw arrows for each inter-machine link
       interMachineLinks.forEach((link) => {
-        const fromPos = positions[link.from];
-        const toPos = positions[link.to];
+        const fromCard = cardPositions[link.fromMachine];
+        const toCard = cardPositions[link.to];
 
-        if (fromPos && toPos) {
-          const x1 = fromPos.x;
-          const y1 = fromPos.y;
-          const x2 = toPos.x;
-          const y2 = toPos.y;
+        if (fromCard && toCard) {
+          // Try to find the exact state positions
+          let sourcePos = findStatePosition(fromCard.card, link.fromState, containerRect);
+          const targetMachineInitialState = machineInitialStates[link.to] || 'Created';
+          let targetPos = findStatePosition(toCard.card, targetMachineInitialState, containerRect);
+
+          // Fallback to card edge if state not found
+          if (!sourcePos) {
+            sourcePos = {
+              x: fromCard.right,
+              y: fromCard.y
+            };
+          }
+          if (!targetPos) {
+            targetPos = {
+              x: toCard.left,
+              y: toCard.top + 80
+            };
+          }
+
+          const x1 = sourcePos.x;
+          const y1 = sourcePos.y;
+          const x2 = targetPos.x;
+          const y2 = targetPos.y;
 
           // Calculate curve control point
           const midX = (x1 + x2) / 2;
           const midY = (y1 + y2) / 2;
-          const offset = 40;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          // Curve offset perpendicular to the line
+          const offset = Math.min(60, Math.sqrt(dx*dx + dy*dy) * 0.3);
 
-          // Create path
+          // Create path with better curve
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           path.setAttribute('d', `M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}`);
           path.setAttribute('fill', 'none');
@@ -960,7 +1021,7 @@
           path.setAttribute('marker-end', 'url(#arrowhead-diagram)');
           svg.appendChild(path);
 
-          // Create label
+          // Create label showing the source state and event
           const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           text.setAttribute('x', midX);
           text.setAttribute('y', midY - offset - 8);
@@ -996,16 +1057,18 @@
       if (overviewMode === 'diagrams') {
         // Diagram mode: Show full Mermaid diagrams with current state
 
-        // Collect inter-machine transitions for arrows
+        // Collect inter-machine transitions for arrows and machine initial states
         const interMachineLinks = [];
+        const machineInitialStates = {};
         machines.forEach(machine => {
+          machineInitialStates[machine.name] = machine.initialState;
           (machine.transitions || []).forEach(transition => {
             if (transition.type === 'inter_machine' && transition.targetMachine) {
               interMachineLinks.push({
-                from: machine.name,
+                fromMachine: machine.name,
+                fromState: transition.from,
                 to: transition.targetMachine,
-                event: transition.event,
-                fromState: transition.from
+                event: transition.event
               });
             }
           });
@@ -1021,12 +1084,36 @@
             // Get first instance of this machine to show its current state
             let url = `/api/machines/${machine.name}/diagram`;
             let currentStateText = '';
+            let quickActionsHtml = '';
+
             if (machineInstances.length > 0) {
               const firstInstance = machineInstances[0];
               url += `?instanceId=${firstInstance.id}`;
               currentStateText = `<div style="margin-top: 8px; padding: 6px 10px; background: #3b82f6; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; text-align: center;">
                 📍 Current: ${firstInstance.currentState}
               </div>`;
+
+              // Get available transitions from current state
+              const availableTransitions = (machine.transitions || []).filter(t => t.from === firstInstance.currentState);
+              if (availableTransitions.length > 0) {
+                quickActionsHtml = `<div class="quick-actions" style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" onclick="event.stopPropagation()">
+                  <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">⚡ Quick Actions</div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    ${availableTransitions.map(t => {
+                      const isInterMachine = t.type === 'inter_machine';
+                      const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
+                      const icon = isInterMachine ? '🔗' : '→';
+                      return `<button onclick="event.stopPropagation(); sendQuickEvent('${firstInstance.id}', '${t.event}')"
+                        style="padding: 6px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 11px; font-weight: 600; cursor: pointer; transition: transform 0.1s, opacity 0.1s;"
+                        onmouseover="this.style.opacity='0.8'; this.style.transform='translateY(-1px)'"
+                        onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'"
+                        title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}">
+                        ${icon} ${t.event}
+                      </button>`;
+                    }).join('')}
+                  </div>
+                </div>`;
+              }
             }
 
             const res = await fetch(url);
@@ -1044,6 +1131,7 @@
                 <div class="diagram-card-content">
                   <div class="mermaid">${data.diagram}</div>
                   ${currentStateText}
+                  ${quickActionsHtml}
                 </div>
               </div>`;
           } catch (error) {
@@ -1062,7 +1150,7 @@
         // Add inter-machine arrows after layout is complete
         if (interMachineLinks.length > 0) {
           setTimeout(() => {
-            drawInterMachineArrows(interMachineLinks);
+            drawInterMachineArrows(interMachineLinks, machineInitialStates);
           }, 100);
         }
 
@@ -1074,10 +1162,10 @@
           (machine.transitions || []).forEach(transition => {
             if (transition.type === 'inter_machine' && transition.targetMachine) {
               interMachineLinks.push({
-                from: machine.name,
+                fromMachine: machine.name,
+                fromState: transition.from,
                 to: transition.targetMachine,
-                event: transition.event,
-                fromState: transition.from
+                event: transition.event
               });
             }
           });
@@ -1114,7 +1202,7 @@
 
         // Draw inter-machine arrows
         interMachineLinks.forEach((link, idx) => {
-          const fromPos = positions[link.from];
+          const fromPos = positions[link.fromMachine];
           const toPos = positions[link.to];
           if (fromPos && toPos) {
             const x1 = fromPos.x + cardWidth / 2;
@@ -1132,7 +1220,7 @@
                     fill="none" stroke="#10b981" stroke-width="3"
                     marker-end="url(#arrowhead)" />
               <text x="${midX}" y="${midY - offset - 8}" fill="#10b981" font-size="11"
-                    text-anchor="middle" font-weight="600">${link.event}</text>`;
+                    text-anchor="middle" font-weight="600">${link.fromState} → ${link.event}</text>`;
           }
         });
 
@@ -1415,6 +1503,23 @@
     }
 
     async function sendTransitionEvent(instanceId, eventType) {
+      const component = getCurrentComponent();
+      if (!component) return;
+
+      try {
+        await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: eventType, payload: {} })
+        });
+        showToast(`Event "${eventType}" sent`, 'success');
+      } catch (error) {
+        showToast('Failed to send event', 'error');
+      }
+    }
+
+    // Quick event sender from overview
+    async function sendQuickEvent(instanceId, eventType) {
       const component = getCurrentComponent();
       if (!component) return;
 

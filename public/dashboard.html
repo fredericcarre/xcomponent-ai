@@ -1018,178 +1018,6 @@
       return reachable;
     }
 
-    // Find the position of a state node within a Mermaid diagram card
-    function findStatePosition(card, stateName, containerRect, side = 'center') {
-      // Look for the state node in the Mermaid SVG
-      const svg = card.querySelector('svg');
-      if (!svg) return null;
-
-      // Mermaid stateDiagram-v2 uses various structures for state nodes
-      // Try multiple selectors
-      const selectors = [
-        `g[id*="state-${stateName}"]`,
-        `g[id*="${stateName}"]`,
-        `g.node`,
-        `g.state`,
-        `g.stateGroup`
-      ];
-
-      for (const selector of selectors) {
-        const nodes = svg.querySelectorAll(selector);
-        for (const node of nodes) {
-          // Check if this node contains text matching the state name
-          const textEls = node.querySelectorAll('text, tspan');
-          for (const textEl of textEls) {
-            if (textEl.textContent && textEl.textContent.trim() === stateName) {
-              // Found the state node, get its bounding rect
-              // Try to get the rect/path element for more accurate positioning
-              const shape = node.querySelector('rect, path, polygon, ellipse, circle');
-              const targetEl = shape || node;
-              const rect = targetEl.getBoundingClientRect();
-
-              // Calculate position based on requested side
-              let x, y;
-              if (side === 'right') {
-                x = rect.right - containerRect.left;
-                y = rect.top - containerRect.top + rect.height / 2;
-              } else if (side === 'left') {
-                x = rect.left - containerRect.left;
-                y = rect.top - containerRect.top + rect.height / 2;
-              } else {
-                x = rect.left - containerRect.left + rect.width / 2;
-                y = rect.top - containerRect.top + rect.height / 2;
-              }
-
-              return { x, y, width: rect.width, height: rect.height };
-            }
-          }
-        }
-      }
-
-      return null;
-    }
-
-    // Draw inter-machine arrows in diagram mode
-    function drawInterMachineArrows(interMachineLinks, machineInitialStates) {
-      const gridContainer = document.getElementById('diagram-grid-container');
-      if (!gridContainer) return;
-
-      // Remove existing SVG if any
-      const existingSvg = gridContainer.querySelector('svg.inter-machine-arrows');
-      if (existingSvg) existingSvg.remove();
-
-      const containerRect = gridContainer.getBoundingClientRect();
-
-      // Get positions of all diagram cards and their states
-      const cards = gridContainer.querySelectorAll('.diagram-card');
-      const cardPositions = {};
-      const statePositions = {};
-
-      cards.forEach(card => {
-        const machineName = card.getAttribute('data-machine');
-        const rect = card.getBoundingClientRect();
-        cardPositions[machineName] = {
-          x: rect.left - containerRect.left + rect.width / 2,
-          y: rect.top - containerRect.top + rect.height / 2,
-          left: rect.left - containerRect.left,
-          right: rect.right - containerRect.left,
-          top: rect.top - containerRect.top,
-          bottom: rect.bottom - containerRect.top,
-          width: rect.width,
-          height: rect.height,
-          card: card
-        };
-      });
-
-      // Calculate SVG dimensions
-      let maxX = 0, maxY = 0;
-      Object.values(cardPositions).forEach(pos => {
-        maxX = Math.max(maxX, pos.right + 50);
-        maxY = Math.max(maxY, pos.bottom + 50);
-      });
-
-      // Create SVG overlay
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.classList.add('inter-machine-arrows');
-      svg.setAttribute('width', maxX + 100);
-      svg.setAttribute('height', maxY + 100);
-      svg.style.position = 'absolute';
-      svg.style.top = '0';
-      svg.style.left = '0';
-      svg.style.pointerEvents = 'none';
-      svg.style.overflow = 'visible';
-      svg.style.zIndex = '10';
-
-      // Add arrowhead marker
-      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-      defs.innerHTML = `
-        <marker id="arrowhead-diagram" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-          <path d="M 0 0 L 10 6 L 0 12 z" fill="#10b981" />
-        </marker>`;
-      svg.appendChild(defs);
-
-      // Draw arrows for each inter-machine link
-      interMachineLinks.forEach((link) => {
-        const fromCard = cardPositions[link.fromMachine];
-        const toCard = cardPositions[link.to];
-
-        if (fromCard && toCard) {
-          // Simple positioning: connect card edges with clear offset
-          // Source: right edge of source card, slightly below center
-          const x1 = fromCard.right;
-          const y1 = fromCard.top + fromCard.height * 0.4;
-
-          // Target: left edge of target card, near top (initial state area)
-          const x2 = toCard.left;
-          const y2 = toCard.top + 120; // Near the initial state
-
-          // Calculate curve control point - curve upward
-          const midX = (x1 + x2) / 2;
-          const midY = Math.min(y1, y2);
-          const curveHeight = 60;
-
-          // Create path with smooth curve
-          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', `M ${x1} ${y1} C ${x1 + 50} ${y1 - curveHeight}, ${x2 - 50} ${y2 - curveHeight}, ${x2} ${y2}`);
-          path.setAttribute('fill', 'none');
-          path.setAttribute('stroke', '#10b981');
-          path.setAttribute('stroke-width', '3');
-          path.setAttribute('marker-end', 'url(#arrowhead-diagram)');
-          svg.appendChild(path);
-
-          // Create label with background for better readability
-          const labelX = midX;
-          const labelY = midY - curveHeight - 5;
-
-          // Background rect for label
-          const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          const labelText = `🔗 ${link.event}`;
-          labelBg.setAttribute('x', labelX - 60);
-          labelBg.setAttribute('y', labelY - 14);
-          labelBg.setAttribute('width', '120');
-          labelBg.setAttribute('height', '20');
-          labelBg.setAttribute('rx', '4');
-          labelBg.setAttribute('fill', 'rgba(16, 185, 129, 0.2)');
-          labelBg.setAttribute('stroke', '#10b981');
-          labelBg.setAttribute('stroke-width', '1');
-          svg.appendChild(labelBg);
-
-          // Label text
-          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          text.setAttribute('x', labelX);
-          text.setAttribute('y', labelY);
-          text.setAttribute('fill', '#10b981');
-          text.setAttribute('font-size', '11');
-          text.setAttribute('text-anchor', 'middle');
-          text.setAttribute('font-weight', '700');
-          text.textContent = labelText;
-          svg.appendChild(text);
-        }
-      });
-
-      gridContainer.appendChild(svg);
-    }
-
     // Component Overview - Show all machines with inter-machine connections
     async function renderComponentOverview() {
       const component = getCurrentComponent();
@@ -1210,7 +1038,7 @@
       if (overviewMode === 'diagrams') {
         // Diagram mode: Show full Mermaid diagrams with current state
 
-        // Collect inter-machine transitions for arrows and machine initial states
+        // Collect inter-machine transitions for overview flowchart
         const interMachineLinks = [];
         const machineInitialStates = {};
         machines.forEach(machine => {
@@ -1227,7 +1055,42 @@
           });
         });
 
-        let diagramsHtml = '<div class="diagram-grid" id="diagram-grid-container">';
+        // Build inter-machine flowchart if there are connections
+        let interMachineFlowchartHtml = '';
+        if (interMachineLinks.length > 0) {
+          let flowchartDef = 'flowchart LR\n';
+
+          // Add nodes
+          machines.forEach(machine => {
+            const isEntry = component.entryMachine === machine.name;
+            const icon = isEntry ? '⭐' : '📦';
+            flowchartDef += `  ${machine.name}["${icon} ${machine.name}"]\n`;
+          });
+
+          // Add inter-machine connections
+          interMachineLinks.forEach(link => {
+            flowchartDef += `  ${link.fromMachine} -->|"🔗 ${link.event}"| ${link.to}\n`;
+          });
+
+          // Style nodes
+          flowchartDef += '  classDef entryNode fill:#fbbf24,stroke:#f59e0b,color:#000,stroke-width:2px\n';
+          flowchartDef += '  classDef normalNode fill:#1f2937,stroke:#4b5563,color:#f0f0f0,stroke-width:1px\n';
+          machines.forEach(machine => {
+            const isEntry = component.entryMachine === machine.name;
+            flowchartDef += `  class ${machine.name} ${isEntry ? 'entryNode' : 'normalNode'}\n`;
+          });
+          flowchartDef += '  linkStyle default stroke:#10b981,stroke-width:3px\n';
+
+          interMachineFlowchartHtml = `
+            <div style="margin-bottom: 20px; padding: 16px; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px;">
+              <div style="font-size: 12px; color: #10b981; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <span>🔗</span> Inter-Machine Connections
+              </div>
+              <div class="mermaid" id="inter-machine-flowchart">${flowchartDef}</div>
+            </div>`;
+        }
+
+        let diagramsHtml = interMachineFlowchartHtml + '<div class="diagram-grid" id="diagram-grid-container">';
 
         // Store machine state info for post-render styling
         const machineStateInfo = [];
@@ -1272,26 +1135,44 @@
                   return null;
                 };
 
+                // Build Quick Actions with inline parameter forms
+                const transitionsHtml = availableTransitions.map(t => {
+                  const isInterMachine = t.type === 'inter_machine';
+                  const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
+                  const icon = isInterMachine ? '🔗' : '→';
+                  const schema = getTargetSchema(t);
+                  const hasParams = schema && Object.keys(schema).length > 0;
+                  const formId = `overview-form-${machine.name}-${t.event}`.replace(/[^a-zA-Z0-9-]/g, '-');
+
+                  // Build inline parameter inputs if schema exists
+                  let paramsHtml = '';
+                  if (hasParams) {
+                    paramsHtml = `<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                      ${Object.entries(schema).map(([key, field]) => {
+                        const inputId = `${formId}-${key}`;
+                        const inputType = field.type === 'number' ? 'number' : 'text';
+                        return `<input type="${inputType}" id="${inputId}" placeholder="${field.label || key}${field.required ? '*' : ''}"
+                          style="flex: 1; min-width: 80px; padding: 6px 8px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 4px; color: var(--text-primary); font-size: 11px;"
+                          onclick="event.stopPropagation()">`;
+                      }).join('')}
+                    </div>`;
+                  }
+
+                  return `<div style="margin-bottom: 8px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 6px; border-left: 3px solid ${btnColor};">
+                    ${paramsHtml}
+                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${hasParams ? JSON.stringify(Object.keys(schema)) : '[]'})"
+                      style="width: 100%; padding: 8px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;"
+                      onmouseover="this.style.opacity='0.85'"
+                      onmouseout="this.style.opacity='1'"
+                      title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}">
+                      ${icon} ${t.event}${isInterMachine ? ' → ' + t.targetMachine : ''}
+                    </button>
+                  </div>`;
+                }).join('');
+
                 quickActionsHtml = `<div class="quick-actions" style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" onclick="event.stopPropagation()">
                   <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">⚡ Quick Actions</div>
-                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                    ${availableTransitions.map(t => {
-                      const isInterMachine = t.type === 'inter_machine';
-                      const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
-                      const icon = isInterMachine ? '🔗' : '→';
-                      const schema = getTargetSchema(t);
-                      const hasParams = schema && Object.keys(schema).length > 0;
-                      const paramsIcon = hasParams ? ' 📝' : '';
-                      const paramsTitle = hasParams ? ' (has parameters - click card for details)' : '';
-                      return `<button onclick="event.stopPropagation(); sendQuickEvent('${firstInstance.id}', '${t.event}')"
-                        style="padding: 6px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 11px; font-weight: 600; cursor: pointer; transition: transform 0.1s, opacity 0.1s;"
-                        onmouseover="this.style.opacity='0.8'; this.style.transform='translateY(-1px)'"
-                        onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'"
-                        title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}${paramsTitle}">
-                        ${icon} ${t.event}${paramsIcon}
-                      </button>`;
-                    }).join('')}
-                  </div>
+                  ${transitionsHtml}
                 </div>`;
               }
             }
@@ -1324,7 +1205,12 @@
         container.style.position = 'relative';
         container.style.height = 'auto';
 
-        // Render all Mermaid diagrams
+        // Render inter-machine flowchart first (if exists)
+        if (interMachineLinks.length > 0) {
+          await mermaid.run({ querySelector: '#inter-machine-flowchart' });
+        }
+
+        // Render all state machine diagrams
         await mermaid.run({ querySelector: '.diagram-card-content .mermaid' });
 
         // Apply current state highlighting and gray out unreachable states after Mermaid renders
@@ -1336,11 +1222,6 @@
               applyStateStyles(card, info.currentState, reachableStates);
             }
           });
-
-          // Add inter-machine arrows after styling is applied
-          if (interMachineLinks.length > 0) {
-            drawInterMachineArrows(interMachineLinks, machineInitialStates);
-          }
         }, 150);
 
       } else {
@@ -1753,21 +1634,49 @@
       }
     }
 
-    // Quick event sender from overview (simple, no params - opens detail for params)
-    async function sendQuickEvent(instanceId, eventType) {
+    // Quick event sender from overview with parameters
+    async function sendQuickEventWithParams(instanceId, eventType, formId, paramKeys) {
       const component = getCurrentComponent();
       if (!component) return;
 
+      // Collect parameters from the inline form
+      const payload = {};
+      if (paramKeys && paramKeys.length > 0) {
+        paramKeys.forEach(key => {
+          const input = document.getElementById(`${formId}-${key}`);
+          if (input && input.value) {
+            // Try to convert to number if it looks like a number
+            const val = input.value;
+            payload[key] = isNaN(val) ? val : parseFloat(val);
+          }
+        });
+      }
+
       try {
-        await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
+        const res = await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: eventType, payload: {} })
+          body: JSON.stringify({ type: eventType, payload })
         });
-        showToast(`Event "${eventType}" sent`, 'success');
+        if (res.ok) {
+          showToast(`Event "${eventType}" sent`, 'success');
+          // Clear the form inputs after successful send
+          paramKeys.forEach(key => {
+            const input = document.getElementById(`${formId}-${key}`);
+            if (input) input.value = '';
+          });
+        } else {
+          const error = await res.json();
+          showToast(`Error: ${error.error || 'Failed'}`, 'error');
+        }
       } catch (error) {
         showToast('Failed to send event', 'error');
       }
+    }
+
+    // Quick event sender from overview (simple, no params)
+    async function sendQuickEvent(instanceId, eventType) {
+      return sendQuickEventWithParams(instanceId, eventType, null, []);
     }
 
     // Stats

@@ -728,8 +728,8 @@
         <div class="overview-header">
           <div class="overview-title" id="overview-title">Component Overview</div>
           <div class="overview-controls">
-            <button class="view-mode-btn active" id="btn-cards" onclick="setOverviewMode('cards')">📊 Cards</button>
-            <button class="view-mode-btn" id="btn-diagrams" onclick="setOverviewMode('diagrams')">📈 Diagrams</button>
+            <button class="view-mode-btn" id="btn-cards" onclick="setOverviewMode('cards')">📊 Cards</button>
+            <button class="view-mode-btn active" id="btn-diagrams" onclick="setOverviewMode('diagrams')">📈 Diagrams</button>
             <div class="overview-legend">
               <div class="legend-item">
                 <div class="legend-box entry"></div>
@@ -810,7 +810,7 @@
     let selectedInstanceId = null;
     let allInstances = [];
     let currentTransitions = [];
-    let overviewMode = 'cards'; // 'cards' or 'diagrams'
+    let overviewMode = 'diagrams'; // 'cards' or 'diagrams' - default to diagrams
 
     // Socket.IO connection
     socket = io();
@@ -830,6 +830,7 @@
       if (componentsData.length > 0 && !selectedComponentName) {
         selectedComponentName = componentsData[0].name;
         populateComponentSelector();
+        loadInstances();  // Load instances after component is selected
         renderComponentOverview();
       }
     });
@@ -1254,8 +1255,7 @@
       }, 3000);
     }
 
-    // Initialize
-    loadInstances();
+    // Initialize - instances will be loaded after components_list is received
   </script>
 </body>
 </html>

@@ -884,6 +884,71 @@
       renderComponentOverview();
     }
 
+    // Apply accessibility styling to Mermaid SVG after rendering
+    function applyStateAccessibilityStyles(card, currentState, reachableStates) {
+      const svg = card.querySelector('svg');
+      if (!svg) return;
+
+      // Find all state nodes in the Mermaid SVG
+      const nodes = svg.querySelectorAll('g.node, g.stateGroup, g[class*="state"]');
+
+      nodes.forEach(node => {
+        // Find the text element to get the state name
+        const textEls = node.querySelectorAll('text, tspan');
+        let stateName = null;
+
+        for (const textEl of textEls) {
+          const text = textEl.textContent?.trim();
+          if (text && text !== '' && !text.includes('-->') && !text.includes(':')) {
+            stateName = text;
+            break;
+          }
+        }
+
+        if (!stateName) return;
+
+        // Find the shape element (rect, path, etc.)
+        const shape = node.querySelector('rect, path.state-box, polygon');
+        if (!shape) return;
+
+        if (stateName === currentState) {
+          // Current state: bright purple/magenta border with glow
+          shape.style.stroke = '#a855f7';
+          shape.style.strokeWidth = '4px';
+          shape.style.filter = 'drop-shadow(0 0 8px #a855f7)';
+        } else if (!reachableStates.has(stateName)) {
+          // Unreachable state: grayed out
+          shape.style.fill = '#1a1a1a';
+          shape.style.stroke = '#333';
+          shape.style.strokeWidth = '1px';
+          shape.style.opacity = '0.4';
+          // Also gray out the text
+          textEls.forEach(t => {
+            t.style.fill = '#444';
+            t.style.opacity = '0.4';
+          });
+        }
+      });
+    }
+
+    // Compute reachable states from current state (BFS)
+    function computeReachableStatesJS(transitions, currentState) {
+      const reachable = new Set([currentState]);
+      const queue = [currentState];
+
+      while (queue.length > 0) {
+        const state = queue.shift();
+        transitions.forEach(t => {
+          if (t.from === state && !reachable.has(t.to)) {
+            reachable.add(t.to);
+            queue.push(t.to);
+          }
+        });
+      }
+
+      return reachable;
+    }
+
     // Find the position of a state node within a Mermaid diagram card
     function findStatePosition(card, stateName, containerRect, side = 'center') {
       // Look for the state node in the Mermaid SVG
@@ -1000,56 +1065,55 @@
         const toCard = cardPositions[link.to];
 
         if (fromCard && toCard) {
-          // Try to find the exact state positions - use right side for source, left for target
-          let sourcePos = findStatePosition(fromCard.card, link.fromState, containerRect, 'right');
-          const targetMachineInitialState = machineInitialStates[link.to] || 'Created';
-          let targetPos = findStatePosition(toCard.card, targetMachineInitialState, containerRect, 'left');
+          // Simple positioning: connect card edges with clear offset
+          // Source: right edge of source card, slightly below center
+          const x1 = fromCard.right;
+          const y1 = fromCard.top + fromCard.height * 0.4;
 
-          // Fallback to card edge if state not found
-          if (!sourcePos) {
-            sourcePos = {
-              x: fromCard.right - 20,
-              y: fromCard.y
-            };
-          }
-          if (!targetPos) {
-            targetPos = {
-              x: toCard.left + 20,
-              y: toCard.top + 100
-            };
-          }
+          // Target: left edge of target card, near top (initial state area)
+          const x2 = toCard.left;
+          const y2 = toCard.top + 120; // Near the initial state
 
-          const x1 = sourcePos.x;
-          const y1 = sourcePos.y;
-          const x2 = targetPos.x;
-          const y2 = targetPos.y;
-
-          // Calculate curve control point
+          // Calculate curve control point - curve upward
           const midX = (x1 + x2) / 2;
-          const midY = (y1 + y2) / 2;
-          const dx = x2 - x1;
-          const dy = y2 - y1;
-          // Curve offset perpendicular to the line - curve upward
-          const offset = Math.min(80, Math.sqrt(dx*dx + dy*dy) * 0.4);
+          const midY = Math.min(y1, y2);
+          const curveHeight = 60;
 
-          // Create path with better curve
+          // Create path with smooth curve
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', `M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}`);
+          path.setAttribute('d', `M ${x1} ${y1} C ${x1 + 50} ${y1 - curveHeight}, ${x2 - 50} ${y2 - curveHeight}, ${x2} ${y2}`);
           path.setAttribute('fill', 'none');
           path.setAttribute('stroke', '#10b981');
           path.setAttribute('stroke-width', '3');
           path.setAttribute('marker-end', 'url(#arrowhead-diagram)');
           svg.appendChild(path);
 
-          // Create label showing the source state and event
+          // Create label with background for better readability
+          const labelX = midX;
+          const labelY = midY - curveHeight - 5;
+
+          // Background rect for label
+          const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          const labelText = `🔗 ${link.event}`;
+          labelBg.setAttribute('x', labelX - 60);
+          labelBg.setAttribute('y', labelY - 14);
+          labelBg.setAttribute('width', '120');
+          labelBg.setAttribute('height', '20');
+          labelBg.setAttribute('rx', '4');
+          labelBg.setAttribute('fill', 'rgba(16, 185, 129, 0.2)');
+          labelBg.setAttribute('stroke', '#10b981');
+          labelBg.setAttribute('stroke-width', '1');
+          svg.appendChild(labelBg);
+
+          // Label text
           const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          text.setAttribute('x', midX);
-          text.setAttribute('y', midY - offset - 10);
+          text.setAttribute('x', labelX);
+          text.setAttribute('y', labelY);
           text.setAttribute('fill', '#10b981');
-          text.setAttribute('font-size', '12');
+          text.setAttribute('font-size', '11');
           text.setAttribute('text-anchor', 'middle');
           text.setAttribute('font-weight', '700');
-          text.textContent = `🔗 ${link.fromState} → ${link.event}`;
+          text.textContent = labelText;
           svg.appendChild(text);
         }
       });
@@ -1096,25 +1160,39 @@
 
         let diagramsHtml = '<div class="diagram-grid" id="diagram-grid-container">';
 
+        // Store machine state info for post-render styling
+        const machineStateInfo = [];
+
         for (const machine of machines) {
           const isEntry = component.entryMachine === machine.name;
           const machineInstances = allInstances.filter(i => i.machineName === machine.name);
 
           try {
             // Get first instance of this machine to show its current state
-            let url = `/api/machines/${machine.name}/diagram`;
+            // Use cache-busting timestamp
+            let url = `/api/machines/${machine.name}/diagram?t=${Date.now()}`;
             let currentStateText = '';
             let quickActionsHtml = '';
+            let currentState = null;
 
             if (machineInstances.length > 0) {
               const firstInstance = machineInstances[0];
-              url += `?instanceId=${firstInstance.id}`;
-              currentStateText = `<div style="margin-top: 8px; padding: 6px 10px; background: #3b82f6; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; text-align: center;">
-                📍 Current: ${firstInstance.currentState}
+              currentState = firstInstance.currentState;
+              url += `&instanceId=${firstInstance.id}`;
+
+              // Store info for post-render styling
+              machineStateInfo.push({
+                machineName: machine.name,
+                currentState: currentState,
+                transitions: machine.transitions || []
+              });
+
+              currentStateText = `<div style="margin-top: 8px; padding: 8px 12px; background: linear-gradient(135deg, #a855f7, #7c3aed); border-radius: 8px; color: #fff; font-size: 13px; font-weight: 700; text-align: center; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);">
+                🎯 Current: ${currentState}
               </div>`;
 
               // Get available transitions from current state
-              const availableTransitions = (machine.transitions || []).filter(t => t.from === firstInstance.currentState);
+              const availableTransitions = (machine.transitions || []).filter(t => t.from === currentState);
               if (availableTransitions.length > 0) {
                 quickActionsHtml = `<div class="quick-actions" style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" onclick="event.stopPropagation()">
                   <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">⚡ Quick Actions</div>
@@ -1167,12 +1245,21 @@
         // Render all Mermaid diagrams
         await mermaid.run({ querySelector: '.diagram-card-content .mermaid' });
 
-        // Add inter-machine arrows after layout is complete
-        if (interMachineLinks.length > 0) {
-          setTimeout(() => {
+        // Apply accessibility styling after Mermaid renders
+        setTimeout(() => {
+          machineStateInfo.forEach(info => {
+            const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
+            if (card && info.currentState) {
+              const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
+              applyStateAccessibilityStyles(card, info.currentState, reachableStates);
+            }
+          });
+
+          // Add inter-machine arrows after styling is applied
+          if (interMachineLinks.length > 0) {
             drawInterMachineArrows(interMachineLinks, machineInitialStates);
-          }, 100);
-        }
+          }
+        }, 150);
 
       } else {
         // Cards mode: Show summary cards with SVG arrows
@@ -1355,7 +1442,8 @@
 
     // Instance Management
     async function loadInstances() {
-      const res = await fetch('/api/instances');
+      // Add cache-busting timestamp
+      const res = await fetch(`/api/instances?t=${Date.now()}`);
       const data = await res.json();
       allInstances = data.instances || [];
       renderInstanceList();
@@ -1363,7 +1451,7 @@
 
       // Update component overview if visible
       if (!document.getElementById('component-overview').classList.contains('hidden')) {
-        renderComponentOverview();
+        await renderComponentOverview();
       }
     }
 

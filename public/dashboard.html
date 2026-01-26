@@ -1068,18 +1068,67 @@
       }
     }
 
-    // Draw inter-machine arrows between state machine cards
-    function drawInterMachineArrows(container, links) {
+    // Find a state element within a Mermaid SVG by state name
+    function findStateElementInSvg(cardElement, stateName) {
+      const svg = cardElement.querySelector('svg');
+      if (!svg) return null;
+
+      // Try multiple methods to find the state
+      // Method 1: Find by ID pattern (Mermaid stateDiagram-v2)
+      const byId = svg.querySelector(`[id*="state-${stateName}"]`);
+      if (byId) {
+        const shape = byId.querySelector('rect, path, polygon, ellipse');
+        if (shape) return shape;
+      }
+
+      // Method 2: Find by text content in groups
+      const allGroups = svg.querySelectorAll('g');
+      for (const group of allGroups) {
+        const textEls = group.querySelectorAll('text, tspan');
+        for (const textEl of textEls) {
+          const text = textEl.textContent?.trim();
+          if (text === stateName) {
+            // Found the text, now find the associated shape
+            const shape = group.querySelector('rect, path, polygon, ellipse');
+            if (shape) return shape;
+            // Try parent group
+            const parentShape = group.parentElement?.querySelector('rect, path, polygon, ellipse');
+            if (parentShape) return parentShape;
+          }
+        }
+      }
+
+      return null;
+    }
+
+    // Get absolute position of an SVG element relative to a container
+    function getSvgElementPosition(container, svgElement) {
+      if (!svgElement || !container) return null;
+
+      const containerRect = container.getBoundingClientRect();
+      const scrollLeft = container.scrollLeft;
+      const scrollTop = container.scrollTop;
+
+      // Use getBoundingClientRect for accurate position
+      const elemRect = svgElement.getBoundingClientRect();
+
+      return {
+        x: elemRect.left - containerRect.left + scrollLeft,
+        y: elemRect.top - containerRect.top + scrollTop,
+        width: elemRect.width,
+        height: elemRect.height,
+        centerX: elemRect.left - containerRect.left + scrollLeft + elemRect.width / 2,
+        centerY: elemRect.top - containerRect.top + scrollTop + elemRect.height / 2
+      };
+    }
+
+    // Draw inter-machine arrows from source STATE to target machine's initial STATE
+    function drawInterMachineArrows(container, links, machineInitialStates) {
       const svg = container.querySelector('#inter-machine-arrows');
       if (!svg) return;
 
       // Clear existing arrows
       svg.innerHTML = '';
-
-      // Get container position for offset calculations
-      const containerRect = container.getBoundingClientRect();
-      const scrollLeft = container.scrollLeft;
-      const scrollTop = container.scrollTop;
 
       // Build arrow definitions
       const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -1097,86 +1146,123 @@
       `;
       svg.appendChild(defs);
 
-      // Group arrows by source-target pair to handle multiple arrows
+      // Group arrows by source-target-state to avoid duplicate arrows
       const arrowGroups = {};
       links.forEach(link => {
-        const key = `${link.fromMachine}-${link.to}`;
+        const key = `${link.fromMachine}-${link.fromState}-${link.to}`;
         if (!arrowGroups[key]) {
-          arrowGroups[key] = { from: link.fromMachine, to: link.to, events: [] };
+          arrowGroups[key] = {
+            fromMachine: link.fromMachine,
+            fromState: link.fromState,
+            toMachine: link.to,
+            events: []
+          };
         }
         arrowGroups[key].events.push(link.event);
       });
 
       // Draw arrows for each unique connection
       Object.values(arrowGroups).forEach((group, groupIndex) => {
-        const fromCard = container.querySelector(`.diagram-card[data-machine="${group.from}"]`);
-        const toCard = container.querySelector(`.diagram-card[data-machine="${group.to}"]`);
+        const fromCard = container.querySelector(`.diagram-card[data-machine="${group.fromMachine}"]`);
+        const toCard = container.querySelector(`.diagram-card[data-machine="${group.toMachine}"]`);
 
         if (!fromCard || !toCard) return;
 
-        const fromRect = fromCard.getBoundingClientRect();
-        const toRect = toCard.getBoundingClientRect();
+        // Find the source state element within the source machine's diagram
+        const sourceStateEl = findStateElementInSvg(fromCard, group.fromState);
 
-        // Calculate positions relative to container
-        const fromX = fromRect.left - containerRect.left + scrollLeft;
-        const fromY = fromRect.top - containerRect.top + scrollTop;
-        const fromWidth = fromRect.width;
-        const fromHeight = fromRect.height;
+        // Find the target machine's initial state
+        const targetInitialState = machineInitialStates[group.toMachine];
+        const targetStateEl = targetInitialState ? findStateElementInSvg(toCard, targetInitialState) : null;
 
-        const toX = toRect.left - containerRect.left + scrollLeft;
-        const toY = toRect.top - containerRect.top + scrollTop;
-        const toWidth = toRect.width;
-        const toHeight = toRect.height;
+        // Get positions
+        const sourcePos = sourceStateEl ? getSvgElementPosition(container, sourceStateEl) : null;
+        const targetPos = targetStateEl ? getSvgElementPosition(container, targetStateEl) : null;
 
-        // Determine the best connection points based on relative positions
-        let startX, startY, endX, endY, cpX1, cpY1, cpX2, cpY2;
+        // Fallback to card positions if states not found
+        const containerRect = container.getBoundingClientRect();
+        const scrollLeft = container.scrollLeft;
+        const scrollTop = container.scrollTop;
 
-        // Check if cards are side by side or stacked
-        const horizontalDistance = Math.abs((fromX + fromWidth/2) - (toX + toWidth/2));
-        const verticalDistance = Math.abs((fromY + fromHeight/2) - (toY + toHeight/2));
+        let startX, startY, endX, endY;
 
-        if (horizontalDistance > verticalDistance) {
-          // Cards are more horizontally separated - draw horizontal arrow
-          if (fromX < toX) {
-            // From is on the left
-            startX = fromX + fromWidth;
-            startY = fromY + fromHeight / 2;
-            endX = toX;
-            endY = toY + toHeight / 2;
+        if (sourcePos) {
+          // Start from right edge of source state
+          startX = sourcePos.x + sourcePos.width;
+          startY = sourcePos.centerY;
+        } else {
+          // Fallback: use card edge
+          const fromRect = fromCard.getBoundingClientRect();
+          startX = fromRect.right - containerRect.left + scrollLeft;
+          startY = fromRect.top - containerRect.top + scrollTop + fromRect.height / 2;
+        }
+
+        if (targetPos) {
+          // End at left edge of target state
+          endX = targetPos.x;
+          endY = targetPos.centerY;
+        } else {
+          // Fallback: use card edge
+          const toRect = toCard.getBoundingClientRect();
+          endX = toRect.left - containerRect.left + scrollLeft;
+          endY = toRect.top - containerRect.top + scrollTop + toRect.height / 2;
+        }
+
+        // Determine arrow direction and adjust start/end points
+        const dx = endX - startX;
+        const dy = endY - startY;
+        const isHorizontal = Math.abs(dx) > Math.abs(dy);
+
+        if (sourcePos) {
+          if (isHorizontal) {
+            if (dx > 0) {
+              startX = sourcePos.x + sourcePos.width; // right edge
+            } else {
+              startX = sourcePos.x; // left edge
+            }
+            startY = sourcePos.centerY;
           } else {
-            // From is on the right
-            startX = fromX;
-            startY = fromY + fromHeight / 2;
-            endX = toX + toWidth;
-            endY = toY + toHeight / 2;
+            if (dy > 0) {
+              startY = sourcePos.y + sourcePos.height; // bottom edge
+            } else {
+              startY = sourcePos.y; // top edge
+            }
+            startX = sourcePos.centerX;
           }
-          // Control points for horizontal curve
-          const midX = (startX + endX) / 2;
-          cpX1 = midX;
+        }
+
+        if (targetPos) {
+          if (isHorizontal) {
+            if (dx > 0) {
+              endX = targetPos.x; // left edge
+            } else {
+              endX = targetPos.x + targetPos.width; // right edge
+            }
+            endY = targetPos.centerY;
+          } else {
+            if (dy > 0) {
+              endY = targetPos.y; // top edge
+            } else {
+              endY = targetPos.y + targetPos.height; // bottom edge
+            }
+            endX = targetPos.centerX;
+          }
+        }
+
+        // Calculate control points for smooth curve
+        let cpX1, cpY1, cpX2, cpY2;
+        const curvature = Math.min(80, Math.abs(dx) / 3, Math.abs(dy) / 3) + 40;
+
+        if (isHorizontal) {
+          cpX1 = startX + (dx > 0 ? curvature : -curvature);
           cpY1 = startY;
-          cpX2 = midX;
+          cpX2 = endX + (dx > 0 ? -curvature : curvature);
           cpY2 = endY;
         } else {
-          // Cards are more vertically separated - draw vertical arrow
-          if (fromY < toY) {
-            // From is above
-            startX = fromX + fromWidth / 2;
-            startY = fromY + fromHeight;
-            endX = toX + toWidth / 2;
-            endY = toY;
-          } else {
-            // From is below
-            startX = fromX + fromWidth / 2;
-            startY = fromY;
-            endX = toX + toWidth / 2;
-            endY = toY + toHeight;
-          }
-          // Control points for vertical curve
-          const midY = (startY + endY) / 2;
           cpX1 = startX;
-          cpY1 = midY;
+          cpY1 = startY + (dy > 0 ? curvature : -curvature);
           cpX2 = endX;
-          cpY2 = midY;
+          cpY2 = endY + (dy > 0 ? -curvature : curvature);
         }
 
         // Create the curved path
@@ -1193,8 +1279,10 @@
 
         // Add label for the event(s) at the middle of the curve
         const labelText = group.events.join(', ');
-        const labelX = (startX + endX) / 2;
-        const labelY = (startY + endY) / 2 - 10;
+        // Calculate label position along the curve (at t=0.5)
+        const t = 0.5;
+        const labelX = Math.pow(1-t, 3) * startX + 3 * Math.pow(1-t, 2) * t * cpX1 + 3 * (1-t) * t * t * cpX2 + Math.pow(t, 3) * endX;
+        const labelY = Math.pow(1-t, 3) * startY + 3 * Math.pow(1-t, 2) * t * cpY1 + 3 * (1-t) * t * t * cpY2 + Math.pow(t, 3) * endY - 12;
 
         // Background for label
         const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -1429,24 +1517,27 @@
 
                   // Build inline parameter inputs if schema exists
                   let paramsHtml = '';
+                  const requiredKeys = [];
                   if (hasParams) {
                     paramsHtml = `<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
                       ${Object.entries(schema).map(([key, field]) => {
                         const inputId = `${formId}-${key}`;
                         const inputType = field.type === 'number' ? 'number' : 'text';
+                        if (field.required) requiredKeys.push(key);
                         return `<input type="${inputType}" id="${inputId}" placeholder="${field.label || key}${field.required ? '*' : ''}"
                           style="flex: 1; min-width: 80px; padding: 6px 8px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 4px; color: var(--text-primary); font-size: 11px;"
-                          onclick="event.stopPropagation()">`;
+                          onclick="event.stopPropagation()" onfocus="this.style.borderColor='var(--glass-border)'; this.style.boxShadow='none'">`;
                       }).join('')}
                     </div>`;
                   }
 
                   // Escape JSON for HTML attribute context
                   const paramKeysJson = hasParams ? JSON.stringify(Object.keys(schema)).replace(/"/g, '&quot;') : '[]';
+                  const requiredKeysJson = requiredKeys.length > 0 ? JSON.stringify(requiredKeys).replace(/"/g, '&quot;') : '[]';
 
                   return `<div style="margin-bottom: 8px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 6px; border-left: 3px solid ${btnColor};">
                     ${paramsHtml}
-                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${paramKeysJson})"
+                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${paramKeysJson}, ${requiredKeysJson})"
                       style="width: 100%; padding: 8px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;"
                       onmouseover="this.style.opacity='0.85'"
                       onmouseout="this.style.opacity='1'"
@@ -1514,9 +1605,9 @@
             }
           });
 
-          // Draw inter-machine arrows between cards
+          // Draw inter-machine arrows from source state to target initial state
           if (interMachineLinks.length > 0) {
-            drawInterMachineArrows(container, interMachineLinks);
+            drawInterMachineArrows(container, interMachineLinks, machineInitialStates);
           }
         }, 200);
 
@@ -1961,27 +2052,43 @@
       if (!component) return;
 
       let payload = {};
+      const missingRequired = [];
 
       if (hasParams) {
         // Find the transition to get its schema
         const transition = currentTransitions[transitionIdx];
-        const schema = getTransitionSchema(transition);
+        const instance = allInstances.find(i => i.id === instanceId);
+        const schema = getTransitionSchema(transition, instance);
 
         if (schema) {
           for (const [key, field] of Object.entries(schema)) {
             const input = document.getElementById(`param-${transitionIdx}-${key}`);
             if (input) {
-              let value = input.value;
+              let value = input.value?.trim();
               // Convert to number if needed
               if (field.type === 'number' && value) {
                 value = parseFloat(value);
               }
-              if (value !== '' && value !== null) {
+              if (value !== '' && value !== null && value !== undefined) {
                 payload[key] = value;
+                // Reset input style on valid value
+                input.style.borderColor = 'var(--glass-border)';
+                input.style.boxShadow = 'none';
+              } else if (field.required) {
+                missingRequired.push(field.label || key);
+                // Highlight the input with error style
+                input.style.borderColor = '#ef4444';
+                input.style.boxShadow = '0 0 4px rgba(239, 68, 68, 0.5)';
               }
             }
           }
         }
+      }
+
+      // Validate required fields
+      if (missingRequired.length > 0) {
+        showToast(`Required fields missing: ${missingRequired.join(', ')}`, 'error');
+        return;
       }
 
       try {
@@ -2018,21 +2125,39 @@
     }
 
     // Quick event sender from overview with parameters
-    async function sendQuickEventWithParams(instanceId, eventType, formId, paramKeys) {
+    // paramKeys: array of all parameter keys
+    // requiredKeys: array of required parameter keys (must be filled)
+    async function sendQuickEventWithParams(instanceId, eventType, formId, paramKeys, requiredKeys = []) {
       const component = getCurrentComponent();
       if (!component) return;
 
       // Collect parameters from the inline form
       const payload = {};
+      const missingRequired = [];
+
       if (paramKeys && paramKeys.length > 0) {
         paramKeys.forEach(key => {
           const input = document.getElementById(`${formId}-${key}`);
-          if (input && input.value) {
+          const value = input?.value?.trim();
+
+          if (value) {
             // Try to convert to number if it looks like a number
-            const val = input.value;
-            payload[key] = isNaN(val) ? val : parseFloat(val);
+            payload[key] = isNaN(value) ? value : parseFloat(value);
+          } else if (requiredKeys.includes(key)) {
+            missingRequired.push(key);
+            // Highlight the input with error style
+            if (input) {
+              input.style.borderColor = '#ef4444';
+              input.style.boxShadow = '0 0 4px rgba(239, 68, 68, 0.5)';
+            }
           }
         });
+      }
+
+      // Validate required fields
+      if (missingRequired.length > 0) {
+        showToast(`Required fields missing: ${missingRequired.join(', ')}`, 'error');
+        return;
       }
 
       try {
@@ -2091,10 +2216,12 @@
           const container = document.getElementById('component-graph');
           const component = getCurrentComponent();
           if (component) {
-            // Collect inter-machine links
+            // Collect inter-machine links and initial states
             const machines = component.stateMachines || [];
             const interMachineLinks = [];
+            const machineInitialStates = {};
             machines.forEach(machine => {
+              machineInitialStates[machine.name] = machine.initialState;
               (machine.transitions || []).forEach(transition => {
                 if (transition.type === 'inter_machine' && transition.targetMachine) {
                   interMachineLinks.push({
@@ -2107,7 +2234,7 @@
               });
             });
             if (interMachineLinks.length > 0) {
-              drawInterMachineArrows(container, interMachineLinks);
+              drawInterMachineArrows(container, interMachineLinks, machineInitialStates);
             }
           }
         }

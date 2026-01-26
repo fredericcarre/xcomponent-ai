@@ -511,6 +511,8 @@ export interface PersistedEvent {
   sourceComponentName?: string;
   /** Cross-component: Target component name (if event was sent to another component) */
   targetComponentName?: string;
+  /** Snapshot of publicMember after this transition (for traceability) */
+  publicMemberSnapshot?: Record<string, any>;
 }
 
 /**

@@ -88,12 +88,9 @@ export function generateMermaidDiagram(machine: StateMachine): string {
   // Add all transitions
   machine.transitions.forEach(transition => {
     const transitionLabel = transition.event;
-    // Add target machine info for inter-machine transitions with visible indicator
-    if (transition.type === 'inter_machine' && transition.targetMachine) {
-      lines.push(`    ${transition.from} --> ${transition.to}: 🔗 ${transitionLabel} ➜ ${transition.targetMachine}`);
-    } else {
-      lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
-    }
+    // For all transitions, just show the event name
+    // Inter-machine connections are visualized with green SVG arrows externally
+    lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
   });
 
   lines.push('');

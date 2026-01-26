@@ -305,10 +305,15 @@ export class RuntimeBroadcaster {
 
     // Cross-component event command (send event to existing instances)
     await this.broker.subscribe(DashboardChannels.CROSS_COMPONENT_EVENT, async (msg: any) => {
+      console.log(`[RuntimeBroadcaster] Received CROSS_COMPONENT_EVENT for ${msg.targetComponent} (this component: ${this.component.name})`);
+
       if (msg.targetComponent === this.component.name) {
+        console.log(`[RuntimeBroadcaster] Processing cross-component event ${msg.event?.type} for ${this.component.name}`);
+
         try {
           // Find matching instances by context properties
           const allInstances = this.runtime.getAllInstances();
+          console.log(`[RuntimeBroadcaster] Found ${allInstances.length} total instances to check`);
           const matchingInstances = allInstances.filter(inst => {
             // If targetMachine is specified, filter by machine
             if (msg.targetMachine && inst.machineName !== msg.targetMachine) {
@@ -334,6 +339,11 @@ export class RuntimeBroadcaster {
               }
             }
             return true;
+          });
+
+          console.log(`[RuntimeBroadcaster] Matching instances found: ${matchingInstances.length}`);
+          allInstances.forEach(inst => {
+            console.log(`  Instance ${inst.id}: machine=${inst.machineName}, state=${inst.currentState}, context=${JSON.stringify(inst.context || inst.publicMember)}`);
           });
 
           if (matchingInstances.length === 0) {

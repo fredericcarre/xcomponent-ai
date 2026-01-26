@@ -770,6 +770,14 @@
             </div>
           </div>
           <div class="transitions-section">
+            <!-- Instance Context/PublicMember -->
+            <div id="instance-context-section" style="margin-bottom: 16px;">
+              <div class="transitions-header">📦 Instance Data</div>
+              <div id="instance-context" style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-top: 8px;">
+                <div style="font-size: 12px; color: #666;">Select an instance to see its data</div>
+              </div>
+            </div>
+
             <div class="transitions-header">⚡ Quick Actions</div>
             <div id="transitions-list">
               <div class="empty-state" style="padding: 20px 0;">
@@ -846,9 +854,10 @@
     socket.on('state_change', (data) => {
       // Force refresh instances and re-render
       loadInstances().then(() => {
-        // Also refresh diagram if the selected instance changed state
+        // Also refresh diagram and transitions if the selected instance changed state
         if (selectedInstanceId && data.instanceId === selectedInstanceId) {
           renderMachineDiagram();
+          loadTransitionsForInstance(selectedInstanceId);
         }
       });
     });
@@ -1214,6 +1223,15 @@
               // Get available transitions from current state
               const availableTransitions = (machine.transitions || []).filter(t => t.from === currentState);
               if (availableTransitions.length > 0) {
+                // Check if any transition targets a machine with contextSchema
+                const getTargetSchema = (t) => {
+                  if (t.type === 'inter_machine' && t.targetMachine) {
+                    const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
+                    return targetMachine?.contextSchema || null;
+                  }
+                  return null;
+                };
+
                 quickActionsHtml = `<div class="quick-actions" style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" onclick="event.stopPropagation()">
                   <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">⚡ Quick Actions</div>
                   <div style="display: flex; flex-wrap: wrap; gap: 6px;">
@@ -1221,12 +1239,16 @@
                       const isInterMachine = t.type === 'inter_machine';
                       const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
                       const icon = isInterMachine ? '🔗' : '→';
+                      const schema = getTargetSchema(t);
+                      const hasParams = schema && Object.keys(schema).length > 0;
+                      const paramsIcon = hasParams ? ' 📝' : '';
+                      const paramsTitle = hasParams ? ' (has parameters - click card for details)' : '';
                       return `<button onclick="event.stopPropagation(); sendQuickEvent('${firstInstance.id}', '${t.event}')"
                         style="padding: 6px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 11px; font-weight: 600; cursor: pointer; transition: transform 0.1s, opacity 0.1s;"
                         onmouseover="this.style.opacity='0.8'; this.style.transform='translateY(-1px)'"
                         onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'"
-                        title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}">
-                        ${icon} ${t.event}
+                        title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}${paramsTitle}">
+                        ${icon} ${t.event}${paramsIcon}
                       </button>`;
                     }).join('')}
                   </div>
@@ -1512,6 +1534,15 @@
         instances.forEach(instance => {
           const isEntry = component.entryMachine === machine.name;
           const isSelected = instance.id === selectedInstanceId;
+
+          // Format context/publicMember preview (first 2 fields)
+          const contextData = instance.publicMember || instance.context || {};
+          const contextEntries = Object.entries(contextData).slice(0, 2);
+          const contextPreview = contextEntries.length > 0
+            ? contextEntries.map(([k, v]) => `<span style="color: #888;">${k}:</span> <span style="color: #aaa;">${String(v).substring(0, 15)}${String(v).length > 15 ? '...' : ''}</span>`).join(', ')
+            : '';
+          const hasMoreContext = Object.keys(contextData).length > 2;
+
           html += `
             <div class="instance-item ${isSelected ? 'selected' : ''}" onclick="selectInstance('${instance.id}')">
               <div class="instance-header">
@@ -1520,6 +1551,7 @@
               </div>
               <div class="instance-id">${instance.id.substring(0, 8)}</div>
               <div class="instance-state">State: ${instance.currentState}</div>
+              ${contextPreview ? `<div style="font-size: 10px; margin-top: 4px; color: #666;">${contextPreview}${hasMoreContext ? ' ...' : ''}</div>` : ''}
             </div>`;
         });
       });
@@ -1541,6 +1573,40 @@
 
       renderInstanceList();
       loadTransitionsForInstance(instanceId);
+      renderInstanceContext(instance);
+    }
+
+    // Render instance context/publicMember
+    function renderInstanceContext(instance) {
+      const container = document.getElementById('instance-context');
+      if (!container) return;
+
+      if (!instance) {
+        container.innerHTML = '<div style="font-size: 12px; color: #666;">Select an instance to see its data</div>';
+        return;
+      }
+
+      const contextData = instance.publicMember || instance.context || {};
+      const entries = Object.entries(contextData);
+
+      if (entries.length === 0) {
+        container.innerHTML = '<div style="font-size: 12px; color: #666;">No context data</div>';
+        return;
+      }
+
+      container.innerHTML = `
+        <div style="font-size: 10px; color: #888; margin-bottom: 8px;">ID: ${instance.id.substring(0, 8)}... | State: <span style="color: #a855f7; font-weight: 600;">${instance.currentState}</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          ${entries.map(([key, value]) => {
+            const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+            return `
+              <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #3b82f6;">
+                <span style="color: #888; font-size: 11px;">${key}</span>
+                <span style="color: #f0f0f0; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayValue}">${displayValue}</span>
+              </div>`;
+          }).join('')}
+        </div>
+      `;
     }
 
     // Transitions Panel
@@ -1548,12 +1614,25 @@
       const instance = allInstances.find(i => i.id === instanceId);
       if (!instance) {
         clearTransitions();
+        renderInstanceContext(null);
         return;
       }
 
       // Filter transitions that start from current state
       const availableTransitions = currentTransitions.filter(t => t.from === instance.currentState);
       renderTransitions(availableTransitions, instance);
+    }
+
+    // Get contextSchema for a transition's target machine (for inter_machine) or current machine
+    function getTransitionSchema(transition) {
+      const component = getCurrentComponent();
+      if (!component) return null;
+
+      if (transition.type === 'inter_machine' && transition.targetMachine) {
+        const targetMachine = component.stateMachines.find(m => m.name === transition.targetMachine);
+        return targetMachine?.contextSchema || null;
+      }
+      return null;
     }
 
     function renderTransitions(transitions, instance) {
@@ -1567,36 +1646,53 @@
         return;
       }
 
-      // Render as quick action buttons (same style as overview)
-      container.innerHTML = `
-        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-          ${transitions.map(t => {
-            const isInterMachine = t.type === 'inter_machine';
-            const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
-            const icon = isInterMachine ? '🔗' : '→';
-            const targetInfo = isInterMachine && t.targetMachine ? ` (creates ${t.targetMachine})` : '';
-            return `<button onclick="sendTransitionEvent('${instance.id}', '${t.event}')"
-              style="padding: 10px 16px; background: ${btnColor}; border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: transform 0.1s, opacity 0.1s; flex: 1; min-width: 120px;"
-              onmouseover="this.style.opacity='0.8'; this.style.transform='translateY(-1px)'"
-              onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'"
-              title="${t.from} → ${t.to}${targetInfo}">
-              ${icon} ${t.event}
-            </button>`;
-          }).join('')}
-        </div>
-        <div style="margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
-          <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Transition Details</div>
-          ${transitions.map(t => {
-            const isInterMachine = t.type === 'inter_machine';
-            return `<div style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px;">
-              <span style="color: ${isInterMachine ? '#10b981' : '#3b82f6'}; font-weight: 600;">${t.event}</span>
-              <span style="color: #666; margin: 0 6px;">:</span>
-              <span style="color: #888;">${t.from} → ${t.to}</span>
-              ${isInterMachine ? `<span style="color: #10b981; margin-left: 8px; font-size: 11px;">🔗 ${t.targetMachine}</span>` : ''}
+      // Render transitions with parameter forms
+      container.innerHTML = transitions.map((t, idx) => {
+        const isInterMachine = t.type === 'inter_machine';
+        const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
+        const icon = isInterMachine ? '🔗' : '→';
+        const schema = getTransitionSchema(t);
+
+        // Build parameter form if schema exists
+        let paramsForm = '';
+        if (schema && Object.keys(schema).length > 0) {
+          paramsForm = `
+            <div style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+              <div style="font-size: 10px; color: #888; margin-bottom: 8px; text-transform: uppercase;">Parameters</div>
+              ${Object.entries(schema).map(([key, field]) => {
+                const required = field.required ? '<span style="color: #ef4444;">*</span>' : '';
+                const inputType = field.type === 'number' ? 'number' : 'text';
+                return `
+                  <div style="margin-bottom: 8px;">
+                    <label style="display: block; font-size: 11px; color: #aaa; margin-bottom: 4px;">
+                      ${field.label || key} ${required}
+                    </label>
+                    <input type="${inputType}"
+                           id="param-${idx}-${key}"
+                           placeholder="${field.placeholder || ''}"
+                           ${field.required ? 'required' : ''}
+                           style="width: 100%; padding: 8px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 4px; color: var(--text-primary); font-size: 12px;">
+                  </div>`;
+              }).join('')}
             </div>`;
-          }).join('')}
-        </div>
-      `;
+        }
+
+        return `
+          <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid ${isInterMachine ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="color: ${btnColor}; font-weight: 600; font-size: 14px;">${icon} ${t.event}</span>
+              <span style="color: #666; font-size: 11px;">${t.from} → ${t.to}</span>
+            </div>
+            ${isInterMachine ? `<div style="font-size: 11px; color: #10b981; margin-bottom: 8px;">Creates: ${t.targetMachine}</div>` : ''}
+            ${paramsForm}
+            <button onclick="sendTransitionEventWithParams('${instance.id}', '${t.event}', ${idx}, ${schema ? 'true' : 'false'})"
+              style="width: 100%; margin-top: 10px; padding: 10px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+              onmouseover="this.style.opacity='0.85'"
+              onmouseout="this.style.opacity='1'">
+              Send ${t.event}
+            </button>
+          </div>`;
+      }).join('');
     }
 
     function clearTransitions() {
@@ -1604,6 +1700,52 @@
         <div class="empty-state" style="padding: 20px 0;">
           <div style="font-size: 12px;">Select an instance to see transitions</div>
         </div>`;
+    }
+
+    // Send event with parameters collected from form
+    async function sendTransitionEventWithParams(instanceId, eventType, transitionIdx, hasParams) {
+      const component = getCurrentComponent();
+      if (!component) return;
+
+      let payload = {};
+
+      if (hasParams) {
+        // Find the transition to get its schema
+        const transition = currentTransitions[transitionIdx];
+        const schema = getTransitionSchema(transition);
+
+        if (schema) {
+          for (const [key, field] of Object.entries(schema)) {
+            const input = document.getElementById(`param-${transitionIdx}-${key}`);
+            if (input) {
+              let value = input.value;
+              // Convert to number if needed
+              if (field.type === 'number' && value) {
+                value = parseFloat(value);
+              }
+              if (value !== '' && value !== null) {
+                payload[key] = value;
+              }
+            }
+          }
+        }
+      }
+
+      try {
+        const res = await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: eventType, payload })
+        });
+        if (res.ok) {
+          showToast(`Event "${eventType}" sent`, 'success');
+        } else {
+          const error = await res.json();
+          showToast(`Error: ${error.error || 'Failed'}`, 'error');
+        }
+      } catch (error) {
+        showToast('Failed to send event', 'error');
+      }
     }
 
     async function sendTransitionEvent(instanceId, eventType) {
@@ -1622,7 +1764,7 @@
       }
     }
 
-    // Quick event sender from overview
+    // Quick event sender from overview (simple, no params - opens detail for params)
     async function sendQuickEvent(instanceId, eventType) {
       const component = getCurrentComponent();
       if (!component) return;

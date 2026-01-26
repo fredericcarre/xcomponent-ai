@@ -1001,141 +1001,133 @@
 
       console.log('Found states:', [...foundStates.keys()]);
 
-      // Apply styles to found states
+      // STEP 1: Gray out EVERYTHING first (states, transitions, labels)
+      // This ensures all Mermaid native colors are overridden
+      svg.querySelectorAll('rect, polygon, ellipse, circle').forEach(shape => {
+        shape.style.setProperty('fill', '#1a1a1a', 'important');
+        shape.style.setProperty('stroke', '#333', 'important');
+        shape.style.setProperty('stroke-width', '1px', 'important');
+        shape.style.setProperty('opacity', '0.3', 'important');
+      });
+      svg.querySelectorAll('text, tspan').forEach(text => {
+        text.style.setProperty('fill', '#444', 'important');
+        text.style.setProperty('opacity', '0.3', 'important');
+      });
+      svg.querySelectorAll('path, line').forEach(path => {
+        if (path.hasAttribute('marker-end') || path.closest('.edgePath')) {
+          path.style.setProperty('stroke', '#333', 'important');
+          path.style.setProperty('opacity', '0.2', 'important');
+        }
+      });
+      // Gray out arrow markers
+      svg.querySelectorAll('marker path, marker polygon').forEach(marker => {
+        marker.style.setProperty('fill', '#333', 'important');
+        marker.style.setProperty('stroke', '#333', 'important');
+      });
+
+      // STEP 2: Restore colors for active elements
       foundStates.forEach((data, stateName) => {
         const { group, shape, textEls } = data;
 
         if (stateName === currentState) {
           // Current state: violet/purple highlighting
           if (shape) {
-            shape.style.stroke = '#a855f7';
-            shape.style.strokeWidth = '4px';
-            shape.style.filter = 'drop-shadow(0 0 12px #a855f7)';
+            shape.style.setProperty('fill', '#4c1d95', 'important');
+            shape.style.setProperty('stroke', '#a855f7', 'important');
+            shape.style.setProperty('stroke-width', '3px', 'important');
+            shape.style.setProperty('opacity', '1', 'important');
+            shape.style.setProperty('filter', 'drop-shadow(0 0 12px #a855f7)', 'important');
 
             // Add timeout countdown badge if there are pending timeouts
             if (pendingTimeouts.length > 0) {
-              const timeout = pendingTimeouts[0]; // Show first timeout
+              const timeout = pendingTimeouts[0];
               let bbox = { x: 0, y: 0, width: 100, height: 40 };
-              try {
-                if (shape.getBBox) {
-                  bbox = shape.getBBox();
-                }
-              } catch (e) {
-                console.warn('getBBox failed for', stateName, e);
-              }
+              try { if (shape.getBBox) bbox = shape.getBBox(); } catch (e) {}
+              if (!bbox || bbox.width < 10) bbox = { x: 0, y: 0, width: 100, height: 40 };
 
-              // Ensure bbox has reasonable values
-              if (!bbox || bbox.width < 10 || bbox.height < 10) {
-                bbox = { x: 0, y: 0, width: 100, height: 40 };
-              }
-
-              console.log(`Adding timeout badge for ${stateName}:`, { timeout, bbox });
-
-              // Create countdown group
               const countdownGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
               countdownGroup.setAttribute('class', 'timeout-countdown');
-              countdownGroup.setAttribute('data-timeout-id', `state-timeout-${stateName}`);
-
-              // Position badge at top-right of state shape
               const badgeX = bbox.x + bbox.width - 60;
               const badgeY = bbox.y - 14;
 
-              // Badge background
               const badgeBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
               badgeBg.setAttribute('x', String(badgeX));
               badgeBg.setAttribute('y', String(badgeY));
               badgeBg.setAttribute('width', '65');
               badgeBg.setAttribute('height', '22');
               badgeBg.setAttribute('rx', '4');
-              badgeBg.setAttribute('fill', '#ef4444');
-              badgeBg.setAttribute('opacity', '0.95');
+              badgeBg.style.setProperty('fill', '#ef4444', 'important');
+              badgeBg.style.setProperty('opacity', '1', 'important');
               countdownGroup.appendChild(badgeBg);
 
-              // Timer icon
-              const timerIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              timerIcon.setAttribute('x', String(badgeX + 5));
-              timerIcon.setAttribute('y', String(badgeY + 16));
-              timerIcon.setAttribute('font-size', '12');
-              timerIcon.setAttribute('fill', '#ffffff');
-              timerIcon.textContent = '⏱';
-              countdownGroup.appendChild(timerIcon);
-
-              // Countdown text
               const countdownText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              countdownText.setAttribute('x', String(badgeX + 20));
+              countdownText.setAttribute('x', String(badgeX + 8));
               countdownText.setAttribute('y', String(badgeY + 16));
               countdownText.setAttribute('font-size', '11');
-              countdownText.setAttribute('font-weight', '600');
-              countdownText.setAttribute('fill', '#ffffff');
               countdownText.setAttribute('id', `countdown-text-${stateName}`);
-              countdownText.textContent = formatTimeRemaining(timeout.remainingMs);
+              countdownText.style.setProperty('fill', '#ffffff', 'important');
+              countdownText.style.setProperty('opacity', '1', 'important');
+              countdownText.style.setProperty('font-weight', '600', 'important');
+              countdownText.textContent = '⏱ ' + formatTimeRemaining(timeout.remainingMs);
               countdownGroup.appendChild(countdownText);
 
               group.appendChild(countdownGroup);
-
-              // Start live countdown update for this state
               startStateCountdown(stateName, timeout);
             }
           }
           textEls.forEach(t => {
-            t.style.fill = '#e879f9';  // Bright violet
-            t.style.fontWeight = '700';
-            t.style.fontSize = '14px';
+            t.style.setProperty('fill', '#e879f9', 'important');
+            t.style.setProperty('opacity', '1', 'important');
+            t.style.setProperty('font-weight', '700', 'important');
           });
           console.log('✓ Highlighted current state:', stateName);
+
         } else if (directlyReachable.has(stateName)) {
-          // Directly reachable state (1 transition away): keep colored but subtle highlight
+          // Directly reachable state: green highlight
           if (shape) {
-            shape.style.stroke = '#22c55e';  // Green border for next possible states
-            shape.style.strokeWidth = '2px';
-            shape.style.opacity = '1';
+            shape.style.setProperty('fill', '#064e3b', 'important');
+            shape.style.setProperty('stroke', '#10b981', 'important');
+            shape.style.setProperty('stroke-width', '2px', 'important');
+            shape.style.setProperty('opacity', '1', 'important');
+            shape.style.removeProperty('filter');
           }
           textEls.forEach(t => {
-            t.style.fill = '#86efac';  // Light green text
-            t.style.fontWeight = '600';
+            t.style.setProperty('fill', '#6ee7b7', 'important');
+            t.style.setProperty('opacity', '1', 'important');
+            t.style.setProperty('font-weight', '600', 'important');
           });
           console.log('✓ Highlighted reachable state:', stateName);
-        } else {
-          // All other states: grayed out
-          if (shape) {
-            shape.style.fill = '#1a1a1a';
-            shape.style.stroke = '#333';
-            shape.style.strokeWidth = '1px';
-            shape.style.opacity = '0.35';
+        }
+        // Other states stay grayed (from step 1)
+      });
+
+      // STEP 3: Restore transitions from current state
+      // Find transition labels and restore their paths
+      const activeEvents = new Set();
+      transitions.forEach(t => {
+        if (t.from === currentState && t.type !== 'timeout') {
+          activeEvents.add(t.event);
+        }
+      });
+
+      svg.querySelectorAll('.edgeLabel, .edgeLabels span, text').forEach(label => {
+        const labelText = label.textContent?.trim();
+        if (labelText && activeEvents.has(labelText)) {
+          // This is an active transition label - restore it
+          label.style.setProperty('fill', '#fbbf24', 'important');
+          label.style.setProperty('opacity', '1', 'important');
+          label.style.setProperty('font-weight', '600', 'important');
+
+          // Try to find and restore the associated path
+          const edgeGroup = label.closest('.edge, .edgePath, g');
+          if (edgeGroup) {
+            edgeGroup.querySelectorAll('path, line').forEach(path => {
+              path.style.setProperty('stroke', '#fbbf24', 'important');
+              path.style.setProperty('opacity', '1', 'important');
+              path.style.setProperty('stroke-width', '2px', 'important');
+            });
           }
-          textEls.forEach(t => {
-            t.style.fill = '#444';
-            t.style.opacity = '0.35';
-          });
-          console.log('✓ Grayed out state:', stateName);
         }
-      });
-
-      // Gray out transitions that don't start from current state
-      svg.querySelectorAll('path, line').forEach(path => {
-        // Check if this is a transition arrow (has marker-end or is in edgePaths)
-        const parent = path.closest('g');
-        const isTransition = path.hasAttribute('marker-end') ||
-                            parent?.classList.contains('edgePath') ||
-                            parent?.classList.contains('transition') ||
-                            path.classList.contains('transition');
-
-        if (isTransition) {
-          // Check if this transition starts from current state by looking at nearby text
-          const parentG = path.closest('g.edgePath, g.edge, g');
-          const labelText = parentG?.querySelector('text')?.textContent || '';
-
-          // By default, gray out transitions
-          path.style.stroke = '#333';
-          path.style.opacity = '0.25';
-          path.style.strokeWidth = '1px';
-        }
-      });
-
-      // Highlight transitions from current state by finding edge labels
-      svg.querySelectorAll('g.edgeLabel, g.edgePath').forEach(edgeGroup => {
-        // Look for transitions that could be from current state
-        // We'll restore opacity for paths that seem to be active transitions
       });
 
       // If we didn't find states by the above method, try a more aggressive approach

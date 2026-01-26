@@ -1412,6 +1412,15 @@ export class FSMRuntime extends EventEmitter {
     const machine = this.machines.get(instance.machineName);
     if (!machine) return [];
 
+    // Debug: log all transitions from current state
+    const fromCurrentState = machine.transitions.filter(t => t.from === instance.currentState);
+    if (fromCurrentState.length > 0) {
+      console.log(`getPendingTimeouts for ${instanceId} in state ${instance.currentState}:`);
+      fromCurrentState.forEach(t => {
+        console.log(`  - ${t.event}: type=${t.type} (${typeof t.type}), timeoutMs=${t.timeoutMs}, isTimeout=${t.type === TransitionType.TIMEOUT}, isTimeoutStr=${t.type === 'timeout'}`);
+      });
+    }
+
     const timeoutTransitions = machine.transitions.filter(
       t => t.from === instance.currentState && t.type === TransitionType.TIMEOUT && t.timeoutMs
     );

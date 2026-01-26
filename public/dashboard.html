@@ -2144,6 +2144,24 @@
               </div>`;
           }
 
+          // Build publicMember snapshot display
+          let publicMemberHtml = '';
+          const publicMember = event.publicMemberSnapshot;
+          if (publicMember && Object.keys(publicMember).length > 0) {
+            const memberEntries = Object.entries(publicMember);
+            publicMemberHtml = `
+              <div style="margin-top: 6px; padding: 6px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 4px; font-size: 10px;">
+                <div style="color: #3b82f6; font-weight: 600; margin-bottom: 4px;">📦 Data snapshot:</div>
+                ${memberEntries.map(([key, value]) => {
+                  const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                  return `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                    <span style="color: #666;">${key}:</span>
+                    <span style="color: #f0f0f0; max-width: 120px; overflow: hidden; text-overflow: ellipsis;" title="${displayValue}">${displayValue}</span>
+                  </div>`;
+                }).join('')}
+              </div>`;
+          }
+
           // Determine event icon and color based on type
           let eventIcon = '⚡';
           let eventColor = '#3b82f6';
@@ -2178,6 +2196,7 @@
               </div>
               <div style="font-size: 11px; margin-bottom: 4px;">${stateTransition}</div>
               ${creationInfoHtml || payloadHtml}
+              ${publicMemberHtml}
               <div style="font-size: 9px; color: #555; margin-top: 4px;">${date}</div>
             </div>`;
         }).join('');

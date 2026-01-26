@@ -217,7 +217,8 @@ export class FSMRuntime extends EventEmitter {
       },
       stateBefore: '',
       stateAfter: machine.initialState,
-      persistedAt: Date.now()
+      persistedAt: Date.now(),
+      publicMemberSnapshot: instance.publicMember ? { ...instance.publicMember } : undefined
     };
     this.eventHistory.set(instanceId, [creationEvent]);
 
@@ -314,7 +315,9 @@ export class FSMRuntime extends EventEmitter {
         event,
         stateBefore: previousState,
         stateAfter: transition.to,
-        persistedAt: Date.now()
+        persistedAt: Date.now(),
+        // Capture publicMember state for traceability
+        publicMemberSnapshot: instance.publicMember ? { ...instance.publicMember } : undefined
       };
       const instanceHistory = this.eventHistory.get(instanceId) || [];
       instanceHistory.push(historyEvent);

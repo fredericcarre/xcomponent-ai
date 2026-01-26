@@ -109,6 +109,9 @@ export class FSMRuntime extends EventEmitter {
   private stateIndex: Map<string, Set<string>>; // "machineName:state" → Set<instanceId>
   private propertyIndex: Map<string, Set<string>>; // "machineName:propName:propValue" → Set<instanceId>
 
+  // In-memory event history (used when persistence is not configured)
+  private eventHistory: Map<string, import('./types').PersistedEvent[]>; // instanceId → events
+
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
     this.instances = new Map();
@@ -124,6 +127,7 @@ export class FSMRuntime extends EventEmitter {
     this.machineIndex = new Map();
     this.stateIndex = new Map();
     this.propertyIndex = new Map();
+    this.eventHistory = new Map();
 
     // Start timer wheel
     this.timerWheel.start();
@@ -278,6 +282,21 @@ export class FSMRuntime extends EventEmitter {
         // Set as current event for causality tracking
         this.persistence.setCurrentEventId(eventId);
       }
+
+      // Always store in-memory history (for audit/debug even without persistence)
+      const historyEvent: import('./types').PersistedEvent = {
+        id: eventId || `mem-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        instanceId,
+        machineName: instance.machineName,
+        componentName: this.componentDef.name,
+        event,
+        stateBefore: previousState,
+        stateAfter: transition.to,
+        persistedAt: Date.now()
+      };
+      const instanceHistory = this.eventHistory.get(instanceId) || [];
+      instanceHistory.push(historyEvent);
+      this.eventHistory.set(instanceId, instanceHistory);
 
       // Handle timeouts based on whether this is a self-loop
       const isSelfLoop = previousState === transition.to;
@@ -1662,11 +1681,13 @@ export class FSMRuntime extends EventEmitter {
    * Get instance event history (for audit/debug)
    */
   async getInstanceHistory(instanceId: string): Promise<import('./types').PersistedEvent[]> {
-    if (!this.persistence) {
-      return [];
+    // First try persistence store
+    if (this.persistence) {
+      return await this.persistence.getInstanceEvents(instanceId);
     }
 
-    return await this.persistence.getInstanceEvents(instanceId);
+    // Fall back to in-memory history
+    return this.eventHistory.get(instanceId) || [];
   }
 
   /**

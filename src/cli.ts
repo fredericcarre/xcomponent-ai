@@ -797,7 +797,8 @@ program
           if (runtime) {
             const instances = runtime.getAllInstances().map(i => ({
               ...i,
-              componentName
+              componentName,
+              pendingTimeouts: runtime.getPendingTimeouts(i.id)
             }));
             allInstances.push(...instances);
           }

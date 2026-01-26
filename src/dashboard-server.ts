@@ -10,7 +10,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import * as path from 'path';
 import { createMessageBroker, MessageBroker } from './message-broker';
-import { Component, FSMEvent } from './types';
+import { Component } from './types';
 
 /**
  * Runtime registration message
@@ -126,7 +126,7 @@ export class DashboardServer {
     this.app.get('/api/components', (_req, res) => {
       const components = Array.from(this.components.values()).map(c => ({
         name: c.name,
-        description: c.description,
+        version: c.version,
         entryMachine: c.entryMachine,
         stateMachines: c.stateMachines.map(m => ({
           name: m.name,
@@ -142,7 +142,8 @@ export class DashboardServer {
     this.app.get('/api/components/:name', (req, res) => {
       const component = this.components.get(req.params.name);
       if (!component) {
-        return res.status(404).json({ error: 'Component not found' });
+        res.status(404).json({ error: 'Component not found' });
+        return;
       }
       res.json(component);
     });
@@ -158,7 +159,8 @@ export class DashboardServer {
     this.app.get('/api/components/:name/machines', (req, res) => {
       const component = this.components.get(req.params.name);
       if (!component) {
-        return res.status(404).json({ error: 'Component not found' });
+        res.status(404).json({ error: 'Component not found' });
+        return;
       }
       res.json({
         machines: component.stateMachines.map(m => ({
@@ -184,7 +186,8 @@ export class DashboardServer {
       }
 
       if (!machine) {
-        return res.status(404).json({ error: 'Machine not found' });
+        res.status(404).json({ error: 'Machine not found' });
+        return;
       }
 
       // Generate Mermaid diagram
@@ -413,7 +416,7 @@ export class DashboardServer {
     await this.broker.publish(DashboardChannels.QUERY_INSTANCES, {
       type: 'query_all_instances',
       timestamp: Date.now()
-    });
+    } as any);
 
     // Start HTTP server
     return new Promise((resolve) => {

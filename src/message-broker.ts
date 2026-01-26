@@ -35,14 +35,16 @@ export interface CrossComponentMessage {
  */
 export interface MessageBroker {
   /**
-   * Publish a cross-component message
+   * Publish a message to a channel
+   * Accepts CrossComponentMessage or any other message type for flexibility
    */
-  publish(channel: string, message: CrossComponentMessage): Promise<void>;
+  publish(channel: string, message: CrossComponentMessage | Record<string, any>): Promise<void>;
 
   /**
-   * Subscribe to messages for a specific component
+   * Subscribe to messages on a channel
+   * Handler receives any message type for flexibility
    */
-  subscribe(componentName: string, handler: (message: CrossComponentMessage) => void): void;
+  subscribe(channel: string, handler: (message: any) => void): void;
 
   /**
    * Unsubscribe from a component's messages

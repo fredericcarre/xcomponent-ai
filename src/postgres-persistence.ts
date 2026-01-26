@@ -144,12 +144,12 @@ export class PostgresEventStore implements EventStore {
       event.machineName,
       event.event.type,
       JSON.stringify(event.event.payload || {}),
-      event.fromState,
-      event.toState,
-      JSON.stringify(event.context || {}),
+      event.stateBefore,
+      event.stateAfter,
+      JSON.stringify({}), // context placeholder
       JSON.stringify(event.publicMemberSnapshot || {}),
-      event.correlationId,
-      event.causationId,
+      event.causedBy?.[0] || null, // correlation_id from first causedBy
+      event.causedBy?.[0] || null, // causation_id from first causedBy
       JSON.stringify(event.caused || []),
       event.persistedAt
     ]);
@@ -230,16 +230,16 @@ export class PostgresEventStore implements EventStore {
       id: row.id,
       instanceId: row.instance_id,
       machineName: row.machine_name,
+      componentName: row.component_name || '',
       event: {
         type: row.event_type,
-        payload: row.event_payload || {}
+        payload: row.event_payload || {},
+        timestamp: parseInt(row.persisted_at, 10)
       },
-      fromState: row.from_state,
-      toState: row.to_state,
-      context: row.context || {},
+      stateBefore: row.from_state,
+      stateAfter: row.to_state,
       publicMemberSnapshot: row.public_member_snapshot,
-      correlationId: row.correlation_id,
-      causationId: row.causation_id,
+      causedBy: row.correlation_id ? [row.correlation_id] : undefined,
       caused: row.caused || [],
       persistedAt: parseInt(row.persisted_at, 10)
     };
@@ -355,8 +355,8 @@ export class PostgresSnapshotStore implements SnapshotStore {
       snapshot.instance.machineName,
       snapshot.instance.currentState,
       JSON.stringify(snapshot.instance.context || {}),
-      snapshot.eventCount,
-      JSON.stringify(snapshot.instance.pendingTimeouts || []),
+      0, // event_count - not tracked in current InstanceSnapshot type
+      JSON.stringify(snapshot.pendingTimeouts || []),
       snapshot.instance.createdAt ? new Date(snapshot.instance.createdAt) : new Date()
     ]);
   }
@@ -421,10 +421,17 @@ export class PostgresSnapshotStore implements SnapshotStore {
         machineName: row.machine_name,
         currentState: row.current_state,
         context: row.context || {},
-        pendingTimeouts: row.pending_timeouts || [],
-        createdAt: row.created_at ? new Date(row.created_at).getTime() : undefined
+        createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+        status: 'active'
       },
-      eventCount: row.event_count || 0
+      snapshotAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+      lastEventId: '',
+      pendingTimeouts: (row.pending_timeouts || []).map((t: any) => ({
+        stateKey: t.stateKey || '',
+        eventType: t.eventType || '',
+        remainingMs: t.remainingMs || 0
+      }))
     };
   }
 

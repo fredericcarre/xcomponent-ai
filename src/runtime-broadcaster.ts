@@ -7,7 +7,7 @@
 
 import { FSMRuntime } from './fsm-runtime';
 import { MessageBroker, createMessageBroker } from './message-broker';
-import { Component } from './types';
+import { Component, StateType } from './types';
 import { DashboardChannels, RuntimeRegistration, FSMEventBroadcast } from './dashboard-server';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -86,7 +86,7 @@ export class RuntimeBroadcaster {
         runtimeId: this.runtimeId,
         componentName: this.component.name,
         timestamp: Date.now()
-      });
+      } as any);
     }
 
     await this.broker.disconnect();
@@ -106,7 +106,7 @@ export class RuntimeBroadcaster {
       timestamp: Date.now()
     };
 
-    await this.broker.publish(DashboardChannels.RUNTIME_ANNOUNCE, registration);
+    await this.broker.publish(DashboardChannels.RUNTIME_ANNOUNCE, registration as any);
   }
 
   /**
@@ -121,7 +121,7 @@ export class RuntimeBroadcaster {
           runtimeId: this.runtimeId,
           componentName: this.component.name,
           timestamp: Date.now()
-        });
+        } as any);
       }
     }, interval);
   }
@@ -148,7 +148,7 @@ export class RuntimeBroadcaster {
         timestamp: Date.now()
       };
 
-      await this.broker.publish(DashboardChannels.STATE_CHANGE, broadcast);
+      await this.broker.publish(DashboardChannels.STATE_CHANGE, broadcast as any);
     });
 
     // Instance created
@@ -166,16 +166,16 @@ export class RuntimeBroadcaster {
         timestamp: Date.now()
       };
 
-      await this.broker.publish(DashboardChannels.INSTANCE_CREATED, broadcast);
+      await this.broker.publish(DashboardChannels.INSTANCE_CREATED, broadcast as any);
     });
 
     // Instance completed (terminal state reached)
     this.runtime.on('state_change', async (data) => {
-      // Check if the new state is terminal
+      // Check if the new state is terminal (FINAL or ERROR type)
       const machine = this.component.stateMachines.find(m => m.name === data.machineName);
       const state = machine?.states.find(s => s.name === data.newState);
 
-      if (state?.terminal) {
+      if (state?.type === StateType.FINAL || state?.type === StateType.ERROR) {
         const broadcast: FSMEventBroadcast = {
           runtimeId: this.runtimeId,
           componentName: this.component.name,
@@ -188,7 +188,7 @@ export class RuntimeBroadcaster {
           timestamp: Date.now()
         };
 
-        await this.broker.publish(DashboardChannels.INSTANCE_COMPLETED, broadcast);
+        await this.broker.publish(DashboardChannels.INSTANCE_COMPLETED, broadcast as any);
       }
     });
   }
@@ -202,7 +202,7 @@ export class RuntimeBroadcaster {
       try {
         const instance = this.runtime.getInstance(msg.instanceId);
         if (instance) {
-          await this.runtime.trigger(msg.instanceId, msg.event);
+          await this.runtime.sendEvent(msg.instanceId, msg.event);
           console.log(`[RuntimeBroadcaster] Triggered event ${msg.event.type} on ${msg.instanceId}`);
         }
       } catch (error: any) {
@@ -214,12 +214,16 @@ export class RuntimeBroadcaster {
     await this.broker.subscribe(DashboardChannels.CREATE_INSTANCE, async (msg: any) => {
       if (msg.componentName === this.component.name) {
         try {
-          const instance = await this.runtime.createInstance(
-            this.component.entryMachine,
-            msg.context || {},
-            msg.event || { type: 'START', payload: {} }
+          const entryMachine = this.component.entryMachine;
+          if (!entryMachine) {
+            console.error(`[RuntimeBroadcaster] No entry machine defined for component ${this.component.name}`);
+            return;
+          }
+          const instanceId = this.runtime.createInstance(
+            entryMachine,
+            msg.context || {}
           );
-          console.log(`[RuntimeBroadcaster] Created instance ${instance.id}`);
+          console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
         } catch (error: any) {
           console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message);
         }
@@ -233,7 +237,7 @@ export class RuntimeBroadcaster {
         machineName: inst.machineName,
         currentState: inst.currentState,
         context: inst.context,
-        pendingTimeouts: inst.pendingTimeouts || []
+        pendingTimeouts: this.runtime.getPendingTimeouts(inst.id)
       }));
 
       await this.broker.publish(DashboardChannels.QUERY_RESPONSE, {
@@ -242,7 +246,7 @@ export class RuntimeBroadcaster {
         componentName: this.component.name,
         instances,
         timestamp: Date.now()
-      });
+      } as any);
     });
   }
 

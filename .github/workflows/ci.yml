@@ -106,6 +106,72 @@ jobs:
       if: always()
       run: docker compose -f tests/integration/docker-compose.yml down -v
 
+  distributed:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build and start distributed example
+      run: |
+        cd examples/distributed
+        docker compose build
+        docker compose up -d
+
+    - name: Wait for services to be healthy
+      run: |
+        echo "Waiting for RabbitMQ..."
+        timeout 60 bash -c 'until docker compose -f examples/distributed/docker-compose.yml exec -T rabbitmq rabbitmq-diagnostics -q check_port_connectivity; do sleep 2; done'
+        echo "Waiting for PostgreSQL..."
+        timeout 30 bash -c 'until docker compose -f examples/distributed/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
+        echo "Waiting for Dashboard..."
+        timeout 60 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
+        echo "Waiting for runtimes to register..."
+        sleep 10
+
+    - name: Verify dashboard health
+      run: |
+        echo "Checking dashboard health endpoint..."
+        curl -sf http://localhost:3000/health | jq .
+
+    - name: Verify runtimes registered
+      run: |
+        echo "Checking connected runtimes..."
+        RUNTIMES=$(curl -sf http://localhost:3000/api/runtimes | jq '.runtimes | length')
+        echo "Connected runtimes: $RUNTIMES"
+        if [ "$RUNTIMES" -lt 2 ]; then
+          echo "ERROR: Expected at least 2 runtimes, got $RUNTIMES"
+          docker compose -f examples/distributed/docker-compose.yml logs
+          exit 1
+        fi
+
+    - name: Verify components registered
+      run: |
+        echo "Checking registered components..."
+        curl -sf http://localhost:3000/api/components | jq .
+        COMPONENTS=$(curl -sf http://localhost:3000/api/components | jq '.components | length')
+        echo "Registered components: $COMPONENTS"
+        if [ "$COMPONENTS" -lt 2 ]; then
+          echo "ERROR: Expected at least 2 components (Order, Payment), got $COMPONENTS"
+          docker compose -f examples/distributed/docker-compose.yml logs
+          exit 1
+        fi
+
+    - name: Show logs on failure
+      if: failure()
+      run: |
+        echo "=== Dashboard logs ==="
+        docker compose -f examples/distributed/docker-compose.yml logs dashboard
+        echo "=== Order runtime logs ==="
+        docker compose -f examples/distributed/docker-compose.yml logs runtime-order
+        echo "=== Payment runtime logs ==="
+        docker compose -f examples/distributed/docker-compose.yml logs runtime-payment
+
+    - name: Stop distributed example
+      if: always()
+      run: docker compose -f examples/distributed/docker-compose.yml down -v
+
   docs:
     runs-on: ubuntu-latest
 

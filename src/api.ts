@@ -360,10 +360,12 @@ export class APIServer {
     this.app.get('/api/machines/:machineName/diagram', (req: Request, res: Response) => {
       try {
         const machineName = req.params.machineName as string;
+        const instanceId = req.query.instanceId as string | undefined;
 
         // Find the machine in any component
         const componentNames = this.registry.getComponentNames();
         let foundMachine = null;
+        let foundComponentName = null;
 
         for (const componentName of componentNames) {
           const component = this.registry.getComponent(componentName);
@@ -371,20 +373,33 @@ export class APIServer {
             const machine = component.stateMachines.find(m => m.name === machineName);
             if (machine) {
               foundMachine = machine;
+              foundComponentName = componentName;
               break;
             }
           }
         }
 
-        if (!foundMachine) {
+        if (!foundMachine || !foundComponentName) {
           return res.status(404).json({ success: false, error: 'Machine not found' });
+        }
+
+        // Get current state if instanceId is provided
+        let currentState: string | undefined;
+        if (instanceId) {
+          const runtime = this.registry.getRuntime(foundComponentName);
+          if (runtime) {
+            const instance = runtime.getInstance(instanceId);
+            if (instance && instance.machineName === machineName) {
+              currentState = instance.currentState;
+            }
+          }
         }
 
         // Generate Mermaid diagram
         const { generateStyledMermaidDiagram } = require('./mermaid-generator');
-        const diagram = generateStyledMermaidDiagram(foundMachine);
+        const diagram = generateStyledMermaidDiagram(foundMachine, currentState);
 
-        return res.json({ success: true, diagram });
+        return res.json({ success: true, diagram, currentState });
       } catch (error: any) {
         return res.status(500).json({ success: false, error: error.message });
       }

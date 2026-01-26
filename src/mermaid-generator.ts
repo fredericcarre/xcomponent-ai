@@ -125,9 +125,6 @@ export function generateStyledMermaidDiagram(
   // Detect terminal states automatically
   const terminalStates = detectTerminalStates(machine);
 
-  // Detect inter-machine transitions for link styling
-  const interMachineTransitions = detectInterMachineTransitions(machine);
-
   // Collect state styles
   const stateStyles: string[] = [];
   machine.states.forEach(state => {

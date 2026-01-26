@@ -898,66 +898,106 @@
       const svg = card.querySelector('svg');
       if (!svg) return;
 
-      // Debug: log what we're looking for
       console.log('Applying styles - currentState:', currentState, 'reachable:', [...reachableStates]);
 
-      // In Mermaid stateDiagram-v2, states are in groups with class "node" or specific state classes
-      // Try multiple approaches to find state elements
-      const allGroups = svg.querySelectorAll('g');
+      // Mermaid stateDiagram-v2 structure: states are in groups with specific IDs or classes
+      // Try finding by state ID pattern first (most reliable)
+      const stateGroups = svg.querySelectorAll('[id*="state-"], [id*="statediagram"], g.node, g.state');
 
-      allGroups.forEach(group => {
-        // Look for text elements that contain state names
-        const textEls = group.querySelectorAll('text');
-        if (textEls.length === 0) return;
+      // Collect all state names found
+      const foundStates = new Map(); // stateName -> { group, shape, textEls }
 
-        // Get the state name from text content
-        let stateName = null;
-        for (const textEl of textEls) {
-          const text = textEl.textContent?.trim();
-          // Skip empty, arrows, and special markers
-          if (text && text.length > 0 &&
-              !text.includes('-->') &&
-              !text.includes(':') &&
-              !text.startsWith('[') &&
-              text !== '●') {
-            stateName = text;
-            break;
+      // First pass: find all state groups by looking at group IDs and text content
+      svg.querySelectorAll('g').forEach(group => {
+        const groupId = group.getAttribute('id') || '';
+
+        // Check if this is a state group by ID
+        const idMatch = groupId.match(/state-([^-\s]+)/i);
+        if (idMatch) {
+          const stateName = idMatch[1];
+          const textEls = group.querySelectorAll('text, tspan');
+          const shape = group.querySelector('rect, path, polygon, ellipse');
+          if (shape) {
+            foundStates.set(stateName, { group, shape, textEls: Array.from(textEls) });
           }
+          return;
         }
 
-        if (!stateName) return;
+        // Fallback: look for text matching state names
+        const textEls = Array.from(group.querySelectorAll('text, tspan'));
+        for (const textEl of textEls) {
+          const text = textEl.textContent?.trim();
+          if (text && text.length > 0 && text.length < 50 &&
+              !text.includes('-->') && !text.includes(':') &&
+              !text.startsWith('[') && text !== '●' && text !== '*') {
 
-        // Find the shape element (rect is most common for states)
-        const shapes = group.querySelectorAll('rect, polygon, path, ellipse, circle');
-        const shape = shapes.length > 0 ? shapes[0] : null;
+            // Check if this text matches a known state
+            if (reachableStates.has(text) || text === currentState ||
+                [...reachableStates].some(s => s === text)) {
+              const shape = group.querySelector('rect, path, polygon, ellipse');
+              if (shape && !foundStates.has(text)) {
+                foundStates.set(text, { group, shape, textEls });
+              }
+            }
+          }
+        }
+      });
+
+      console.log('Found states:', [...foundStates.keys()]);
+
+      // Apply styles to found states
+      foundStates.forEach((data, stateName) => {
+        const { shape, textEls } = data;
 
         if (stateName === currentState) {
-          // Current state: bright purple/magenta border with glow + violet text
+          // Current state: violet/purple highlighting
           if (shape) {
             shape.style.stroke = '#a855f7';
             shape.style.strokeWidth = '4px';
-            shape.style.filter = 'drop-shadow(0 0 10px #a855f7)';
+            shape.style.filter = 'drop-shadow(0 0 12px #a855f7)';
           }
           textEls.forEach(t => {
-            t.style.fill = '#c084fc';
+            t.style.fill = '#e879f9';  // Bright violet
             t.style.fontWeight = '700';
+            t.style.fontSize = '14px';
           });
-          console.log('Highlighted current state:', stateName);
+          console.log('✓ Highlighted current state:', stateName);
         } else if (!reachableStates.has(stateName)) {
           // Unreachable state: grayed out
           if (shape) {
-            shape.style.fill = '#1a1a1a';
-            shape.style.stroke = '#333';
+            shape.style.fill = '#1f1f1f';
+            shape.style.stroke = '#444';
             shape.style.strokeWidth = '1px';
-            shape.style.opacity = '0.35';
+            shape.style.opacity = '0.4';
           }
           textEls.forEach(t => {
             t.style.fill = '#555';
-            t.style.opacity = '0.35';
+            t.style.opacity = '0.4';
           });
-          console.log('Grayed out unreachable state:', stateName);
+          console.log('✓ Grayed out unreachable state:', stateName);
         }
       });
+
+      // If we didn't find states by the above method, try a more aggressive approach
+      if (foundStates.size === 0) {
+        console.log('No states found by ID/text matching, trying broader search...');
+        // Look for any rect/text pair
+        svg.querySelectorAll('g').forEach(group => {
+          const rect = group.querySelector('rect');
+          const text = group.querySelector('text');
+          if (rect && text) {
+            const stateName = text.textContent?.trim();
+            if (stateName === currentState) {
+              rect.style.stroke = '#a855f7';
+              rect.style.strokeWidth = '4px';
+              rect.style.filter = 'drop-shadow(0 0 12px #a855f7)';
+              text.style.fill = '#e879f9';
+              text.style.fontWeight = '700';
+              console.log('✓ Fallback highlighted:', stateName);
+            }
+          }
+        });
+      }
     }
 
     // Compute reachable states from current state (BFS)
@@ -1304,112 +1344,61 @@
         }, 150);
 
       } else {
-        // Cards mode: Show summary cards with SVG arrows
-        // Collect inter-machine transitions
-        const interMachineLinks = [];
+        // Cards mode: Use Mermaid flowchart to show inter-machine connections
+        // Build flowchart diagram
+        let flowchartDef = 'flowchart LR\n';
+
+        // Define machine nodes with instance counts
+        machines.forEach(machine => {
+          const isEntry = component.entryMachine === machine.name;
+          const machineInstances = allInstances.filter(i => i.machineName === machine.name);
+          const icon = isEntry ? '⭐ ' : '';
+          const label = `${icon}${machine.name}<br/>${machine.states.length} states | ${machineInstances.length} inst`;
+          flowchartDef += `  ${machine.name}["${label}"]\n`;
+        });
+
+        // Add inter-machine connections with green styling
         machines.forEach(machine => {
           (machine.transitions || []).forEach(transition => {
             if (transition.type === 'inter_machine' && transition.targetMachine) {
-              interMachineLinks.push({
-                fromMachine: machine.name,
-                fromState: transition.from,
-                to: transition.targetMachine,
-                event: transition.event
-              });
+              flowchartDef += `  ${machine.name} -->|"🔗 ${transition.event}"| ${transition.targetMachine}\n`;
             }
           });
         });
 
-        // Layout machines in a grid
-        const cols = Math.ceil(Math.sqrt(machines.length));
-        const cardWidth = 200;
-        const cardHeight = 140;
-        const spacingX = 120;
-        const spacingY = 100;
+        // Add styling
+        flowchartDef += `  classDef entryNode fill:#fbbf24,stroke:#f59e0b,color:#000,stroke-width:2px\n`;
+        flowchartDef += `  classDef normalNode fill:#1f2937,stroke:#4b5563,color:#f0f0f0,stroke-width:1px\n`;
 
-        // Calculate positions
-        const positions = {};
-        machines.forEach((machine, idx) => {
-          const row = Math.floor(idx / cols);
-          const col = idx % cols;
-          positions[machine.name] = {
-            x: col * (cardWidth + spacingX) + 40,
-            y: row * (cardHeight + spacingY) + 40
-          };
-        });
-
-        // Build SVG for arrows
-        const svgWidth = cols * (cardWidth + spacingX) + 100;
-        const svgHeight = Math.ceil(machines.length / cols) * (cardHeight + spacingY) + 100;
-
-        let svgHtml = `<svg width="${svgWidth}" height="${svgHeight}" style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
-          <defs>
-            <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-              <path d="M 0 0 L 10 6 L 0 12 z" fill="#10b981" />
-            </marker>
-          </defs>`;
-
-        // Draw inter-machine arrows
-        interMachineLinks.forEach((link, idx) => {
-          const fromPos = positions[link.fromMachine];
-          const toPos = positions[link.to];
-          if (fromPos && toPos) {
-            const x1 = fromPos.x + cardWidth / 2;
-            const y1 = fromPos.y + cardHeight / 2;
-            const x2 = toPos.x + cardWidth / 2;
-            const y2 = toPos.y + cardHeight / 2;
-
-            // Calculate curve control point
-            const midX = (x1 + x2) / 2;
-            const midY = (y1 + y2) / 2;
-            const offset = 30;
-
-            svgHtml += `
-              <path d="M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}"
-                    fill="none" stroke="#10b981" stroke-width="3"
-                    marker-end="url(#arrowhead)" />
-              <text x="${midX}" y="${midY - offset - 8}" fill="#10b981" font-size="11"
-                    text-anchor="middle" font-weight="600">${link.fromState} → ${link.event}</text>`;
-          }
-        });
-
-        svgHtml += '</svg>';
-
-        // Build machine cards
-        let cardsHtml = svgHtml;
+        // Apply styles
         machines.forEach(machine => {
-          const pos = positions[machine.name];
           const isEntry = component.entryMachine === machine.name;
-          const machineInstances = allInstances.filter(i => i.machineName === machine.name);
-
-          cardsHtml += `
-            <div class="machine-card ${isEntry ? 'entry-machine' : ''}"
-                 style="left: ${pos.x}px; top: ${pos.y}px; width: ${cardWidth}px;"
-                 onclick="selectMachine('${machine.name}')">
-              <div class="machine-card-header">
-                <span class="machine-card-name">${machine.name}</span>
-                ${isEntry ? '<span class="entry-star">⭐</span>' : ''}
-              </div>
-              <div class="machine-card-info">
-                <div class="info-row">
-                  <span class="info-label">States:</span>
-                  <span>${machine.states.length}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Transitions:</span>
-                  <span>${machine.transitions.length}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Instances:</span>
-                  <span class="instance-badge">${machineInstances.length}</span>
-                </div>
-              </div>
-            </div>`;
+          flowchartDef += `  class ${machine.name} ${isEntry ? 'entryNode' : 'normalNode'}\n`;
         });
 
-        container.innerHTML = cardsHtml;
+        // Add link styling for green inter-machine arrows
+        flowchartDef += `  linkStyle default stroke:#10b981,stroke-width:3px\n`;
+
+        container.innerHTML = `
+          <div style="padding: 40px; display: flex; flex-direction: column; align-items: center;">
+            <div class="mermaid" id="component-flowchart">${flowchartDef}</div>
+            <div style="margin-top: 24px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">
+              ${machines.map(machine => {
+                const isEntry = component.entryMachine === machine.name;
+                return `<button onclick="selectMachine('${machine.name}')"
+                  style="padding: 12px 20px; background: ${isEntry ? 'linear-gradient(135deg, #fbbf24, #f59e0b)' : 'var(--bg-tertiary)'};
+                         border: 1px solid ${isEntry ? '#f59e0b' : 'var(--glass-border)'}; border-radius: 8px;
+                         color: ${isEntry ? '#000' : 'var(--text-primary)'}; font-size: 13px; font-weight: 600; cursor: pointer;">
+                  ${isEntry ? '⭐ ' : ''}${machine.name}
+                </button>`;
+              }).join('')}
+            </div>
+          </div>`;
         container.style.position = 'relative';
-        container.style.height = svgHeight + 'px';
+        container.style.height = 'auto';
+
+        // Render the flowchart
+        await mermaid.run({ querySelector: '#component-flowchart' });
       }
     }
 

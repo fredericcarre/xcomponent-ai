@@ -352,9 +352,12 @@ export class FSMRuntime extends EventEmitter {
           instanceId: instanceId,
           machineName: instance.machineName,
         };
+        // Merge parent context with event payload for child instance
+        // Event payload takes precedence (allows passing parameters to child)
+        const childContext = { ...instance.context, ...event.payload };
         const newInstanceId = this.createInstance(
           transition.targetMachine,
-          { ...instance.context },
+          childContext,
           parentInfo
         );
         this.emit('inter_machine_transition', {

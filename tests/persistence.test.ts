@@ -89,8 +89,10 @@ describe('Persistence & Event Sourcing (Phase 4)', () => {
       const history = await runtime.getInstanceHistory(orderId);
 
       // In-memory history is always available for audit/debug purposes
-      expect(history.length).toBe(1);
-      expect(history[0].event.type).toBe('VALIDATE');
+      // First event is INSTANCE_CREATED, second is VALIDATE
+      expect(history.length).toBe(2);
+      expect(history[0].event.type).toBe('INSTANCE_CREATED');
+      expect(history[1].event.type).toBe('VALIDATE');
     });
   });
 

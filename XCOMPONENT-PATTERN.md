@@ -1,23 +1,23 @@
 # XComponent Pattern Guide
 
-## 🏗️ Qu'est-ce que le Pattern XComponent ?
+## 🏗️ What is the XComponent Pattern?
 
-Le pattern XComponent permet d'orchestrer plusieurs machines à états au sein d'un même composant :
+The XComponent pattern enables orchestration of multiple state machines within a single component:
 
-- **Entry Point** : Une machine principale créée automatiquement au démarrage
-- **Transitions Inter-Machines** : Créent dynamiquement de nouvelles instances d'autres machines
-- **Auto-Désallocation** : Les instances sont détruites automatiquement en état final (sauf l'entry point)
-- **Vue d'Ensemble** : Dashboard montrant toutes les machines et leurs connexions
+- **Entry Point**: A main machine automatically created at startup
+- **Inter-Machine Transitions**: Dynamically create new instances of other machines
+- **Auto-Deallocation**: Instances are automatically destroyed in final state (except entry point)
+- **Overview**: Dashboard showing all machines and their connections
 
-## 🚀 Démarrage Rapide
+## 🚀 Quick Start
 
-### 1. Utiliser l'Exemple XComponent
+### 1. Use the XComponent Example
 
 ```bash
 xcomponent-ai serve examples/xcomponent-pattern-demo.yaml
 ```
 
-**Sortie attendue:**
+**Expected output:**
 ```
 🚀 xcomponent-ai Runtime Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -31,57 +31,57 @@ xcomponent-ai serve examples/xcomponent-pattern-demo.yaml
    - Settlement (3 states, 3 transitions)
 ```
 
-### 2. Ouvrir le Dashboard
+### 2. Open the Dashboard
 
 ```bash
 open http://localhost:3000/dashboard.html
 ```
 
-**Ce que vous verrez :**
-- **Tab "Component View"** (par défaut) montrant toutes les machines
-- **OrderManager** avec une étoile ⭐ (entry point) et badge [1] (1 instance active)
-- **Flèches vertes** entre les machines = transitions inter_machine
-- **Compteur d'instances** pour chaque machine
+**What you'll see:**
+- **"Component View" tab** (default) showing all machines
+- **OrderManager** with a star ⭐ (entry point) and badge [1] (1 active instance)
+- **Green arrows** between machines = inter_machine transitions
+- **Instance counter** for each machine
 
-### 3. Créer des Instances via Transitions Inter-Machines
+### 3. Create Instances via Inter-Machine Transitions
 
-**Option A : Via le Dashboard Component View**
-1. Cliquez sur la **flèche verte** entre OrderManager et OrderExecution
-2. Cela déclenche la transition `START_EXECUTION`
-3. Une nouvelle instance d'OrderExecution est créée automatiquement
-4. Le compteur s'incrémente en temps réel
+**Option A: Via Dashboard Component View**
+1. Click on the **green arrow** between OrderManager and OrderExecution
+2. This triggers the `START_EXECUTION` transition
+3. A new OrderExecution instance is automatically created
+4. The counter increments in real-time
 
-**Option B : Via l'API**
+**Option B: Via API**
 ```bash
-# Récupérer l'ID de l'instance entry point
+# Get the entry point instance ID
 ENTRY_INSTANCE=$(curl -s http://localhost:3000/api/instances | jq -r '.instances[0].id')
 
-# Passer OrderManager à l'état OrderReceived
+# Move OrderManager to OrderReceived state
 curl -X POST http://localhost:3000/api/instances/$ENTRY_INSTANCE/events \
   -H "Content-Type: application/json" \
   -d '{"type": "NEW_ORDER", "payload": {}}'
 
-# Déclencher la transition inter_machine (crée OrderExecution)
+# Trigger the inter_machine transition (creates OrderExecution)
 curl -X POST http://localhost:3000/api/instances/$ENTRY_INSTANCE/events \
   -H "Content-Type: application/json" \
   -d '{"type": "START_EXECUTION", "payload": {}}'
 ```
 
-## 📝 Structure YAML pour XComponent
+## 📝 YAML Structure for XComponent
 
 ```yaml
-name: MonComposant
+name: MyComponent
 version: 1.0.0
 
-# Spécifier l'entry point
-entryMachine: MachineManager  # ⭐ Créée automatiquement
+# Specify the entry point
+entryMachine: MachineManager  # ⭐ Automatically created
 
-# Configuration optionnelle du layout
+# Optional layout configuration
 layout:
-  algorithm: grid  # ou 'force', 'hierarchical'
+  algorithm: grid  # or 'force', 'hierarchical'
 
 stateMachines:
-  # Entry Point - persiste même en état final
+  # Entry Point - persists even in final state
   - name: MachineManager
     initialState: Ready
 
@@ -89,23 +89,23 @@ stateMachines:
       - name: Ready
         type: entry
       - name: Completed
-        type: final  # Entry point reste vivant même ici
+        type: final  # Entry point stays alive even here
 
     transitions:
-      # Transition normale
+      # Normal transition
       - from: Ready
         to: Processing
         event: START
         type: triggerable
 
-      # Transition inter_machine - crée une nouvelle instance
+      # inter_machine transition - creates a new instance
       - from: Processing
         to: Ready
         event: CREATE_WORKER
-        type: inter_machine        # ← Type spécial
-        targetMachine: WorkerMachine  # ← Machine à créer
+        type: inter_machine        # ← Special type
+        targetMachine: WorkerMachine  # ← Machine to create
 
-  # Machine créée dynamiquement
+  # Dynamically created machine
   - name: WorkerMachine
     initialState: Created
 
@@ -113,7 +113,7 @@ stateMachines:
       - name: Created
         type: entry
       - name: Done
-        type: final  # Auto-désallouée ici
+        type: final  # Auto-deallocated here
 
     transitions:
       - from: Created
@@ -122,76 +122,76 @@ stateMachines:
         type: triggerable
 ```
 
-## 🔄 Cycle de Vie des Instances
+## 🔄 Instance Lifecycle
 
 ### Entry Point (MachineManager)
 ```
-Démarrage Composant
+Component Startup
   ↓
-⭐ Instance créée automatiquement
+⭐ Instance automatically created
   ↓
-[Reste vivante toute la durée du composant]
+[Stays alive for the entire component lifetime]
   ↓
-État Final → PERSISTE ⭐
+Final State → PERSISTS ⭐
 ```
 
-### Machines Normales (WorkerMachine)
+### Normal Machines (WorkerMachine)
 ```
-Transition inter_machine déclenchée
+inter_machine transition triggered
   ↓
-🔄 Instance créée dynamiquement
+🔄 Instance dynamically created
   ↓
-[Traitement...]
+[Processing...]
   ↓
-État Final → DÉSALLOUÉE ✓
+Final State → DEALLOCATED ✓
 ```
 
 ## 🎨 Dashboard - Component View
 
-### Vue par Défaut
+### Default View
 ```
 🏗️ Component View
 ┌────────────────────────────────────┐
 │ ⭐ MachineManager    [1]           │
 │ (Entry Point)                      │
-│           ↓ (CREATE_WORKER)        │ ← Cliquez ici !
+│           ↓ (CREATE_WORKER)        │ ← Click here!
 │ WorkerMachine        [5]           │
 └────────────────────────────────────┘
 ```
 
-### Actions Disponibles
-- **Cliquer sur une carte de machine** → Vue diagramme détaillé
-- **Cliquer sur une flèche verte** → Exécuter la transition inter_machine
-- **Badge de compteur** → Nombre d'instances actives
+### Available Actions
+- **Click on a machine card** → Detailed diagram view
+- **Click on a green arrow** → Execute the inter_machine transition
+- **Counter badge** → Number of active instances
 
 ## 📊 Monitoring
 
-### Logs en Temps Réel
+### Real-Time Logs
 ```bash
-[10:15:46] [MonComposant] ⭐ Entry point instance created: be94a22e (MachineManager)
-[10:16:01] [MonComposant] abc123: Ready → Processing (event: START)
-[10:16:05] [MonComposant] Instance def456 created (WorkerMachine)
-[10:16:10] [MonComposant] def456: Created → Done (event: FINISH)
-[10:16:10] [MonComposant] Instance def456 disposed (WorkerMachine)
+[10:15:46] [MyComponent] ⭐ Entry point instance created: be94a22e (MachineManager)
+[10:16:01] [MyComponent] abc123: Ready → Processing (event: START)
+[10:16:05] [MyComponent] Instance def456 created (WorkerMachine)
+[10:16:10] [MyComponent] def456: Created → Done (event: FINISH)
+[10:16:10] [MyComponent] Instance def456 disposed (WorkerMachine)
 ```
 
-### API Instances
+### Instance API
 ```bash
-# Lister toutes les instances
+# List all instances
 curl http://localhost:3000/api/instances
 
-# Vérifier qu'une instance est l'entry point
+# Check if an instance is the entry point
 curl http://localhost:3000/api/instances | jq '.instances[] | select(.isEntryPoint == true)'
 ```
 
-## 🎯 Cas d'Usage
+## 🎯 Use Cases
 
-### Orchestration de Workflow
+### Workflow Orchestration
 ```yaml
 entryMachine: OrderOrchestrator
 
 stateMachines:
-  - name: OrderOrchestrator  # Coordonne tout
+  - name: OrderOrchestrator  # Coordinates everything
     transitions:
       - type: inter_machine
         targetMachine: OrderValidation
@@ -200,83 +200,83 @@ stateMachines:
       - type: inter_machine
         targetMachine: Shipping
 
-  - name: OrderValidation    # Sous-workflow
-  - name: PaymentProcessing  # Sous-workflow
-  - name: Shipping           # Sous-workflow
+  - name: OrderValidation    # Sub-workflow
+  - name: PaymentProcessing  # Sub-workflow
+  - name: Shipping           # Sub-workflow
 ```
 
-### Gestion de Pool
+### Pool Management
 ```yaml
 entryMachine: PoolManager
 
 stateMachines:
-  - name: PoolManager  # Crée des workers à la demande
+  - name: PoolManager  # Creates workers on demand
     transitions:
       - type: inter_machine
         targetMachine: Worker
 
-  - name: Worker  # Auto-détruit après traitement
+  - name: Worker  # Auto-destroyed after processing
     states:
       - name: Done
-        type: final  # ✓ Désalloué
+        type: final  # ✓ Deallocated
 ```
 
-## ⚠️ Bonnes Pratiques
+## ⚠️ Best Practices
 
-1. **Un seul entry point par composant**
-   - Marquer clairement avec `entryMachine`
-   - Utiliser un nom significatif (Manager, Orchestrator, Coordinator)
+1. **One entry point per component**
+   - Clearly mark with `entryMachine`
+   - Use a meaningful name (Manager, Orchestrator, Coordinator)
 
-2. **Transitions inter_machine claires**
-   - Noms explicites : `CREATE_EXECUTION`, `START_SETTLEMENT`
-   - Documenter le flow dans metadata
+2. **Clear inter_machine transitions**
+   - Explicit names: `CREATE_EXECUTION`, `START_SETTLEMENT`
+   - Document the flow in metadata
 
-3. **États finaux appropriés**
-   - Utiliser `type: final` pour auto-désallocation
-   - Entry point peut rester en final (il persiste)
+3. **Appropriate final states**
+   - Use `type: final` for auto-deallocation
+   - Entry point can remain in final (it persists)
 
 4. **Monitoring**
-   - Observer les logs pour débogage
-   - Utiliser Component View pour vue d'ensemble
+   - Observe logs for debugging
+   - Use Component View for overview
 
-## 🐛 Dépannage
+## 🐛 Troubleshooting
 
-### L'entry point n'est pas créé
+### Entry point is not created
 ```bash
-# Vérifier que entryMachine est défini
-grep "entryMachine" mon-component.yaml
+# Check that entryMachine is defined
+grep "entryMachine" my-component.yaml
 
-# Vérifier les logs au démarrage
-xcomponent-ai serve mon-component.yaml
-# Chercher: "⭐ Entry point instance created"
+# Check logs at startup
+xcomponent-ai serve my-component.yaml
+# Look for: "⭐ Entry point instance created"
 ```
 
-### Les transitions inter_machine ne fonctionnent pas
+### inter_machine transitions don't work
 ```bash
-# Vérifier le type de transition
-grep -A 2 "inter_machine" mon-component.yaml
-# Doit avoir: type: inter_machine + targetMachine: MachineNom
+# Check the transition type
+grep -A 2 "inter_machine" my-component.yaml
+# Must have: type: inter_machine + targetMachine: MachineName
 
-# Vérifier que la machine cible existe
-grep "name:" mon-component.yaml
+# Check that the target machine exists
+grep "name:" my-component.yaml
 ```
 
-### Les instances ne sont pas désallouées
+### Instances are not deallocated
 ```bash
-# Vérifier que l'état est marqué final
-grep -A 1 "type: final" mon-component.yaml
+# Check that the state is marked final
+grep -A 1 "type: final" my-component.yaml
 
-# Vérifier que ce n'est pas l'entry point
+# Check that it's not the entry point
 curl http://localhost:3000/api/instances | jq '.instances[] | select(.isEntryPoint == true)'
 ```
 
-## 📚 Exemples Complets
+## 📚 Complete Examples
 
-- `examples/xcomponent-pattern-demo.yaml` - Demo complète avec 3 machines
-- `examples/order-processing-xcomponent.yaml` - Traitement de commandes (avec guards - ancienne version)
+- `examples/xcomponent-pattern-demo.yaml` - Complete demo with 3 machines
+- `examples/order-processing-xcomponent.yaml` - Order processing (with guards - legacy version)
 
-## 🔗 Ressources
+## 🔗 Resources
 
-- [CHANGELOG.md](./CHANGELOG.md) - Historique des versions
-- [QUICKSTART.md](./QUICKSTART.md) - Guide de démarrage rapide
-- [LLM-GUIDE.md](./LLM-GUIDE.md) - Guide pour les IA
+- [CHANGELOG.md](./CHANGELOG.md) - Version history
+- [QUICKSTART.md](./QUICKSTART.md) - Quick start guide
+- [LLM-GUIDE.md](./LLM-GUIDE.md) - Guide for AI

@@ -1691,6 +1691,14 @@
                   ${transitionsHtml}
                 </div>`;
               }
+            } else {
+              // No instances - still add to machineStateInfo so it gets grayed out
+              machineStateInfo.push({
+                machineName: machine.name,
+                currentState: null,
+                transitions: machine.transitions || [],
+                pendingTimeouts: []
+              });
             }
 
             const res = await fetch(url);

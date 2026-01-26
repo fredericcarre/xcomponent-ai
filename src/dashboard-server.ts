@@ -248,6 +248,42 @@ export class DashboardServer {
       }));
       res.json({ runtimes });
     });
+
+    // Get all instances across all components
+    this.app.get('/api/instances', (_req, res) => {
+      const allInstances: any[] = [];
+      this.instanceCache.forEach((instances, componentName) => {
+        instances.forEach(inst => {
+          allInstances.push({ ...inst, componentName });
+        });
+      });
+      res.json({ instances: allInstances });
+    });
+
+    // Get instance history (placeholder - would need event store access)
+    this.app.get('/api/instances/:instanceId/history', (_req, res) => {
+      // In distributed mode, history is stored in PostgreSQL on runtimes
+      // This is a placeholder that returns empty for now
+      res.json({ history: [], message: 'History is stored on runtime event stores' });
+    });
+
+    // Trigger event on specific component instance
+    this.app.post('/api/components/:componentName/instances/:instanceId/events', async (req, res) => {
+      const { componentName, instanceId } = req.params;
+      const { type, payload } = req.body;
+
+      try {
+        await this.broker.publish(DashboardChannels.TRIGGER_EVENT, {
+          componentName,
+          instanceId,
+          event: { type, payload: payload || {}, timestamp: Date.now() }
+        });
+
+        res.json({ success: true, message: 'Event sent to runtime' });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
   }
 
   private setupWebSocket(): void {

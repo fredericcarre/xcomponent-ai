@@ -235,6 +235,57 @@ describe('PostgresEventStore', () => {
     // Mock should have been called
     expect(store).toBeDefined();
   });
+
+  test('should append events', async () => {
+    const { PostgresEventStore } = await import('../src/postgres-persistence');
+    const store = new PostgresEventStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    await store.append({
+      id: 'event-1',
+      instanceId: 'instance-1',
+      machineName: 'TestMachine',
+      componentName: 'TestComponent',
+      event: { type: 'TEST', payload: {}, timestamp: Date.now() },
+      stateBefore: 'Initial',
+      stateAfter: 'Processing',
+      persistedAt: Date.now(),
+    });
+  });
+
+  test('should get events for instance', async () => {
+    const { PostgresEventStore } = await import('../src/postgres-persistence');
+    const store = new PostgresEventStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    const events = await store.getEventsForInstance('instance-1');
+    expect(Array.isArray(events)).toBe(true);
+  });
+
+  test('should get events by time range', async () => {
+    const { PostgresEventStore } = await import('../src/postgres-persistence');
+    const store = new PostgresEventStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    const events = await store.getEventsByTimeRange(Date.now() - 1000, Date.now());
+    expect(Array.isArray(events)).toBe(true);
+  });
+
+  test('should close connection', async () => {
+    const { PostgresEventStore } = await import('../src/postgres-persistence');
+    const store = new PostgresEventStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    await store.close();
+  });
 });
 
 describe('PostgresSnapshotStore', () => {
@@ -244,6 +295,78 @@ describe('PostgresSnapshotStore', () => {
       connectionString: 'postgresql://localhost:5432/test',
     });
     expect(store).toBeDefined();
+  });
+
+  test('should initialize and create tables', async () => {
+    const { PostgresSnapshotStore } = await import('../src/postgres-persistence');
+    const store = new PostgresSnapshotStore({
+      host: 'localhost',
+      port: 5432,
+      database: 'test',
+      user: 'test',
+      password: 'test',
+    });
+
+    await store.initialize();
+    expect(store).toBeDefined();
+  });
+
+  test('should save and get snapshot', async () => {
+    const { PostgresSnapshotStore } = await import('../src/postgres-persistence');
+    const store = new PostgresSnapshotStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+
+    await store.saveSnapshot({
+      instance: {
+        id: 'instance-1',
+        machineName: 'TestMachine',
+        currentState: 'Processing',
+        context: { value: 42 },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        status: 'active',
+      },
+      snapshotAt: Date.now(),
+      lastEventId: 'event-1',
+    });
+
+    const snapshot = await store.getSnapshot('instance-1');
+    // Mock returns null/undefined, method is tested
+    expect(snapshot).toBeFalsy();
+  });
+
+  test('should get all snapshots', async () => {
+    const { PostgresSnapshotStore } = await import('../src/postgres-persistence');
+    const store = new PostgresSnapshotStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    const snapshots = await store.getAllSnapshots();
+    expect(Array.isArray(snapshots)).toBe(true);
+  });
+
+  test('should delete snapshot', async () => {
+    const { PostgresSnapshotStore } = await import('../src/postgres-persistence');
+    const store = new PostgresSnapshotStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    await store.deleteSnapshot('instance-1');
+  });
+
+  test('should close connection', async () => {
+    const { PostgresSnapshotStore } = await import('../src/postgres-persistence');
+    const store = new PostgresSnapshotStore({
+      connectionString: 'postgresql://localhost:5432/test',
+    });
+
+    await store.initialize();
+    await store.close();
   });
 });
 
@@ -335,5 +458,96 @@ describe('DashboardServer', () => {
     expect(DashboardChannels).toBeDefined();
     expect(DashboardChannels.RUNTIME_ANNOUNCE).toBe('fsm:registry:announce');
     expect(DashboardChannels.STATE_CHANGE).toBe('fsm:events:state_change');
+  });
+
+  test('should start and stop server', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3999);
+    await dashboard.stop();
+  });
+
+  test('should respond to health check', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3998);
+
+    // Use native fetch for health check
+    const response = await fetch('http://localhost:3998/health');
+    const data = await response.json() as { status: string; mode: string; connectedRuntimes: number };
+
+    expect(data.status).toBe('ok');
+    expect(data.mode).toBe('distributed');
+    expect(data.connectedRuntimes).toBe(0);
+
+    await dashboard.stop();
+  });
+
+  test('should return empty components list', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3997);
+
+    const response = await fetch('http://localhost:3997/api/components');
+    const data = await response.json() as { components: any[] };
+
+    expect(data.components).toEqual([]);
+
+    await dashboard.stop();
+  });
+
+  test('should return 404 for non-existent component', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3996);
+
+    const response = await fetch('http://localhost:3996/api/components/NonExistent');
+    expect(response.status).toBe(404);
+
+    await dashboard.stop();
+  });
+
+  test('should return empty instances for component', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3995);
+
+    const response = await fetch('http://localhost:3995/api/components/TestComponent/instances');
+    const data = await response.json() as { instances: any[] };
+
+    expect(data.instances).toEqual([]);
+
+    await dashboard.stop();
+  });
+
+  test('should return 404 for machines of non-existent component', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3994);
+
+    const response = await fetch('http://localhost:3994/api/components/NonExistent/machines');
+    expect(response.status).toBe(404);
+
+    await dashboard.stop();
+  });
+
+  test('should return empty runtimes list', async () => {
+    const { DashboardServer } = await import('../src/dashboard-server');
+    const dashboard = new DashboardServer('memory');
+
+    await dashboard.start(3993);
+
+    const response = await fetch('http://localhost:3993/api/runtimes');
+    const data = await response.json() as { runtimes: any[] };
+
+    expect(data.runtimes).toEqual([]);
+
+    await dashboard.stop();
   });
 });

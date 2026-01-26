@@ -1000,6 +1000,167 @@
       }
     }
 
+    // Draw inter-machine arrows between state machine cards
+    function drawInterMachineArrows(container, links) {
+      const svg = container.querySelector('#inter-machine-arrows');
+      if (!svg) return;
+
+      // Clear existing arrows
+      svg.innerHTML = '';
+
+      // Get container position for offset calculations
+      const containerRect = container.getBoundingClientRect();
+      const scrollLeft = container.scrollLeft;
+      const scrollTop = container.scrollTop;
+
+      // Build arrow definitions
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = `
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" />
+        </marker>
+        <filter id="arrow-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      `;
+      svg.appendChild(defs);
+
+      // Group arrows by source-target pair to handle multiple arrows
+      const arrowGroups = {};
+      links.forEach(link => {
+        const key = `${link.fromMachine}-${link.to}`;
+        if (!arrowGroups[key]) {
+          arrowGroups[key] = { from: link.fromMachine, to: link.to, events: [] };
+        }
+        arrowGroups[key].events.push(link.event);
+      });
+
+      // Draw arrows for each unique connection
+      Object.values(arrowGroups).forEach((group, groupIndex) => {
+        const fromCard = container.querySelector(`.diagram-card[data-machine="${group.from}"]`);
+        const toCard = container.querySelector(`.diagram-card[data-machine="${group.to}"]`);
+
+        if (!fromCard || !toCard) return;
+
+        const fromRect = fromCard.getBoundingClientRect();
+        const toRect = toCard.getBoundingClientRect();
+
+        // Calculate positions relative to container
+        const fromX = fromRect.left - containerRect.left + scrollLeft;
+        const fromY = fromRect.top - containerRect.top + scrollTop;
+        const fromWidth = fromRect.width;
+        const fromHeight = fromRect.height;
+
+        const toX = toRect.left - containerRect.left + scrollLeft;
+        const toY = toRect.top - containerRect.top + scrollTop;
+        const toWidth = toRect.width;
+        const toHeight = toRect.height;
+
+        // Determine the best connection points based on relative positions
+        let startX, startY, endX, endY, cpX1, cpY1, cpX2, cpY2;
+
+        // Check if cards are side by side or stacked
+        const horizontalDistance = Math.abs((fromX + fromWidth/2) - (toX + toWidth/2));
+        const verticalDistance = Math.abs((fromY + fromHeight/2) - (toY + toHeight/2));
+
+        if (horizontalDistance > verticalDistance) {
+          // Cards are more horizontally separated - draw horizontal arrow
+          if (fromX < toX) {
+            // From is on the left
+            startX = fromX + fromWidth;
+            startY = fromY + fromHeight / 2;
+            endX = toX;
+            endY = toY + toHeight / 2;
+          } else {
+            // From is on the right
+            startX = fromX;
+            startY = fromY + fromHeight / 2;
+            endX = toX + toWidth;
+            endY = toY + toHeight / 2;
+          }
+          // Control points for horizontal curve
+          const midX = (startX + endX) / 2;
+          cpX1 = midX;
+          cpY1 = startY;
+          cpX2 = midX;
+          cpY2 = endY;
+        } else {
+          // Cards are more vertically separated - draw vertical arrow
+          if (fromY < toY) {
+            // From is above
+            startX = fromX + fromWidth / 2;
+            startY = fromY + fromHeight;
+            endX = toX + toWidth / 2;
+            endY = toY;
+          } else {
+            // From is below
+            startX = fromX + fromWidth / 2;
+            startY = fromY;
+            endX = toX + toWidth / 2;
+            endY = toY + toHeight;
+          }
+          // Control points for vertical curve
+          const midY = (startY + endY) / 2;
+          cpX1 = startX;
+          cpY1 = midY;
+          cpX2 = endX;
+          cpY2 = midY;
+        }
+
+        // Create the curved path
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const d = `M ${startX} ${startY} C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${endX} ${endY}`;
+        path.setAttribute('d', d);
+        path.setAttribute('stroke', '#10b981');
+        path.setAttribute('stroke-width', '3');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        path.setAttribute('filter', 'url(#arrow-glow)');
+        path.style.opacity = '0.9';
+        svg.appendChild(path);
+
+        // Add label for the event(s) at the middle of the curve
+        const labelText = group.events.join(', ');
+        const labelX = (startX + endX) / 2;
+        const labelY = (startY + endY) / 2 - 10;
+
+        // Background for label
+        const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        const textWidth = labelText.length * 7 + 16;
+        labelBg.setAttribute('x', labelX - textWidth / 2);
+        labelBg.setAttribute('y', labelY - 10);
+        labelBg.setAttribute('width', textWidth);
+        labelBg.setAttribute('height', 20);
+        labelBg.setAttribute('rx', '4');
+        labelBg.setAttribute('fill', '#10b981');
+        labelBg.setAttribute('opacity', '0.95');
+        svg.appendChild(labelBg);
+
+        // Label text
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', labelX);
+        text.setAttribute('y', labelY + 4);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('font-size', '11');
+        text.setAttribute('font-weight', '600');
+        text.setAttribute('fill', '#ffffff');
+        text.textContent = labelText;
+        svg.appendChild(text);
+      });
+
+      // Update SVG dimensions to cover all content
+      const gridContainer = container.querySelector('#diagram-grid-container');
+      if (gridContainer) {
+        const gridRect = gridContainer.getBoundingClientRect();
+        svg.style.width = Math.max(gridRect.width, container.scrollWidth) + 'px';
+        svg.style.height = Math.max(gridRect.height + 200, container.scrollHeight) + 'px';
+      }
+    }
+
     // Compute reachable states from current state (BFS)
     function computeReachableStatesJS(transitions, currentState) {
       const reachable = new Set([currentState]);
@@ -1158,9 +1319,12 @@
                     </div>`;
                   }
 
+                  // Escape JSON for HTML attribute context
+                  const paramKeysJson = hasParams ? JSON.stringify(Object.keys(schema)).replace(/"/g, '&quot;') : '[]';
+
                   return `<div style="margin-bottom: 8px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 6px; border-left: 3px solid ${btnColor};">
                     ${paramsHtml}
-                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${hasParams ? JSON.stringify(Object.keys(schema)) : '[]'})"
+                    <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${paramKeysJson})"
                       style="width: 100%; padding: 8px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;"
                       onmouseover="this.style.opacity='0.85'"
                       onmouseout="this.style.opacity='1'"
@@ -1201,6 +1365,8 @@
         }
 
         diagramsHtml += '</div>';
+        // Add SVG overlay for inter-machine arrows
+        diagramsHtml += '<svg id="inter-machine-arrows" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></svg>';
         container.innerHTML = diagramsHtml;
         container.style.position = 'relative';
         container.style.height = 'auto';
@@ -1222,7 +1388,12 @@
               applyStateStyles(card, info.currentState, reachableStates);
             }
           });
-        }, 150);
+
+          // Draw inter-machine arrows between cards
+          if (interMachineLinks.length > 0) {
+            drawInterMachineArrows(container, interMachineLinks);
+          }
+        }, 200);
 
       } else {
         // Cards mode: Use Mermaid flowchart to show inter-machine connections
@@ -1698,6 +1869,38 @@
         toast.classList.remove('show');
       }, 3000);
     }
+
+    // Redraw arrows on window resize
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!document.getElementById('component-overview').classList.contains('hidden')) {
+          const container = document.getElementById('component-graph');
+          const component = getCurrentComponent();
+          if (component) {
+            // Collect inter-machine links
+            const machines = component.stateMachines || [];
+            const interMachineLinks = [];
+            machines.forEach(machine => {
+              (machine.transitions || []).forEach(transition => {
+                if (transition.type === 'inter_machine' && transition.targetMachine) {
+                  interMachineLinks.push({
+                    fromMachine: machine.name,
+                    fromState: transition.from,
+                    to: transition.targetMachine,
+                    event: transition.event
+                  });
+                }
+              });
+            });
+            if (interMachineLinks.length > 0) {
+              drawInterMachineArrows(container, interMachineLinks);
+            }
+          }
+        }
+      }, 250);
+    });
 
     // Initialize - instances will be loaded after components_list is received
   </script>

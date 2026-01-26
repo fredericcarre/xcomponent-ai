@@ -901,7 +901,7 @@
       const container = document.getElementById('component-graph');
 
       if (overviewMode === 'diagrams') {
-        // Diagram mode: Show full Mermaid diagrams
+        // Diagram mode: Show full Mermaid diagrams with current state
         let diagramsHtml = '<div class="diagram-grid">';
 
         for (const machine of machines) {
@@ -909,7 +909,18 @@
           const machineInstances = allInstances.filter(i => i.machineName === machine.name);
 
           try {
-            const res = await fetch(`/api/machines/${machine.name}/diagram`);
+            // Get first instance of this machine to show its current state
+            let url = `/api/machines/${machine.name}/diagram`;
+            let currentStateText = '';
+            if (machineInstances.length > 0) {
+              const firstInstance = machineInstances[0];
+              url += `?instanceId=${firstInstance.id}`;
+              currentStateText = `<div style="margin-top: 8px; padding: 6px 10px; background: #3b82f6; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; text-align: center;">
+                📍 Current: ${firstInstance.currentState}
+              </div>`;
+            }
+
+            const res = await fetch(url);
             const data = await res.json();
 
             diagramsHtml += `
@@ -923,6 +934,7 @@
                 </div>
                 <div class="diagram-card-content">
                   <div class="mermaid">${data.diagram}</div>
+                  ${currentStateText}
                 </div>
               </div>`;
           } catch (error) {

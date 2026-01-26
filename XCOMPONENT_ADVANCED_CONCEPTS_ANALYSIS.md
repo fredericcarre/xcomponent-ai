@@ -44,7 +44,7 @@ matchingRules:
 
 #### xcomponent-ai Current Implementation
 
-**File**: `/home/user/mayele-ai/src/fsm-runtime.ts`
+**File**: `/home/user/xcomponent-ai/src/fsm-runtime.ts`
 
 ```typescript
 // Line 72: Events target a specific instance by ID
@@ -149,7 +149,7 @@ several matching property in common, but none can be used to differentiate them
 
 #### xcomponent-ai Current Implementation
 
-**File**: `/home/user/mayele-ai/src/fsm-runtime.ts` (Line 153)
+**File**: `/home/user/xcomponent-ai/src/fsm-runtime.ts` (Line 153)
 
 ```typescript
 private findTransition(machine: StateMachine, currentState: string, event: FSMEvent): Transition | null {
@@ -299,7 +299,7 @@ public static void ExecuteOn_Created_Through_PublishOrderCreation(
 
 #### xcomponent-ai Current Implementation
 
-**File**: `/home/user/mayele-ai/src/types.ts` (Line 141)
+**File**: `/home/user/xcomponent-ai/src/types.ts` (Line 141)
 
 ```typescript
 export interface FSMInstance {
@@ -414,7 +414,7 @@ transitions:
 
 #### xcomponent-ai Current Implementation
 
-**File**: `/home/user/mayele-ai/src/types.ts` (Line 22)
+**File**: `/home/user/xcomponent-ai/src/types.ts` (Line 22)
 
 ```typescript
 export enum TransitionType {
@@ -426,7 +426,7 @@ export enum TransitionType {
 }
 ```
 
-**File**: `/home/user/mayele-ai/src/fsm-runtime.ts`
+**File**: `/home/user/xcomponent-ai/src/fsm-runtime.ts`
 
 TRIGGERABLE transitions are defined but NOT implemented in the runtime!
 
@@ -504,7 +504,7 @@ Composition Links:
 
 #### xcomponent-ai Current Implementation
 
-**File**: `/home/user/mayele-ai/src/types.ts` (Line 115)
+**File**: `/home/user/xcomponent-ai/src/types.ts` (Line 115)
 
 ```typescript
 export interface Component {
@@ -609,7 +609,7 @@ myApi.Order_Component.Order_StateMachine.Executed_State.InstanceUpdated +=
 
 #### xcomponent-ai Current Implementation
 
-**File**: `/home/user/mayele-ai/src/fsm-runtime.ts` (Line 258)
+**File**: `/home/user/xcomponent-ai/src/fsm-runtime.ts` (Line 258)
 
 ```typescript
 getInstancesByMachine(machineName: string): FSMInstance[] {

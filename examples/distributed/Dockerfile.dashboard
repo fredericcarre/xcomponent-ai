@@ -1,0 +1,24 @@
+# xcomponent-ai Dashboard - Distributed Mode
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source and build
+COPY tsconfig.json ./
+COPY src ./src
+COPY public ./public
+
+# Build TypeScript
+RUN npm run build 2>/dev/null || npx tsc
+
+# Expose dashboard port
+EXPOSE 3000
+
+# Start dashboard in distributed mode
+CMD ["node", "dist/dashboard-server.js"]

@@ -67,7 +67,7 @@ program
       // Create README
       const readme = `# ${projectName}
 
-Built with [xcomponent-ai](https://github.com/fredericcarre/mayele-ai) framework.
+Built with [xcomponent-ai](https://github.com/fredericcarre/xcomponent-ai) framework.
 
 ## 🏗️ Structure
 
@@ -92,8 +92,8 @@ ${projectName}/
 
 ## 📚 Documentation
 
-- [xcomponent-ai Framework Guide](https://github.com/fredericcarre/mayele-ai/blob/main/LLM_FRAMEWORK_GUIDE.md)
-- [Full Project Example](https://github.com/fredericcarre/mayele-ai/blob/main/examples/full-project-structure.md)
+- [xcomponent-ai Framework Guide](https://github.com/fredericcarre/xcomponent-ai/blob/main/LLM_FRAMEWORK_GUIDE.md)
+- [Full Project Example](https://github.com/fredericcarre/xcomponent-ai/blob/main/examples/full-project-structure.md)
 
 ## 🔒 Sanctuarization Principle
 
@@ -221,8 +221,8 @@ coverage/
       console.log('  # Build API/UI that connects to FSM runtime\n');
 
       console.log('📚 Resources:');
-      console.log('  LLM Guide: https://github.com/fredericcarre/mayele-ai/blob/main/LLM_FRAMEWORK_GUIDE.md');
-      console.log('  Example: https://github.com/fredericcarre/mayele-ai/blob/main/examples/full-project-structure.md');
+      console.log('  LLM Guide: https://github.com/fredericcarre/xcomponent-ai/blob/main/LLM_FRAMEWORK_GUIDE.md');
+      console.log('  Example: https://github.com/fredericcarre/xcomponent-ai/blob/main/examples/full-project-structure.md');
     } catch (error: any) {
       console.error(`✗ Error: ${error.message}`);
       process.exit(1);
@@ -628,7 +628,7 @@ program
   .command('serve <files...>')
   .description('Start runtime with API server and dashboard (supports multiple YAML files)')
   .option('-p, --port <port>', 'Port number', '3000')
-  .option('-b, --broker <url>', 'Message broker URL (memory, redis://...)', process.env.XCOMPONENT_BROKER_URL || 'memory')
+  .option('-b, --broker <url>', 'Message broker URL (memory, redis://..., amqp://...)', process.env.XCOMPONENT_BROKER_URL || 'memory')
   .option('--external-api', 'Enable external API for sending events via message broker')
   .option('--publish-events', 'Publish FSM events to message broker for external subscribers')
   .action(async (files: string[], options: any) => {

@@ -70,7 +70,7 @@ CORE PRINCIPLES:
    - Enable audit trails
 
 FRAMEWORK REFERENCE:
-- Documentation: https://github.com/fredericcarre/mayele-ai
+- Documentation: https://github.com/fredericcarre/xcomponent-ai
 - LLM Guide: LLM_FRAMEWORK_GUIDE.md
 - Example: examples/full-project-structure.md
 

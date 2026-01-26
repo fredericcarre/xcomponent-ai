@@ -32,6 +32,10 @@
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "test:ci": "jest --coverage --ci --maxWorkers=2",
+    "test:integration": "INTEGRATION_TEST=true jest --testPathPattern=integration --coverage=false --testTimeout=30000",
+    "test:integration:start": "docker-compose -f tests/integration/docker-compose.yml up -d && sleep 5",
+    "test:integration:stop": "docker-compose -f tests/integration/docker-compose.yml down",
+    "test:integration:full": "npm run test:integration:start && npm run test:integration; npm run test:integration:stop",
     "cli": "ts-node src/cli.ts",
     "api": "ts-node src/api.ts",
     "doc": "typedoc --out docs/api src",
@@ -75,14 +79,14 @@
     "email": "dev@xcomponent.com"
   },
   "license": "Apache-2.0",
-  "homepage": "https://github.com/fredericcarre/mayele-ai#readme",
+  "homepage": "https://github.com/fredericcarre/xcomponent-ai#readme",
   "bugs": {
-    "url": "https://github.com/fredericcarre/mayele-ai/issues",
+    "url": "https://github.com/fredericcarre/xcomponent-ai/issues",
     "email": "dev@xcomponent.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fredericcarre/mayele-ai.git"
+    "url": "git+https://github.com/fredericcarre/xcomponent-ai.git"
   },
   "dependencies": {
     "@langchain/core": "^0.3.21",
@@ -103,14 +107,19 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@types/amqplib": "^0.10.8",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.5",
+    "@types/pg": "^8.16.0",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.19.1",
     "@typescript-eslint/parser": "^8.19.1",
+    "amqplib": "^0.10.9",
     "eslint": "^9.18.0",
     "jest": "^29.7.0",
+    "pg": "^8.17.2",
+    "redis": "^5.10.0",
     "socket.io-client": "^4.8.3",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",

@@ -35,14 +35,16 @@ export interface CrossComponentMessage {
  */
 export interface MessageBroker {
   /**
-   * Publish a cross-component message
+   * Publish a message to a channel
+   * Accepts CrossComponentMessage or any other message type for flexibility
    */
-  publish(channel: string, message: CrossComponentMessage): Promise<void>;
+  publish(channel: string, message: CrossComponentMessage | Record<string, any>): Promise<void>;
 
   /**
-   * Subscribe to messages for a specific component
+   * Subscribe to messages on a channel
+   * Handler receives any message type for flexibility
    */
-  subscribe(componentName: string, handler: (message: CrossComponentMessage) => void): void;
+  subscribe(channel: string, handler: (message: any) => void): void;
 
   /**
    * Unsubscribe from a component's messages
@@ -254,6 +256,189 @@ export class RedisMessageBroker implements MessageBroker {
 }
 
 /**
+ * RabbitMQ Message Broker
+ * For distributed multi-process deployment with reliable message delivery
+ *
+ * Supported URL formats:
+ * - amqp://localhost:5672                       (no auth)
+ * - amqp://user:password@localhost:5672         (with auth)
+ * - amqp://user:password@localhost:5672/vhost   (with vhost)
+ * - amqps://localhost:5671                      (TLS/SSL)
+ *
+ * Example:
+ * ```typescript
+ * const broker = new RabbitMQMessageBroker('amqp://guest:guest@localhost:5672');
+ * await broker.connect();
+ * ```
+ */
+export class RabbitMQMessageBroker implements MessageBroker {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private connection: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private publishChannel: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private subscribeChannel: any;
+  private handlers: Map<string, (message: CrossComponentMessage) => void> = new Map();
+  private channelHandlers: Map<string, Set<(message: any) => void>> = new Map();
+  private connected = false;
+  private amqpUrl: string;
+  private exchangeName = 'xcomponent.events';
+
+  /**
+   * Create a RabbitMQ message broker
+   *
+   * @param amqpUrl RabbitMQ connection URL
+   */
+  constructor(amqpUrl: string) {
+    this.amqpUrl = amqpUrl;
+  }
+
+  async connect(): Promise<void> {
+    try {
+      // Lazy dynamic import to make amqplib optional dependency
+      const amqplib = await import('amqplib' as any);
+      const connect = amqplib.connect || amqplib.default?.connect;
+
+      if (!connect) {
+        throw new Error('amqplib connect function not found');
+      }
+
+      this.connection = await connect(this.amqpUrl);
+
+      // Create separate channels for publish and subscribe
+      this.publishChannel = await this.connection.createChannel();
+      this.subscribeChannel = await this.connection.createChannel();
+
+      // Declare the exchange for FSM events (topic exchange for flexible routing)
+      await this.publishChannel.assertExchange(this.exchangeName, 'topic', { durable: true });
+      await this.subscribeChannel.assertExchange(this.exchangeName, 'topic', { durable: true });
+
+      // Handle connection close
+      this.connection.on('close', () => {
+        console.warn('[RabbitMQ] Connection closed');
+        this.connected = false;
+      });
+
+      this.connection.on('error', (err: Error) => {
+        console.error('[RabbitMQ] Connection error:', err.message);
+      });
+
+      this.connected = true;
+      console.log('[RabbitMQ] Connected to', this.amqpUrl.replace(/:[^:@]+@/, ':***@'));
+    } catch (error) {
+      throw new Error(
+        `Failed to connect to RabbitMQ at ${this.amqpUrl}. ` +
+        'Make sure RabbitMQ is running and the "amqplib" package is installed (npm install amqplib). ' +
+        `Error: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.publishChannel) {
+      await this.publishChannel.close();
+    }
+    if (this.subscribeChannel) {
+      await this.subscribeChannel.close();
+    }
+    if (this.connection) {
+      await this.connection.close();
+    }
+    this.handlers.clear();
+    this.channelHandlers.clear();
+    this.connected = false;
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  async publish(channel: string, message: CrossComponentMessage | any): Promise<void> {
+    if (!this.connected) {
+      throw new Error('RabbitMQMessageBroker is not connected. Call connect() first.');
+    }
+
+    const serialized = JSON.stringify(message);
+
+    // Use channel as routing key (e.g., 'fsm.events.state_change', 'fsm.registry.announce')
+    const routingKey = channel.replace(/:/g, '.');
+
+    this.publishChannel.publish(
+      this.exchangeName,
+      routingKey,
+      Buffer.from(serialized),
+      { persistent: true }
+    );
+  }
+
+  async subscribe(channelOrComponent: string, handler: (message: any) => void): Promise<void> {
+    if (!this.connected) {
+      throw new Error('RabbitMQMessageBroker is not connected. Call connect() first.');
+    }
+
+    // Convert channel format to routing key pattern
+    const routingKey = channelOrComponent.includes(':')
+      ? channelOrComponent.replace(/:/g, '.')
+      : `xcomponent.${channelOrComponent}`;
+
+    // Create a unique queue for this subscription
+    const queueName = `xcomponent.${routingKey}.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+
+    await this.subscribeChannel.assertQueue(queueName, {
+      exclusive: true,
+      autoDelete: true
+    });
+
+    await this.subscribeChannel.bindQueue(queueName, this.exchangeName, routingKey);
+
+    // Store handler
+    if (channelOrComponent.includes(':')) {
+      if (!this.channelHandlers.has(channelOrComponent)) {
+        this.channelHandlers.set(channelOrComponent, new Set());
+      }
+      this.channelHandlers.get(channelOrComponent)!.add(handler);
+    } else {
+      this.handlers.set(channelOrComponent, handler);
+    }
+
+    // Consume messages
+    await this.subscribeChannel.consume(queueName, (msg: any) => {
+      if (msg) {
+        try {
+          const content = JSON.parse(msg.content.toString());
+
+          if (channelOrComponent.includes(':')) {
+            const handlers = this.channelHandlers.get(channelOrComponent);
+            if (handlers) {
+              handlers.forEach(h => h(content));
+            }
+          } else {
+            const h = this.handlers.get(channelOrComponent);
+            if (h) {
+              h(content);
+            }
+          }
+
+          this.subscribeChannel.ack(msg);
+        } catch (err) {
+          console.error(`[RabbitMQ] Failed to parse message:`, err);
+          this.subscribeChannel.nack(msg, false, false);
+        }
+      }
+    });
+  }
+
+  unsubscribe(channelOrComponent: string): void {
+    if (channelOrComponent.includes(':')) {
+      this.channelHandlers.delete(channelOrComponent);
+    } else {
+      this.handlers.delete(channelOrComponent);
+    }
+    // Note: Queue will be auto-deleted when consumer disconnects
+  }
+}
+
+/**
  * Factory function to create appropriate broker based on configuration
  */
 export function createMessageBroker(brokerUrl?: string): MessageBroker {
@@ -265,5 +450,9 @@ export function createMessageBroker(brokerUrl?: string): MessageBroker {
     return new RedisMessageBroker(brokerUrl);
   }
 
-  throw new Error(`Unsupported broker URL: ${brokerUrl}. Supported: "memory", "redis://..."`);
+  if (brokerUrl.startsWith('amqp://') || brokerUrl.startsWith('amqps://')) {
+    return new RabbitMQMessageBroker(brokerUrl);
+  }
+
+  throw new Error(`Unsupported broker URL: ${brokerUrl}. Supported: "memory", "redis://...", "amqp://..."`);
 }

@@ -2,8 +2,8 @@
 
 [![npm version](https://img.shields.io/npm/v/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
 [![npm downloads](https://img.shields.io/npm/dt/xcomponent-ai.svg)](https://www.npmjs.com/package/xcomponent-ai)
-[![CI](https://github.com/fredericcarre/mayele-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/mayele-ai/actions)
-[![Coverage](https://img.shields.io/badge/coverage-79.91%25-brightgreen.svg)](https://github.com/fredericcarre/mayele-ai/actions)
+[![CI](https://github.com/fredericcarre/xcomponent-ai/workflows/CI/badge.svg)](https://github.com/fredericcarre/xcomponent-ai/actions)
+[![Coverage](https://img.shields.io/badge/coverage-79.91%25-brightgreen.svg)](https://github.com/fredericcarre/xcomponent-ai/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
@@ -632,8 +632,8 @@ Apache License 2.0 - see [LICENSE](LICENSE)
 
 - **Documentation**: [API Docs](docs/api/index.html)
 - **Examples**: [examples/](examples/)
-- **Issues**: [GitHub Issues](https://github.com/fredericcarre/mayele-ai/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/fredericcarre/mayele-ai/discussions)
+- **Issues**: [GitHub Issues](https://github.com/fredericcarre/xcomponent-ai/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/fredericcarre/xcomponent-ai/discussions)
 
 ---
 

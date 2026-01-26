@@ -224,7 +224,7 @@ Update `CHANGELOG.md` before each release:
   "name": "@fredericcarre/xcomponent-ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fredericcarre/mayele-ai.git"
+    "url": "git+https://github.com/fredericcarre/xcomponent-ai.git"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
@@ -541,5 +541,5 @@ npm view xcomponent-ai dist-tags
 
 For publishing issues:
 - npm Support: https://www.npmjs.com/support
-- GitHub Issues: https://github.com/fredericcarre/mayele-ai/issues
+- GitHub Issues: https://github.com/fredericcarre/xcomponent-ai/issues
 - Email: dev@xcomponent.com

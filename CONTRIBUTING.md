@@ -10,7 +10,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Reporting Bugs
 
-1. Check if the bug has already been reported in [Issues](https://github.com/fredericcarre/mayele-ai/issues)
+1. Check if the bug has already been reported in [Issues](https://github.com/fredericcarre/xcomponent-ai/issues)
 2. If not, create a new issue with:
    - Clear, descriptive title
    - Steps to reproduce
@@ -20,7 +20,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Suggesting Features
 
-1. Check existing [Discussions](https://github.com/fredericcarre/mayele-ai/discussions) and Issues
+1. Check existing [Discussions](https://github.com/fredericcarre/xcomponent-ai/discussions) and Issues
 2. Create a new discussion with:
    - Use case description
    - Proposed solution
@@ -31,8 +31,8 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 1. **Fork and Clone**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/mayele-ai.git
-   cd mayele-ai
+   git clone https://github.com/YOUR_USERNAME/xcomponent-ai.git
+   cd xcomponent-ai
    npm install
    ```
 
@@ -186,7 +186,7 @@ npm run cli -- load examples/trading.yaml
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/fredericcarre/mayele-ai/discussions)
+- Open a [Discussion](https://github.com/fredericcarre/xcomponent-ai/discussions)
 - Join our community chat (coming soon)
 - Email: contributors@xcomponent.com
 

@@ -266,7 +266,7 @@ export class ExternalBrokerAPI {
  * Helper: Publish external command to message broker
  * (For use by external systems)
  *
- * Example (from Node.js):
+ * Example (from Node.js with Redis):
  * ```typescript
  * import { createClient } from 'redis';
  *
@@ -280,7 +280,7 @@ export class ExternalBrokerAPI {
  * });
  * ```
  *
- * Example (from Python):
+ * Example (from Python with Redis):
  * ```python
  * import redis
  * import json
@@ -291,6 +291,51 @@ export class ExternalBrokerAPI {
  *   'instanceId': 'order-123',
  *   'event': {'type': 'VALIDATE', 'payload': {}}
  * }))
+ * ```
+ *
+ * Example (from Python with RabbitMQ):
+ * ```python
+ * import pika
+ * import json
+ *
+ * connection = pika.BlockingConnection(
+ *     pika.URLParameters('amqp://guest:guest@localhost:5672/')
+ * )
+ * channel = connection.channel()
+ * channel.exchange_declare(exchange='xcomponent.events', exchange_type='topic', durable=True)
+ *
+ * channel.basic_publish(
+ *     exchange='xcomponent.events',
+ *     routing_key='external.commands',
+ *     body=json.dumps({
+ *         'componentName': 'OrderComponent',
+ *         'instanceId': 'order-123',
+ *         'event': {'type': 'VALIDATE', 'payload': {}}
+ *     })
+ * )
+ * connection.close()
+ * ```
+ *
+ * Example (from Go with RabbitMQ):
+ * ```go
+ * import (
+ *     "encoding/json"
+ *     amqp "github.com/rabbitmq/amqp091-go"
+ * )
+ *
+ * conn, _ := amqp.Dial("amqp://guest:guest@localhost:5672/")
+ * ch, _ := conn.Channel()
+ * ch.ExchangeDeclare("xcomponent.events", "topic", true, false, false, false, nil)
+ *
+ * body, _ := json.Marshal(map[string]interface{}{
+ *     "componentName": "OrderComponent",
+ *     "instanceId":    "order-123",
+ *     "event":         map[string]interface{}{"type": "VALIDATE", "payload": map[string]interface{}{}},
+ * })
+ * ch.Publish("xcomponent.events", "external.commands", false, false, amqp.Publishing{
+ *     ContentType: "application/json",
+ *     Body:        body,
+ * })
  * ```
  */
 export async function publishExternalCommand(
@@ -306,7 +351,7 @@ export async function publishExternalCommand(
 /**
  * Helper: Subscribe to FSM events from external systems
  *
- * Example (from Node.js):
+ * Example (from Node.js with Redis):
  * ```typescript
  * import { createClient } from 'redis';
  *
@@ -318,7 +363,7 @@ export async function publishExternalCommand(
  * });
  * ```
  *
- * Example (from Python):
+ * Example (from Python with Redis):
  * ```python
  * import redis
  * import json
@@ -331,6 +376,47 @@ export async function publishExternalCommand(
  *   if message['type'] == 'message':
  *     event = json.loads(message['data'])
  *     print('State changed:', event)
+ * ```
+ *
+ * Example (from Python with RabbitMQ):
+ * ```python
+ * import pika
+ * import json
+ *
+ * connection = pika.BlockingConnection(
+ *     pika.URLParameters('amqp://guest:guest@localhost:5672/')
+ * )
+ * channel = connection.channel()
+ * channel.exchange_declare(exchange='xcomponent.events', exchange_type='topic', durable=True)
+ *
+ * # Create exclusive queue and bind to state_change events
+ * result = channel.queue_declare(queue='', exclusive=True)
+ * queue_name = result.method.queue
+ * channel.queue_bind(exchange='xcomponent.events', queue=queue_name, routing_key='fsm.events.state_change')
+ *
+ * def callback(ch, method, properties, body):
+ *     event = json.loads(body)
+ *     print('State changed:', event)
+ *
+ * channel.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=True)
+ * channel.start_consuming()
+ * ```
+ *
+ * Example (from Go with RabbitMQ):
+ * ```go
+ * conn, _ := amqp.Dial("amqp://guest:guest@localhost:5672/")
+ * ch, _ := conn.Channel()
+ * ch.ExchangeDeclare("xcomponent.events", "topic", true, false, false, false, nil)
+ *
+ * q, _ := ch.QueueDeclare("", false, true, true, false, nil)
+ * ch.QueueBind(q.Name, "fsm.events.state_change", "xcomponent.events", false, nil)
+ *
+ * msgs, _ := ch.Consume(q.Name, "", true, false, false, false, nil)
+ * for msg := range msgs {
+ *     var event map[string]interface{}
+ *     json.Unmarshal(msg.Body, &event)
+ *     fmt.Println("State changed:", event)
+ * }
  * ```
  */
 export async function subscribeToFSMEvents(

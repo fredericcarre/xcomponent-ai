@@ -1,4 +1,4 @@
-.PHONY: help build dev prod stop clean test logs shell
+.PHONY: help build dev prod stop clean test logs shell distributed-up distributed-down distributed-logs distributed-clean distributed-build distributed-restart
 
 # Colors for output
 GREEN := \033[0;32m
@@ -61,3 +61,57 @@ approval: ## Start with approval workflow example
 subscription: ## Start with subscription lifecycle example
 	@echo "$(GREEN)Starting with subscription lifecycle example...$(NC)"
 	docker compose run --rm -p 3000:3000 dev sh -c "npm run build && node dist/cli.js serve examples/subscription-lifecycle/component.yaml --port 3000"
+
+# ============================================
+# Distributed Mode (RabbitMQ + PostgreSQL)
+# ============================================
+
+distributed-up: ## Start distributed mode (RabbitMQ + PostgreSQL + Dashboard + Runtimes)
+	@echo "$(GREEN)Starting distributed infrastructure...$(NC)"
+	@echo "$(YELLOW)Dashboard: http://localhost:3000$(NC)"
+	@echo "$(YELLOW)RabbitMQ:  http://localhost:15672 (xcomponent/xcomponent123)$(NC)"
+	@echo "$(YELLOW)PostgreSQL: localhost:5432 (xcomponent/xcomponent123)$(NC)"
+	cd examples/distributed && docker compose up -d
+	@echo ""
+	@echo "$(GREEN)Services started! Use 'make distributed-logs' to see logs$(NC)"
+
+distributed-down: ## Stop distributed infrastructure
+	@echo "$(GREEN)Stopping distributed infrastructure...$(NC)"
+	cd examples/distributed && docker compose down
+
+distributed-logs: ## Show logs from distributed services
+	cd examples/distributed && docker compose logs -f
+
+distributed-clean: ## Remove distributed containers and volumes
+	@echo "$(GREEN)Cleaning distributed resources...$(NC)"
+	cd examples/distributed && docker compose down -v --rmi all
+
+distributed-build: ## Build distributed Docker images
+	@echo "$(GREEN)Building distributed images...$(NC)"
+	cd examples/distributed && docker compose build
+
+distributed-restart: distributed-down distributed-up ## Restart distributed infrastructure
+
+# ============================================
+# Integration Tests (Docker-based)
+# ============================================
+
+test-integration-up: ## Start integration test infrastructure (PostgreSQL, RabbitMQ, Redis)
+	@echo "$(GREEN)Starting integration test infrastructure...$(NC)"
+	docker compose -f tests/integration/docker-compose.yml up -d
+	@echo "$(YELLOW)Waiting for services to be ready...$(NC)"
+	@sleep 5
+	@echo "$(GREEN)Integration infrastructure ready!$(NC)"
+
+test-integration-down: ## Stop integration test infrastructure
+	@echo "$(GREEN)Stopping integration test infrastructure...$(NC)"
+	docker compose -f tests/integration/docker-compose.yml down
+
+test-integration: test-integration-up ## Run integration tests with Docker infrastructure
+	@echo "$(GREEN)Running integration tests...$(NC)"
+	INTEGRATION_TEST=true npm test -- --testPathPattern=integration --coverage=false --testTimeout=30000 || true
+	@make test-integration-down
+
+test-integration-clean: ## Remove integration test containers and volumes
+	@echo "$(GREEN)Cleaning integration test resources...$(NC)"
+	docker compose -f tests/integration/docker-compose.yml down -v

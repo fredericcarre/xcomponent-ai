@@ -529,6 +529,19 @@
       height: auto !important;
     }
 
+    /* Prevent text truncation in Mermaid edge labels */
+    .mermaid svg foreignObject {
+      overflow: visible !important;
+    }
+    .mermaid svg foreignObject div,
+    .mermaid svg foreignObject span,
+    .mermaid svg .edgeLabel,
+    .mermaid svg .edgeLabel span {
+      overflow: visible !important;
+      text-overflow: clip !important;
+      white-space: nowrap !important;
+    }
+
     .transitions-section {
       background: var(--bg-secondary);
       padding: 20px;
@@ -1691,6 +1704,14 @@
                   ${transitionsHtml}
                 </div>`;
               }
+            } else {
+              // No instances - still add to machineStateInfo so it gets grayed out
+              machineStateInfo.push({
+                machineName: machine.name,
+                currentState: null,
+                transitions: machine.transitions || [],
+                pendingTimeouts: []
+              });
             }
 
             const res = await fetch(url);

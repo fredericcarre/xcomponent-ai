@@ -192,6 +192,46 @@ export class RuntimeBroadcaster {
         await this.broker.publish(DashboardChannels.INSTANCE_COMPLETED, broadcast as any);
       }
     });
+
+    // Cross-component transition
+    this.runtime.on('cross_component_transition', async (data) => {
+      console.log(`[RuntimeBroadcaster] Cross-component transition detected:`);
+      console.log(`  Source: ${data.sourceComponent}.${data.sourceMachine} (${data.sourceInstanceId})`);
+      console.log(`  Target: ${data.targetComponent}.${data.targetMachine}`);
+      console.log(`  Target Event: ${data.targetEvent || '(create new instance)'}`);
+      console.log(`  Context: ${JSON.stringify(data.context)}`);
+
+      try {
+        if (data.targetEvent) {
+          // Send event to existing instances (e.g., Payment.COMPLETE -> Order.PAYMENT_CONFIRMED)
+          console.log(`[RuntimeBroadcaster] Publishing CROSS_COMPONENT_EVENT for ${data.targetEvent}`);
+          await this.broker.publish(DashboardChannels.CROSS_COMPONENT_EVENT, {
+            targetComponent: data.targetComponent,
+            targetMachine: data.targetMachine,
+            event: { type: data.targetEvent, payload: data.context, timestamp: Date.now() },
+            matchContext: data.context, // For property matching (e.g., orderId)
+            sourceComponent: data.sourceComponent,
+            sourceInstanceId: data.sourceInstanceId,
+            timestamp: Date.now()
+          } as any);
+          console.log(`[RuntimeBroadcaster] CROSS_COMPONENT_EVENT published`);
+        } else {
+          // Create new instance in target component (e.g., Order.SUBMIT -> creates Payment)
+          console.log(`[RuntimeBroadcaster] Publishing CREATE_INSTANCE for ${data.targetComponent}`);
+          await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
+            componentName: data.targetComponent,
+            machineName: data.targetMachine,
+            context: data.context,
+            sourceComponent: data.sourceComponent,
+            sourceInstanceId: data.sourceInstanceId,
+            timestamp: Date.now()
+          } as any);
+          console.log(`[RuntimeBroadcaster] CREATE_INSTANCE published`);
+        }
+      } catch (error: any) {
+        console.error(`[RuntimeBroadcaster] Failed to publish cross-component message:`, error.message);
+      }
+    });
   }
 
   /**
@@ -200,9 +240,15 @@ export class RuntimeBroadcaster {
   private async subscribeToCommands(): Promise<void> {
     // Trigger event command
     await this.broker.subscribe(DashboardChannels.TRIGGER_EVENT, async (msg: any) => {
+      // Only process if componentName matches or not specified
+      if (msg.componentName && msg.componentName !== this.component.name) {
+        return; // Not for this component
+      }
+
       try {
         const instance = this.runtime.getInstance(msg.instanceId);
         if (instance) {
+          console.log(`[RuntimeBroadcaster] Processing event ${msg.event.type} for instance ${msg.instanceId}`);
           await this.runtime.sendEvent(msg.instanceId, msg.event);
           console.log(`[RuntimeBroadcaster] Triggered event ${msg.event.type} on ${msg.instanceId}`);
         }
@@ -215,16 +261,23 @@ export class RuntimeBroadcaster {
     await this.broker.subscribe(DashboardChannels.CREATE_INSTANCE, async (msg: any) => {
       if (msg.componentName === this.component.name) {
         try {
-          const entryMachine = this.component.entryMachine;
-          if (!entryMachine) {
-            console.error(`[RuntimeBroadcaster] No entry machine defined for component ${this.component.name}`);
+          // Use specified machine or fall back to entry machine
+          const machineName = msg.machineName || this.component.entryMachine;
+          if (!machineName) {
+            console.error(`[RuntimeBroadcaster] No machine specified and no entry machine defined for component ${this.component.name}`);
             return;
           }
+
           const instanceId = this.runtime.createInstance(
-            entryMachine,
+            machineName,
             msg.context || {}
           );
-          console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
+
+          if (msg.sourceComponent) {
+            console.log(`[RuntimeBroadcaster] Created instance ${instanceId} (cross-component from ${msg.sourceComponent})`);
+          } else {
+            console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
+          }
         } catch (error: any) {
           console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message);
         }
@@ -248,6 +301,69 @@ export class RuntimeBroadcaster {
         instances,
         timestamp: Date.now()
       } as any);
+    });
+
+    // Cross-component event command (send event to existing instances)
+    await this.broker.subscribe(DashboardChannels.CROSS_COMPONENT_EVENT, async (msg: any) => {
+      console.log(`[RuntimeBroadcaster] Received CROSS_COMPONENT_EVENT for ${msg.targetComponent} (this component: ${this.component.name})`);
+
+      if (msg.targetComponent === this.component.name) {
+        console.log(`[RuntimeBroadcaster] Processing cross-component event ${msg.event?.type} for ${this.component.name}`);
+
+        try {
+          // Find matching instances by context properties
+          const allInstances = this.runtime.getAllInstances();
+          console.log(`[RuntimeBroadcaster] Found ${allInstances.length} total instances to check`);
+          const matchingInstances = allInstances.filter(inst => {
+            // If targetMachine is specified, filter by machine
+            if (msg.targetMachine && inst.machineName !== msg.targetMachine) {
+              return false;
+            }
+            // Match by common context properties (only compare fields that exist in both contexts)
+            if (msg.matchContext) {
+              const context = inst.context || inst.publicMember || {};
+              let hasMatch = false;
+              for (const [key, value] of Object.entries(msg.matchContext)) {
+                // Only check properties that exist in target context
+                if (key in context) {
+                  if (context[key] === value) {
+                    hasMatch = true; // At least one matching property found
+                  } else {
+                    return false; // Property exists but doesn't match
+                  }
+                }
+              }
+              // Must have at least one matching property to be considered a match
+              if (!hasMatch) {
+                return false;
+              }
+            }
+            return true;
+          });
+
+          console.log(`[RuntimeBroadcaster] Matching instances found: ${matchingInstances.length}`);
+          allInstances.forEach(inst => {
+            console.log(`  Instance ${inst.id}: machine=${inst.machineName}, state=${inst.currentState}, context=${JSON.stringify(inst.context || inst.publicMember)}`);
+          });
+
+          if (matchingInstances.length === 0) {
+            console.log(`[RuntimeBroadcaster] No matching instances for cross-component event ${msg.event.type} (matchContext: ${JSON.stringify(msg.matchContext)})`);
+            return;
+          }
+
+          // Send event to all matching instances
+          for (const inst of matchingInstances) {
+            try {
+              await this.runtime.sendEvent(inst.id, msg.event);
+              console.log(`[RuntimeBroadcaster] Sent cross-component event ${msg.event.type} to ${inst.id}`);
+            } catch (error: any) {
+              console.error(`[RuntimeBroadcaster] Failed to send event to ${inst.id}:`, error.message);
+            }
+          }
+        } catch (error: any) {
+          console.error(`[RuntimeBroadcaster] Failed to handle cross-component event:`, error.message);
+        }
+      }
     });
   }
 

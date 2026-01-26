@@ -200,6 +200,140 @@ The PostgreSQL database uses these tables:
 
 See `init-db.sql` for the complete schema.
 
+## Communication Architecture
+
+The distributed system uses three complementary communication channels, each serving a specific purpose:
+
+### 1. REST API (Dashboard ↔ Browser)
+
+The Dashboard exposes a REST API for the web UI to fetch data and send commands.
+
+```
+Browser                          Dashboard
+   │                                 │
+   │  GET /api/components           │
+   │────────────────────────────────►│  Returns all registered components
+   │◄────────────────────────────────│  with their state machines
+   │                                 │
+   │  GET /api/instances            │
+   │────────────────────────────────►│  Returns all active instances
+   │◄────────────────────────────────│  across all runtimes
+   │                                 │
+   │  POST /api/.../events          │
+   │────────────────────────────────►│  Trigger event on an instance
+   │◄────────────────────────────────│  (dashboard forwards via RabbitMQ)
+```
+
+**Key Endpoints:**
+- `GET /api/components` - List registered components and their state machines
+- `GET /api/instances` - List all active instances across all runtimes
+- `POST /api/components/:name/instances` - Create a new instance
+- `POST /api/components/:name/instances/:id/events` - Trigger an event
+- `GET /health` - Health check
+
+### 2. WebSocket (Dashboard → Browser)
+
+Real-time push notifications from the Dashboard to the browser for immediate UI updates.
+
+```
+Browser                          Dashboard
+   │                                 │
+   │  ws://localhost:3000           │
+   │════════════════════════════════►│  WebSocket connection
+   │                                 │
+   │◄── state_change ───────────────│  Instance changed state
+   │◄── instance_created ───────────│  New instance created
+   │◄── instance_completed ─────────│  Instance reached final state
+   │◄── components_list ────────────│  Updated component list
+   │◄── runtimes_update ────────────│  Runtime connected/disconnected
+```
+
+The WebSocket provides real-time updates so the UI reflects changes immediately without polling.
+
+### 3. RabbitMQ (Runtime ↔ Dashboard ↔ Runtime)
+
+The message broker enables:
+- **Runtime registration**: Runtimes announce themselves when they start
+- **Event broadcasting**: State changes are broadcast to all interested parties
+- **Command distribution**: Dashboard commands are routed to the correct runtime
+- **Cross-component communication**: Events flow between components in different runtimes
+
+```
+                          RabbitMQ (xcomponent.events exchange)
+                                      │
+         ┌────────────────────────────┼────────────────────────────┐
+         │                            │                            │
+         ▼                            ▼                            ▼
+   ┌───────────┐               ┌───────────┐               ┌───────────┐
+   │ Dashboard │               │ Runtime 1 │               │ Runtime 2 │
+   │           │               │  (Order)  │               │ (Payment) │
+   └───────────┘               └───────────┘               └───────────┘
+         │                            │                            │
+         │  Subscribes to:            │  Subscribes to:            │  Subscribes to:
+         │  - announce                │  - trigger_event           │  - trigger_event
+         │  - heartbeat               │  - create_instance         │  - create_instance
+         │  - state_change            │  - cross_component_event   │  - cross_component_event
+         │  - instance_created        │                            │
+         │                            │  Publishes:                │  Publishes:
+         │  Publishes:                │  - announce                │  - announce
+         │  - trigger_event           │  - state_change            │  - state_change
+         │  - create_instance         │  - instance_created        │  - instance_created
+         │                            │  - cross_component_event   │  - cross_component_event
+```
+
+### Cross-Component Message Flow
+
+When Order.SUBMIT triggers Payment creation:
+
+```
+1. User clicks "SUBMIT" in browser
+         │
+         ▼
+2. Browser → Dashboard (REST API)
+   POST /api/components/OrderComponent/instances/123/events
+   Body: { event: "SUBMIT" }
+         │
+         ▼
+3. Dashboard → RabbitMQ
+   Publish to: fsm:commands:trigger_event
+   Payload: { componentName: "OrderComponent", instanceId: "123", event: { type: "SUBMIT" } }
+         │
+         ▼
+4. Order Runtime (subscribes to trigger_event)
+   - Receives message, finds instance 123
+   - Executes transition: Created → PendingPayment
+   - Detects cross_component transition → PaymentComponent
+         │
+         ▼
+5. Order Runtime → RabbitMQ
+   Publish to: fsm:commands:create_instance
+   Payload: { componentName: "PaymentComponent", machineName: "Payment", context: { orderId, amount } }
+         │
+         ▼
+6. Payment Runtime (subscribes to create_instance)
+   - Receives message, creates new Payment instance
+   - Emits instance_created event
+```
+
+When Payment.COMPLETE notifies Order:
+
+```
+1. Payment Runtime executes COMPLETE transition
+   - Detects cross_component transition → OrderComponent with targetEvent: PAYMENT_CONFIRMED
+         │
+         ▼
+2. Payment Runtime → RabbitMQ
+   Publish to: fsm:commands:cross_component_event
+   Payload: { targetComponent: "OrderComponent", targetMachine: "Order",
+              event: { type: "PAYMENT_CONFIRMED" }, matchContext: { orderId: "..." } }
+         │
+         ▼
+3. Order Runtime (subscribes to cross_component_event)
+   - Receives message, finds instance with matching orderId
+   - Sends PAYMENT_CONFIRMED event to that instance
+   - Order transitions: PendingPayment → Paid
+```
+
 ## Message Broker Channels
 
 | Channel | Purpose |
@@ -209,5 +343,7 @@ See `init-db.sql` for the complete schema.
 | `fsm:registry:shutdown` | Runtime shutdown notification |
 | `fsm:events:state_change` | State transition events |
 | `fsm:events:instance_created` | New instance notifications |
-| `fsm:commands:trigger_event` | Dashboard -> Runtime commands |
+| `fsm:events:instance_completed` | Instance reached final state |
+| `fsm:commands:trigger_event` | Dashboard → Runtime commands |
 | `fsm:commands:create_instance` | Instance creation requests |
+| `fsm:commands:cross_component_event` | Cross-component event routing |

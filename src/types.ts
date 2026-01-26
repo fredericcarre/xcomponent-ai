@@ -23,8 +23,10 @@ export enum StateType {
 export enum TransitionType {
   /** Regular intra-machine transition (gray) */
   REGULAR = 'regular',
-  /** Inter-machine transition (green, instantiates new instance) */
+  /** Inter-machine transition (green, instantiates new instance in same component) */
   INTER_MACHINE = 'inter_machine',
+  /** Cross-component transition (creates instance in another component via message broker) */
+  CROSS_COMPONENT = 'cross_component',
   /** Timeout transition */
   TIMEOUT = 'timeout',
   /** Internal self-transition */
@@ -247,6 +249,10 @@ export interface Transition {
   resetOnTransition?: boolean;
   /** Target machine for inter-machine transitions */
   targetMachine?: string;
+  /** Target component for cross-component transitions */
+  targetComponent?: string;
+  /** Target event to send when cross-component instance is created */
+  targetEvent?: string;
   /** Triggered method name */
   triggeredMethod?: string;
   /**

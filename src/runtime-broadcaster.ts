@@ -142,7 +142,7 @@ export class RuntimeBroadcaster {
           previousState: data.previousState,
           newState: data.newState,
           event: data.event,
-          context: data.context,
+          context: data.instance?.context || data.context,
           pendingTimeouts: data.pendingTimeouts || []
         },
         timestamp: Date.now()
@@ -183,7 +183,8 @@ export class RuntimeBroadcaster {
           data: {
             instanceId: data.instanceId,
             machineName: data.machineName,
-            finalState: data.newState
+            finalState: data.newState,
+            context: data.instance?.context || data.context
           },
           timestamp: Date.now()
         };

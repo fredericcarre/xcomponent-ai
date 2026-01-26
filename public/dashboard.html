@@ -1762,23 +1762,24 @@
       }
 
       try {
-        // Add instanceId to URL if we have an instance
+        // Add currentState to URL if we have an instance
         let url = `/api/machines/${selectedMachineName}/diagram`;
         if (instanceToDisplay) {
-          url += `?instanceId=${instanceToDisplay.id}`;
+          url += `?currentState=${encodeURIComponent(instanceToDisplay.currentState)}`;
         }
 
         const res = await fetch(url);
         const data = await res.json();
 
         const container = document.getElementById('diagram-container');
+        const currentState = instanceToDisplay ? instanceToDisplay.currentState : null;
 
         // Build diagram HTML with current state badge if available
         let diagramHtml = '<div class="mermaid">' + data.diagram + '</div>';
 
-        if (data.currentState && instanceToDisplay) {
+        if (currentState) {
           diagramHtml += `<div style="margin-top: 12px; padding: 8px 16px; background: linear-gradient(135deg, #a855f7, #7c3aed); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; text-align: center; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);">
-            🎯 Current: ${data.currentState}
+            🎯 Current: ${currentState}
           </div>`;
         }
 
@@ -1786,17 +1787,17 @@
         await mermaid.run({ querySelector: '#diagram-container .mermaid' });
 
         // Apply state highlighting and timeout countdown if we have an instance
-        if (data.currentState && instanceToDisplay) {
+        if (currentState && instanceToDisplay) {
           // Clear previous countdowns
           clearStateCountdowns();
 
           // Compute reachable states and apply styles
-          const reachableStates = computeReachableStatesJS(machine.transitions, data.currentState);
+          const reachableStates = computeReachableStatesJS(machine.transitions, currentState);
           const pendingTimeouts = instanceToDisplay.pendingTimeouts || [];
 
           // Apply styles to the diagram container (acts like a card)
           setTimeout(() => {
-            applyStateStyles(container, data.currentState, reachableStates, pendingTimeouts);
+            applyStateStyles(container, currentState, reachableStates, pendingTimeouts);
           }, 100);
         }
       } catch (error) {

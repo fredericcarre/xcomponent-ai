@@ -1009,12 +1009,24 @@
         shape.style.setProperty('stroke-width', '1px', 'important');
         shape.style.setProperty('opacity', '0.3', 'important');
       });
+      // Gray out all text elements (including in foreignObject)
       svg.querySelectorAll('text, tspan').forEach(text => {
         text.style.setProperty('fill', '#444', 'important');
         text.style.setProperty('opacity', '0.3', 'important');
       });
+      // Gray out foreignObject content (Mermaid uses these for edge labels)
+      svg.querySelectorAll('foreignObject span, foreignObject div, .edgeLabel span, .edgeLabel div').forEach(el => {
+        el.style.setProperty('color', '#444', 'important');
+        el.style.setProperty('opacity', '0.3', 'important');
+      });
+      // Gray out paths/lines (transitions)
       svg.querySelectorAll('path, line').forEach(path => {
-        if (path.hasAttribute('marker-end') || path.closest('.edgePath')) {
+        // Skip paths that are part of state shapes (not transitions)
+        const parent = path.parentElement;
+        if (path.hasAttribute('marker-end') ||
+            parent?.classList.contains('edgePath') ||
+            parent?.classList.contains('transition') ||
+            path.getAttribute('class')?.includes('transition')) {
           path.style.setProperty('stroke', '#333', 'important');
           path.style.setProperty('opacity', '0.2', 'important');
         }
@@ -1110,16 +1122,41 @@
         }
       });
 
-      svg.querySelectorAll('.edgeLabel, .edgeLabels span, text').forEach(label => {
-        const labelText = label.textContent?.trim();
-        if (labelText && activeEvents.has(labelText)) {
-          // This is an active transition label - restore it
-          label.style.setProperty('fill', '#fbbf24', 'important');
-          label.style.setProperty('opacity', '1', 'important');
-          label.style.setProperty('font-weight', '600', 'important');
+      console.log('Active events from', currentState, ':', [...activeEvents]);
+
+      // Find ALL text-like elements that could be transition labels
+      svg.querySelectorAll('.edgeLabel, .edgeLabels, foreignObject, text, tspan').forEach(container => {
+        // Check if this element or its children contain an active event name
+        const textContent = container.textContent?.trim();
+
+        if (textContent && activeEvents.has(textContent)) {
+          console.log('Found active transition label:', textContent);
+
+          // Restore the label itself
+          if (container.tagName === 'text' || container.tagName === 'tspan') {
+            container.style.setProperty('fill', '#fbbf24', 'important');
+            container.style.setProperty('opacity', '1', 'important');
+            container.style.setProperty('font-weight', '600', 'important');
+          }
+
+          // Restore any span/div inside foreignObject
+          container.querySelectorAll('span, div, p').forEach(el => {
+            el.style.setProperty('color', '#fbbf24', 'important');
+            el.style.setProperty('opacity', '1', 'important');
+            el.style.setProperty('font-weight', '600', 'important');
+          });
 
           // Try to find and restore the associated path
-          const edgeGroup = label.closest('.edge, .edgePath, g');
+          // Go up to find the edge group, then find its path
+          let edgeGroup = container.closest('.edgePath, .edge, g[class*="edge"]');
+          if (!edgeGroup) {
+            // Try finding sibling edgePath for this label
+            const parent = container.parentElement;
+            if (parent) {
+              edgeGroup = parent.querySelector('.edgePath');
+            }
+          }
+
           if (edgeGroup) {
             edgeGroup.querySelectorAll('path, line').forEach(path => {
               path.style.setProperty('stroke', '#fbbf24', 'important');

@@ -1789,11 +1789,23 @@
       const res = await fetch(`/api/instances?t=${Date.now()}`);
       const data = await res.json();
       allInstances = data.instances || [];
+      console.log('loadInstances: loaded', allInstances.length, 'instances');
+
+      // Debug: log instances with pendingTimeouts
+      allInstances.forEach(inst => {
+        if (inst.pendingTimeouts && inst.pendingTimeouts.length > 0) {
+          console.log(`Instance ${inst.id} (${inst.machineName}/${inst.currentState}) has timeouts:`, inst.pendingTimeouts);
+        }
+      });
+
       renderInstanceList();
       updateStats();
 
       // Update component overview if visible
-      if (!document.getElementById('component-overview').classList.contains('hidden')) {
+      const overviewHidden = document.getElementById('component-overview').classList.contains('hidden');
+      console.log('loadInstances: overview hidden?', overviewHidden);
+      if (!overviewHidden) {
+        console.log('loadInstances: calling renderComponentOverview');
         await renderComponentOverview();
       }
     }
@@ -1819,7 +1831,6 @@
       let filteredInstances = allInstances;
 
       // If in detail view (machine selected), only show instances of that machine
-      const isInDetailView = selectedMachineName && !document.getElementById('component-overview').classList.contains('hidden') === false;
       if (selectedMachineName && document.getElementById('machine-detail').classList.contains('active')) {
         filteredInstances = filteredInstances.filter(i => i.machineName === selectedMachineName);
       }

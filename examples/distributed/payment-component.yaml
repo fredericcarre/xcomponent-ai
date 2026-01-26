@@ -1,0 +1,83 @@
+# Payment Component - Distributed Demo
+# Processes payments and notifies OrderComponent of result
+
+name: PaymentComponent
+version: 1.0.0
+entryMachine: Payment
+
+stateMachines:
+  - name: Payment
+    initialState: Pending
+
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+      amount:
+        type: number
+        label: Amount
+        required: true
+      paymentMethod:
+        type: text
+        label: Payment Method
+
+    states:
+      - name: Pending
+        type: entry
+
+      - name: Processing
+        type: regular
+
+      - name: Validated
+        type: regular
+
+      - name: Completed
+        type: final
+
+      - name: Failed
+        type: final
+
+    transitions:
+      # Start processing payment
+      - from: Pending
+        to: Processing
+        event: PROCESS
+        type: triggerable
+        description: Start payment processing
+
+      # Payment validation successful
+      - from: Processing
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+
+      # Complete payment - notify OrderComponent of success
+      - from: Validated
+        to: Completed
+        event: COMPLETE
+        type: cross_component
+        targetComponent: OrderComponent
+        targetMachine: Order
+        targetEvent: PAYMENT_CONFIRMED
+        description: Payment successful, notify order
+
+      # Payment failed - notify OrderComponent
+      - from: Processing
+        to: Failed
+        event: REJECT
+        type: cross_component
+        targetComponent: OrderComponent
+        targetMachine: Order
+        targetEvent: PAYMENT_FAILED
+        description: Payment rejected, notify order
+
+      # Validation failed
+      - from: Validated
+        to: Failed
+        event: REJECT
+        type: cross_component
+        targetComponent: OrderComponent
+        targetMachine: Order
+        targetEvent: PAYMENT_FAILED
+        description: Payment validation failed

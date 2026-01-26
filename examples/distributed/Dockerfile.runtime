@@ -21,8 +21,8 @@ RUN npm run build 2>/dev/null || npx tsc
 # Copy runtime script
 COPY examples/distributed/runtime.js ./runtime.js
 
-# Prune dev deps but keep amqplib and pg needed for distributed mode
-RUN npm prune --omit=dev && npm install --no-save amqplib pg
+# Prune dev deps but keep amqplib, pg, and yaml needed for distributed mode
+RUN npm prune --omit=dev && npm install --no-save amqplib pg yaml
 
 # Start runtime
 CMD ["node", "runtime.js"]

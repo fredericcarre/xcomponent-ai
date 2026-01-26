@@ -1,10 +1,10 @@
 # xcomponent-ai Distributed Example
 
 This example demonstrates running xcomponent-ai in distributed mode with:
-- **RabbitMQ** as the message broker
+- **RabbitMQ** as the message broker for cross-component communication
 - **PostgreSQL** for event persistence
 - **Dashboard** in standalone mode
-- **Multiple runtime instances** for the same component
+- **Two components** (Order & Payment) communicating via RabbitMQ
 
 ## Architecture
 
@@ -15,8 +15,8 @@ This example demonstrates running xcomponent-ai in distributed mode with:
 └──────────▲───────────────────▲────────────────────▲─────────────────┘
            │                   │                    │
     ┌──────┴──────┐    ┌───────┴───────┐    ┌──────┴──────┐
-    │  Dashboard  │    │   Runtime 1   │    │   Runtime 2 │
-    │  Port 3000  │    │ (approval-1)  │    │ (approval-2)│
+    │  Dashboard  │    │ Order Runtime │    │Payment Runtime│
+    │  Port 3000  │    │ (OrderComponent)│  │(PaymentComponent)│
     └─────────────┘    └───────┬───────┘    └──────┬──────┘
                                │                   │
                        ┌───────┴───────────────────┴───────┐
@@ -25,6 +25,40 @@ This example demonstrates running xcomponent-ai in distributed mode with:
                        │         - fsm_snapshots           │
                        └───────────────────────────────────┘
 ```
+
+## Cross-Component Communication Demo
+
+This example showcases how two independent components communicate via RabbitMQ:
+
+```
+┌─────────────────┐                      ┌─────────────────┐
+│  OrderComponent │                      │ PaymentComponent│
+│  (Runtime 1)    │                      │   (Runtime 2)   │
+├─────────────────┤                      ├─────────────────┤
+│                 │                      │                 │
+│   Created       │                      │    Pending      │
+│      │          │   SUBMIT (creates    │       │         │
+│      ▼          │   Payment instance)  │       ▼         │
+│ PendingPayment ─┼─────────────────────►│   Processing    │
+│      │          │                      │       │         │
+│      │          │   PAYMENT_CONFIRMED  │       ▼         │
+│      ▼          │◄─────────────────────┼─   Validated    │
+│     Paid        │                      │       │         │
+│      │          │                      │       ▼         │
+│      ▼          │                      │   Completed     │
+│   Shipped       │                      │                 │
+│      │          │                      │                 │
+│      ▼          │                      │                 │
+│  Completed      │                      │                 │
+└─────────────────┘                      └─────────────────┘
+```
+
+**Flow:**
+1. Create an Order instance in OrderComponent
+2. SUBMIT the order → creates a Payment instance in PaymentComponent (via RabbitMQ)
+3. Process the payment: PROCESS → VALIDATE → COMPLETE
+4. Payment completion sends PAYMENT_CONFIRMED back to OrderComponent (via RabbitMQ)
+5. Order transitions to Paid, then can be Shipped and Completed
 
 ## Quick Start
 

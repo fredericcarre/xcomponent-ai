@@ -293,45 +293,58 @@ export class RabbitMQMessageBroker implements MessageBroker {
     this.amqpUrl = amqpUrl;
   }
 
-  async connect(): Promise<void> {
-    try {
-      // Lazy dynamic import to make amqplib optional dependency
-      const amqplib = await import('amqplib' as any);
-      const connect = amqplib.connect || amqplib.default?.connect;
+  async connect(maxRetries: number = 10, initialDelayMs: number = 1000): Promise<void> {
+    let lastError: Error | null = null;
 
-      if (!connect) {
-        throw new Error('amqplib connect function not found');
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Lazy dynamic import to make amqplib optional dependency
+        const amqplib = await import('amqplib' as any);
+        const connect = amqplib.connect || amqplib.default?.connect;
+
+        if (!connect) {
+          throw new Error('amqplib connect function not found');
+        }
+
+        this.connection = await connect(this.amqpUrl);
+
+        // Create separate channels for publish and subscribe
+        this.publishChannel = await this.connection.createChannel();
+        this.subscribeChannel = await this.connection.createChannel();
+
+        // Declare the exchange for FSM events (topic exchange for flexible routing)
+        await this.publishChannel.assertExchange(this.exchangeName, 'topic', { durable: true });
+        await this.subscribeChannel.assertExchange(this.exchangeName, 'topic', { durable: true });
+
+        // Handle connection close
+        this.connection.on('close', () => {
+          console.warn('[RabbitMQ] Connection closed');
+          this.connected = false;
+        });
+
+        this.connection.on('error', (err: Error) => {
+          console.error('[RabbitMQ] Connection error:', err.message);
+        });
+
+        this.connected = true;
+        console.log('[RabbitMQ] Connected to', this.amqpUrl.replace(/:[^:@]+@/, ':***@'));
+        return; // Success!
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (attempt < maxRetries) {
+          const delay = initialDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
+          console.log(`[RabbitMQ] Connection attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
-
-      this.connection = await connect(this.amqpUrl);
-
-      // Create separate channels for publish and subscribe
-      this.publishChannel = await this.connection.createChannel();
-      this.subscribeChannel = await this.connection.createChannel();
-
-      // Declare the exchange for FSM events (topic exchange for flexible routing)
-      await this.publishChannel.assertExchange(this.exchangeName, 'topic', { durable: true });
-      await this.subscribeChannel.assertExchange(this.exchangeName, 'topic', { durable: true });
-
-      // Handle connection close
-      this.connection.on('close', () => {
-        console.warn('[RabbitMQ] Connection closed');
-        this.connected = false;
-      });
-
-      this.connection.on('error', (err: Error) => {
-        console.error('[RabbitMQ] Connection error:', err.message);
-      });
-
-      this.connected = true;
-      console.log('[RabbitMQ] Connected to', this.amqpUrl.replace(/:[^:@]+@/, ':***@'));
-    } catch (error) {
-      throw new Error(
-        `Failed to connect to RabbitMQ at ${this.amqpUrl}. ` +
-        'Make sure RabbitMQ is running and the "amqplib" package is installed (npm install amqplib). ' +
-        `Error: ${error instanceof Error ? error.message : String(error)}`
-      );
     }
+
+    throw new Error(
+      `Failed to connect to RabbitMQ at ${this.amqpUrl.replace(/:[^:@]+@/, ':***@')} after ${maxRetries} attempts. ` +
+      'Make sure RabbitMQ is running and the "amqplib" package is installed (npm install amqplib). ' +
+      `Last error: ${lastError?.message || 'Unknown error'}`
+    );
   }
 
   async disconnect(): Promise<void> {

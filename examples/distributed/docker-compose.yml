@@ -53,17 +53,18 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Example Runtime 1: ApprovalWorkflow
-  runtime-approval:
+  # Runtime 1: Order Component
+  # Manages orders and sends payment requests to PaymentComponent
+  runtime-order:
     build:
       context: ../..
       dockerfile: examples/distributed/Dockerfile.runtime
-    container_name: xcomponent-runtime-approval
+    container_name: xcomponent-runtime-order
     environment:
       BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
       DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
-      COMPONENT_FILE: /app/examples/approval-workflow.yaml
-      RUNTIME_NAME: approval-runtime-1
+      COMPONENT_FILE: /app/examples/distributed/order-component.yaml
+      RUNTIME_NAME: order-runtime
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -71,17 +72,18 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Example Runtime 2: Another instance of ApprovalWorkflow (for scaling demo)
-  runtime-approval-2:
+  # Runtime 2: Payment Component
+  # Processes payments and notifies OrderComponent of results
+  runtime-payment:
     build:
       context: ../..
       dockerfile: examples/distributed/Dockerfile.runtime
-    container_name: xcomponent-runtime-approval-2
+    container_name: xcomponent-runtime-payment
     environment:
       BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
       DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
-      COMPONENT_FILE: /app/examples/approval-workflow.yaml
-      RUNTIME_NAME: approval-runtime-2
+      COMPONENT_FILE: /app/examples/distributed/payment-component.yaml
+      RUNTIME_NAME: payment-runtime
     depends_on:
       rabbitmq:
         condition: service_healthy

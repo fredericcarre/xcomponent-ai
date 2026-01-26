@@ -1000,7 +1000,20 @@
             // Add timeout countdown badge if there are pending timeouts
             if (pendingTimeouts.length > 0) {
               const timeout = pendingTimeouts[0]; // Show first timeout
-              const bbox = shape.getBBox ? shape.getBBox() : { x: 0, y: 0, width: 100, height: 40 };
+              let bbox = { x: 0, y: 0, width: 100, height: 40 };
+              try {
+                if (shape.getBBox) {
+                  bbox = shape.getBBox();
+                }
+              } catch (e) {
+                console.warn('getBBox failed for', stateName, e);
+              }
+
+              // Ensure bbox has reasonable values
+              if (!bbox || bbox.width < 10 || bbox.height < 10) {
+                bbox = { x: 0, y: 0, width: 100, height: 40 };
+              }
+
               console.log(`Adding timeout badge for ${stateName}:`, { timeout, bbox });
 
               // Create countdown group
@@ -1008,10 +1021,14 @@
               countdownGroup.setAttribute('class', 'timeout-countdown');
               countdownGroup.setAttribute('data-timeout-id', `state-timeout-${stateName}`);
 
+              // Position badge at top-right of state shape
+              const badgeX = bbox.x + bbox.width - 60;
+              const badgeY = bbox.y - 14;
+
               // Badge background
               const badgeBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-              badgeBg.setAttribute('x', bbox.x + bbox.width - 60);
-              badgeBg.setAttribute('y', bbox.y - 12);
+              badgeBg.setAttribute('x', String(badgeX));
+              badgeBg.setAttribute('y', String(badgeY));
               badgeBg.setAttribute('width', '65');
               badgeBg.setAttribute('height', '22');
               badgeBg.setAttribute('rx', '4');
@@ -1021,8 +1038,8 @@
 
               // Timer icon
               const timerIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              timerIcon.setAttribute('x', bbox.x + bbox.width - 55);
-              timerIcon.setAttribute('y', bbox.y + 4);
+              timerIcon.setAttribute('x', String(badgeX + 5));
+              timerIcon.setAttribute('y', String(badgeY + 16));
               timerIcon.setAttribute('font-size', '12');
               timerIcon.setAttribute('fill', '#ffffff');
               timerIcon.textContent = '⏱';
@@ -1030,8 +1047,8 @@
 
               // Countdown text
               const countdownText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              countdownText.setAttribute('x', bbox.x + bbox.width - 40);
-              countdownText.setAttribute('y', bbox.y + 4);
+              countdownText.setAttribute('x', String(badgeX + 20));
+              countdownText.setAttribute('y', String(badgeY + 16));
               countdownText.setAttribute('font-size', '11');
               countdownText.setAttribute('font-weight', '600');
               countdownText.setAttribute('fill', '#ffffff');

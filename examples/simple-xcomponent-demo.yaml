@@ -23,28 +23,45 @@ stateMachines:
         type: final  # Persists even in final state (entry point)
 
     transitions:
-      # Regular transition
+      # Regular transition to start working
       - from: Ready
         to: Working
         event: START
         type: triggerable
 
-      # Inter-machine transition - creates Worker instance
+      # Inter-machine transition - creates Worker instance (stays in Working)
       - from: Working
-        to: Ready
+        to: Working
         event: CREATE_WORKER
         type: inter_machine
         targetMachine: Worker
 
-      # Complete
+      # Go back to Ready state
+      - from: Working
+        to: Ready
+        event: BACK_TO_READY
+        type: triggerable
+
+      # Complete from Ready
       - from: Ready
         to: Done
         event: FINISH
         type: triggerable
 
+      # Receive notifications when child Workers change state
+      - from: Working
+        to: Working
+        event: CHILD_STATE_CHANGED
+        type: regular
+
   # Worker: Created dynamically, auto-deallocated when done
   - name: Worker
     initialState: Created
+
+    # Parent notification - notifies Coordinator on every state change
+    parentLink:
+      enabled: true
+      onStateChange: CHILD_STATE_CHANGED
 
     contextSchema:
       taskId:

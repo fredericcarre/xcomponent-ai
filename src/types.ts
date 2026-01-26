@@ -262,8 +262,40 @@ export interface Transition {
    * Example: "event.payload.Quantity === context.RemainingQuantity"
    */
   specificTriggeringRule?: string;
+  /**
+   * Notify parent instance when this transition is executed
+   * Allows child state machines to communicate state changes back to parent
+   */
+  notifyParent?: NotifyParent;
   /** Metadata */
   metadata?: Record<string, any>;
+}
+
+/**
+ * Parent link configuration for child-to-parent notifications
+ * Enables XComponent pattern of parent orchestration over child state machines
+ */
+export interface ParentLink {
+  /** Enable parent linking (stores parentInstanceId in child context) */
+  enabled: boolean;
+  /**
+   * Event type to send to parent on ANY state change
+   * If set, automatically notifies parent when child changes state
+   */
+  onStateChange?: string;
+}
+
+/**
+ * Notification to parent configuration on a specific transition
+ * Allows fine-grained control over which transitions notify the parent
+ */
+export interface NotifyParent {
+  /** Event type to send to parent */
+  event: string;
+  /** Include child's current state in payload (default: true) */
+  includeState?: boolean;
+  /** Include child's context in payload (default: false) */
+  includeContext?: boolean;
 }
 
 /**
@@ -284,6 +316,16 @@ export interface StateMachine {
    * Example: "Order", "Trade", "Customer"
    */
   publicMemberType?: string;
+  /**
+   * Parent link configuration for child-to-parent notifications
+   * When a child is created via inter_machine, it stores the parent's instanceId
+   * and can notify the parent on state changes
+   */
+  parentLink?: ParentLink;
+  /**
+   * Context schema for UI form generation and validation
+   */
+  contextSchema?: Record<string, any>;
   /** Metadata */
   metadata?: Record<string, any>;
 }
@@ -357,6 +399,15 @@ export interface FSMInstance {
   status: 'active' | 'completed' | 'error';
   /** Entry point flag - prevents auto-deallocation in final state */
   isEntryPoint?: boolean;
+  /**
+   * Parent instance ID (set when created via inter_machine transition)
+   * Enables child-to-parent communication
+   */
+  parentInstanceId?: string;
+  /**
+   * Parent machine name (for routing notifications back to parent)
+   */
+  parentMachineName?: string;
 }
 
 /**

@@ -424,9 +424,16 @@ export class FSMRuntime extends EventEmitter {
       }
 
       // Handle cross-component transitions (different component via message broker)
+      // Debug logging for transition type check
+      if (transition.targetComponent) {
+        console.log(`[FSMRuntime] Transition has targetComponent: ${transition.targetComponent}, type: ${transition.type}, expected: ${TransitionType.CROSS_COMPONENT}`);
+      }
+
       if (transition.type === TransitionType.CROSS_COMPONENT && transition.targetComponent) {
         // Merge parent context with event payload for child instance
         const childContext = { ...instance.context, ...event.payload };
+
+        console.log(`[FSMRuntime] Emitting cross_component_transition to ${transition.targetComponent}`);
 
         this.emit('cross_component_transition', {
           sourceInstanceId: instanceId,

@@ -195,30 +195,41 @@ export class RuntimeBroadcaster {
 
     // Cross-component transition
     this.runtime.on('cross_component_transition', async (data) => {
-      console.log(`[RuntimeBroadcaster] Cross-component transition: ${data.sourceComponent} -> ${data.targetComponent}`);
+      console.log(`[RuntimeBroadcaster] Cross-component transition detected:`);
+      console.log(`  Source: ${data.sourceComponent}.${data.sourceMachine} (${data.sourceInstanceId})`);
+      console.log(`  Target: ${data.targetComponent}.${data.targetMachine}`);
+      console.log(`  Target Event: ${data.targetEvent || '(create new instance)'}`);
+      console.log(`  Context: ${JSON.stringify(data.context)}`);
 
-      if (data.targetEvent) {
-        // Send event to existing instances (e.g., Payment.COMPLETE -> Order.PAYMENT_CONFIRMED)
-        // Uses CROSS_COMPONENT_EVENT to broadcast to matching instances
-        await this.broker.publish(DashboardChannels.CROSS_COMPONENT_EVENT, {
-          targetComponent: data.targetComponent,
-          targetMachine: data.targetMachine,
-          event: { type: data.targetEvent, payload: data.context, timestamp: Date.now() },
-          matchContext: data.context, // For property matching (e.g., orderId)
-          sourceComponent: data.sourceComponent,
-          sourceInstanceId: data.sourceInstanceId,
-          timestamp: Date.now()
-        } as any);
-      } else {
-        // Create new instance in target component (e.g., Order.SUBMIT -> creates Payment)
-        await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
-          componentName: data.targetComponent,
-          machineName: data.targetMachine,
-          context: data.context,
-          sourceComponent: data.sourceComponent,
-          sourceInstanceId: data.sourceInstanceId,
-          timestamp: Date.now()
-        } as any);
+      try {
+        if (data.targetEvent) {
+          // Send event to existing instances (e.g., Payment.COMPLETE -> Order.PAYMENT_CONFIRMED)
+          console.log(`[RuntimeBroadcaster] Publishing CROSS_COMPONENT_EVENT for ${data.targetEvent}`);
+          await this.broker.publish(DashboardChannels.CROSS_COMPONENT_EVENT, {
+            targetComponent: data.targetComponent,
+            targetMachine: data.targetMachine,
+            event: { type: data.targetEvent, payload: data.context, timestamp: Date.now() },
+            matchContext: data.context, // For property matching (e.g., orderId)
+            sourceComponent: data.sourceComponent,
+            sourceInstanceId: data.sourceInstanceId,
+            timestamp: Date.now()
+          } as any);
+          console.log(`[RuntimeBroadcaster] CROSS_COMPONENT_EVENT published`);
+        } else {
+          // Create new instance in target component (e.g., Order.SUBMIT -> creates Payment)
+          console.log(`[RuntimeBroadcaster] Publishing CREATE_INSTANCE for ${data.targetComponent}`);
+          await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
+            componentName: data.targetComponent,
+            machineName: data.targetMachine,
+            context: data.context,
+            sourceComponent: data.sourceComponent,
+            sourceInstanceId: data.sourceInstanceId,
+            timestamp: Date.now()
+          } as any);
+          console.log(`[RuntimeBroadcaster] CREATE_INSTANCE published`);
+        }
+      } catch (error: any) {
+        console.error(`[RuntimeBroadcaster] Failed to publish cross-component message:`, error.message);
       }
     });
   }
@@ -229,9 +240,15 @@ export class RuntimeBroadcaster {
   private async subscribeToCommands(): Promise<void> {
     // Trigger event command
     await this.broker.subscribe(DashboardChannels.TRIGGER_EVENT, async (msg: any) => {
+      // Only process if componentName matches or not specified
+      if (msg.componentName && msg.componentName !== this.component.name) {
+        return; // Not for this component
+      }
+
       try {
         const instance = this.runtime.getInstance(msg.instanceId);
         if (instance) {
+          console.log(`[RuntimeBroadcaster] Processing event ${msg.event.type} for instance ${msg.instanceId}`);
           await this.runtime.sendEvent(msg.instanceId, msg.event);
           console.log(`[RuntimeBroadcaster] Triggered event ${msg.event.type} on ${msg.instanceId}`);
         }

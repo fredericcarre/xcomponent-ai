@@ -401,7 +401,7 @@ export class FSMRuntime extends EventEmitter {
       // Setup auto-transitions
       this.setupAutoTransitions(instanceId, transition.to);
 
-      // Handle inter-machine transitions
+      // Handle inter-machine transitions (same component)
       if (transition.type === TransitionType.INTER_MACHINE && transition.targetMachine) {
         // Pass parent info so child can notify parent of state changes
         const parentInfo = {
@@ -420,6 +420,22 @@ export class FSMRuntime extends EventEmitter {
           sourceInstanceId: instanceId,
           targetInstanceId: newInstanceId,
           targetMachine: transition.targetMachine,
+        });
+      }
+
+      // Handle cross-component transitions (different component via message broker)
+      if (transition.type === TransitionType.CROSS_COMPONENT && transition.targetComponent) {
+        // Merge parent context with event payload for child instance
+        const childContext = { ...instance.context, ...event.payload };
+
+        this.emit('cross_component_transition', {
+          sourceInstanceId: instanceId,
+          sourceComponent: this.componentDef.name,
+          sourceMachine: instance.machineName,
+          targetComponent: transition.targetComponent,
+          targetMachine: transition.targetMachine || transition.targetComponent, // Default to component name
+          targetEvent: transition.targetEvent,
+          context: childContext,
         });
       }
     } catch (error: any) {

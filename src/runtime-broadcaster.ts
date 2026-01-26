@@ -192,6 +192,22 @@ export class RuntimeBroadcaster {
         await this.broker.publish(DashboardChannels.INSTANCE_COMPLETED, broadcast as any);
       }
     });
+
+    // Cross-component transition (creates instance in another component via RabbitMQ)
+    this.runtime.on('cross_component_transition', async (data) => {
+      console.log(`[RuntimeBroadcaster] Cross-component transition: ${data.sourceComponent} -> ${data.targetComponent}`);
+
+      // Send CREATE_INSTANCE command to target component via message broker
+      await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
+        componentName: data.targetComponent,
+        machineName: data.targetMachine,
+        context: data.context,
+        sourceComponent: data.sourceComponent,
+        sourceInstanceId: data.sourceInstanceId,
+        event: data.targetEvent ? { type: data.targetEvent, payload: data.context } : undefined,
+        timestamp: Date.now()
+      } as any);
+    });
   }
 
   /**
@@ -215,16 +231,23 @@ export class RuntimeBroadcaster {
     await this.broker.subscribe(DashboardChannels.CREATE_INSTANCE, async (msg: any) => {
       if (msg.componentName === this.component.name) {
         try {
-          const entryMachine = this.component.entryMachine;
-          if (!entryMachine) {
-            console.error(`[RuntimeBroadcaster] No entry machine defined for component ${this.component.name}`);
+          // Use specified machine or fall back to entry machine
+          const machineName = msg.machineName || this.component.entryMachine;
+          if (!machineName) {
+            console.error(`[RuntimeBroadcaster] No machine specified and no entry machine defined for component ${this.component.name}`);
             return;
           }
+
           const instanceId = this.runtime.createInstance(
-            entryMachine,
+            machineName,
             msg.context || {}
           );
-          console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
+
+          if (msg.sourceComponent) {
+            console.log(`[RuntimeBroadcaster] Created instance ${instanceId} (cross-component from ${msg.sourceComponent})`);
+          } else {
+            console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
+          }
         } catch (error: any) {
           console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message);
         }

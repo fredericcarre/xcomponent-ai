@@ -1810,11 +1810,12 @@
       allInstances = data.instances || [];
       console.log('loadInstances: loaded', allInstances.length, 'instances');
 
-      // Debug: log instances with pendingTimeouts
+      // Debug: log instances with their transition info
       allInstances.forEach(inst => {
-        if (inst.pendingTimeouts && inst.pendingTimeouts.length > 0) {
-          console.log(`Instance ${inst.id} (${inst.machineName}/${inst.currentState}) has timeouts:`, inst.pendingTimeouts);
-        }
+        console.log(`Instance ${inst.id} (${inst.machineName}/${inst.currentState}):`, {
+          pendingTimeouts: inst.pendingTimeouts,
+          _debug: inst._debug
+        });
       });
 
       renderInstanceList();

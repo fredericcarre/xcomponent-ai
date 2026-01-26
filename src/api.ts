@@ -352,23 +352,24 @@ export class APIServer {
               console.log(`[API] Instance ${inst.id} in state ${inst.currentState}`);
               const pendingTimeouts = runtime.getPendingTimeouts(inst.id);
               console.log(`[API] pendingTimeouts for ${inst.id}:`, pendingTimeouts);
-              // Debug: log transition types when no pending timeouts found
-              if (pendingTimeouts.length === 0) {
-                const machine = (runtime as any).machines?.get(inst.machineName);
-                if (machine) {
-                  const relevantTransitions = machine.transitions?.filter(
-                    (t: any) => t.from === inst.currentState
-                  );
-                  const timeoutOnes = relevantTransitions?.filter((t: any) => t.timeoutMs);
-                  if (timeoutOnes?.length > 0) {
-                    console.log(`DEBUG: Instance ${inst.id} in ${inst.currentState} - timeout transitions:`,
-                      timeoutOnes.map((t: any) => ({ type: t.type, typeValue: JSON.stringify(t.type), timeoutMs: t.timeoutMs })));
-                  }
-                }
+              // Debug: add transition info to response for debugging
+              let debugTransitions: any[] = [];
+              const machine = (runtime as any).machines?.get(inst.machineName);
+              if (machine) {
+                const relevantTransitions = machine.transitions?.filter(
+                  (t: any) => t.from === inst.currentState
+                );
+                debugTransitions = relevantTransitions?.map((t: any) => ({
+                  event: t.event,
+                  type: t.type,
+                  typeofType: typeof t.type,
+                  timeoutMs: t.timeoutMs
+                })) || [];
               }
               instances.push({
                 ...inst,
-                pendingTimeouts
+                pendingTimeouts,
+                _debug: { transitions: debugTransitions }
               });
             });
           }

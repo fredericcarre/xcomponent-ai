@@ -280,7 +280,7 @@ export class RabbitMQMessageBroker implements MessageBroker {
   private channelHandlers: Map<string, Set<(message: any) => void>> = new Map();
   private connected = false;
   private amqpUrl: string;
-  private exchangeName = 'mayele.events';
+  private exchangeName = 'xcomponent.events';
 
   /**
    * Create a RabbitMQ message broker
@@ -380,7 +380,7 @@ export class RabbitMQMessageBroker implements MessageBroker {
       : `xcomponent.${channelOrComponent}`;
 
     // Create a unique queue for this subscription
-    const queueName = `mayele.${routingKey}.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+    const queueName = `xcomponent.${routingKey}.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
 
     await this.subscribeChannel.assertQueue(queueName, {
       exclusive: true,

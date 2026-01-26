@@ -1,6 +1,6 @@
-# Mayele Distributed Example
+# xcomponent-ai Distributed Example
 
-This example demonstrates running Mayele in distributed mode with:
+This example demonstrates running xcomponent-ai in distributed mode with:
 - **RabbitMQ** as the message broker
 - **PostgreSQL** for event persistence
 - **Dashboard** in standalone mode
@@ -43,8 +43,8 @@ This starts:
 ### 2. Access the services
 
 - **Dashboard**: http://localhost:3000
-- **RabbitMQ Management**: http://localhost:15672 (login: mayele / mayele123)
-- **PostgreSQL**: localhost:5432 (user: mayele, password: mayele123, db: mayele_fsm)
+- **RabbitMQ Management**: http://localhost:15672 (login: xcomponent / xcomponent123)
+- **PostgreSQL**: localhost:5432 (user: xcomponent, password: xcomponent123, db: xcomponent_fsm)
 
 ### 3. Watch the logs
 
@@ -82,7 +82,7 @@ docker-compose down -v
 ```bash
 # Install RabbitMQ and PostgreSQL locally, or use Docker for just those:
 docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
-docker run -d --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=mayele123 postgres:15
+docker run -d --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=xcomponent123 postgres:15
 
 # Install Node.js dependencies
 npm install amqplib pg
@@ -91,16 +91,16 @@ npm install amqplib pg
 ### Start the Dashboard
 
 ```bash
-# From the mayele-ai directory
+# From the xcomponent-ai directory
 BROKER_URL=amqp://guest:guest@localhost:5672 node dist/dashboard-server.js
 ```
 
 ### Start a Runtime
 
 ```bash
-# From the mayele-ai directory
+# From the xcomponent-ai directory
 BROKER_URL=amqp://guest:guest@localhost:5672 \
-DATABASE_URL=postgresql://postgres:mayele123@localhost:5432/postgres \
+DATABASE_URL=postgresql://postgres:xcomponent123@localhost:5432/postgres \
 node examples/distributed/runtime.js
 ```
 
@@ -127,8 +127,8 @@ Add more runtime instances in `docker-compose.yml`:
       context: ../..
       dockerfile: examples/distributed/Dockerfile.runtime
     environment:
-      BROKER_URL: amqp://mayele:mayele123@rabbitmq:5672
-      DATABASE_URL: postgresql://mayele:mayele123@postgres:5432/mayele_fsm
+      BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
+      DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
       COMPONENT_FILE: /app/examples/approval-workflow.yaml
       RUNTIME_NAME: approval-runtime-3
     depends_on:
@@ -149,12 +149,12 @@ Add more runtime instances in `docker-compose.yml`:
 ### Database connection errors
 
 1. Check PostgreSQL is running: `docker-compose logs postgres`
-2. Verify the database was initialized: `docker-compose exec postgres psql -U mayele -d mayele_fsm -c '\dt'`
+2. Verify the database was initialized: `docker-compose exec postgres psql -U xcomponent -d xcomponent_fsm -c '\dt'`
 
 ### Events not appearing
 
 1. Check RabbitMQ Management UI for message flow
-2. Verify exchanges exist: `mayele.events`
+2. Verify exchanges exist: `xcomponent.events`
 3. Check queue bindings
 
 ## Database Schema

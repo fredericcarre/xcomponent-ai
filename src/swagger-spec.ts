@@ -15,7 +15,7 @@ export function generateSwaggerSpec(component: Component, port: number) {
 Manage state machine instances, send events, and monitor execution in real-time.`,
       contact: {
         name: 'xcomponent-ai',
-        url: 'https://github.com/fredericcarre/mayele-ai'
+        url: 'https://github.com/fredericcarre/xcomponent-ai'
       }
     },
     servers: [

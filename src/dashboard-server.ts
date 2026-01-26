@@ -419,7 +419,7 @@ export class DashboardServer {
     return new Promise((resolve) => {
       this.httpServer.listen(port, () => {
         console.log('\n' + '═'.repeat(50));
-        console.log('    MAYELE DASHBOARD (Distributed Mode)');
+        console.log('    XCOMPONENT DASHBOARD (Distributed Mode)');
         console.log('═'.repeat(50));
         console.log(`📊 Dashboard:     http://localhost:${port}`);
         console.log(`📡 WebSocket:     ws://localhost:${port}`);

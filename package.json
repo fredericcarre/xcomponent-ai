@@ -75,14 +75,14 @@
     "email": "dev@xcomponent.com"
   },
   "license": "Apache-2.0",
-  "homepage": "https://github.com/fredericcarre/mayele-ai#readme",
+  "homepage": "https://github.com/fredericcarre/xcomponent-ai#readme",
   "bugs": {
-    "url": "https://github.com/fredericcarre/mayele-ai/issues",
+    "url": "https://github.com/fredericcarre/xcomponent-ai/issues",
     "email": "dev@xcomponent.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fredericcarre/mayele-ai.git"
+    "url": "git+https://github.com/fredericcarre/xcomponent-ai.git"
   },
   "dependencies": {
     "@langchain/core": "^0.3.21",

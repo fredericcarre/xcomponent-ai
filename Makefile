@@ -69,8 +69,8 @@ subscription: ## Start with subscription lifecycle example
 distributed-up: ## Start distributed mode (RabbitMQ + PostgreSQL + Dashboard + Runtimes)
 	@echo "$(GREEN)Starting distributed infrastructure...$(NC)"
 	@echo "$(YELLOW)Dashboard: http://localhost:3000$(NC)"
-	@echo "$(YELLOW)RabbitMQ:  http://localhost:15672 (mayele/mayele123)$(NC)"
-	@echo "$(YELLOW)PostgreSQL: localhost:5432 (mayele/mayele123)$(NC)"
+	@echo "$(YELLOW)RabbitMQ:  http://localhost:15672 (xcomponent/xcomponent123)$(NC)"
+	@echo "$(YELLOW)PostgreSQL: localhost:5432 (xcomponent/xcomponent123)$(NC)"
 	cd examples/distributed && docker compose up -d
 	@echo ""
 	@echo "$(GREEN)Services started! Use 'make distributed-logs' to see logs$(NC)"

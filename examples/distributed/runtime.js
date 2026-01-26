@@ -1,5 +1,5 @@
 /**
- * Mayele Runtime - Distributed Mode
+ * xcomponent-ai Runtime - Distributed Mode
  *
  * This script starts an FSM runtime that connects to RabbitMQ and PostgreSQL,
  * and broadcasts events to the distributed dashboard.
@@ -26,7 +26,7 @@ async function main() {
   const runtimeName = process.env.RUNTIME_NAME || `runtime-${Date.now()}`;
 
   console.log(`\n${'='.repeat(50)}`);
-  console.log(`    MAYELE RUNTIME: ${runtimeName}`);
+  console.log(`    XCOMPONENT RUNTIME: ${runtimeName}`);
   console.log('='.repeat(50));
   console.log(`Component: ${componentFile}`);
   console.log(`Broker:    ${brokerUrl.replace(/:[^:@]+@/, ':***@')}`);

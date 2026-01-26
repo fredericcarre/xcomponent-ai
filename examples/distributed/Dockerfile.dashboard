@@ -1,4 +1,4 @@
-# Mayele Dashboard - Distributed Mode
+# xcomponent-ai Dashboard - Distributed Mode
 FROM node:20-alpine
 
 WORKDIR /app

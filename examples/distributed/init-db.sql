@@ -1,4 +1,4 @@
--- Mayele FSM Database Schema
+-- xcomponent-ai FSM Database Schema
 -- This script is executed when PostgreSQL container starts
 
 -- Enable UUID extension
@@ -86,11 +86,11 @@ FROM fsm_events e
 ORDER BY e.persisted_at DESC;
 
 -- Grant permissions
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO mayele;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO mayele;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO xcomponent;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO xcomponent;
 
 -- Log completion
 DO $$
 BEGIN
-    RAISE NOTICE 'Mayele FSM database schema initialized successfully';
+    RAISE NOTICE 'xcomponent-ai FSM database schema initialized successfully';
 END $$;

@@ -718,7 +718,27 @@ export class FSMRuntime extends EventEmitter {
       }
     }
 
-    // If no specific triggering rules matched, try matching rules
+    // If no specific triggering rules matched, try guard expressions
+    // Guard expressions allow conditional routing based on context (e.g., amount > 5000)
+    for (const transition of candidates) {
+      if (transition.guard?.expression) {
+        try {
+          const func = new Function(
+            'context',
+            'event',
+            `return ${transition.guard.expression}`
+          );
+          if (func(instanceContext, event)) {
+            return transition;
+          }
+        } catch {
+          // Guard evaluation failed, skip this transition
+          continue;
+        }
+      }
+    }
+
+    // Try matching rules
     // This handles cases where multiple transitions differentiate by matching rules (e.g., different operators)
     for (const transition of candidates) {
       if (transition.matchingRules && transition.matchingRules.length > 0) {
@@ -740,7 +760,23 @@ export class FSMRuntime extends EventEmitter {
       }
     }
 
-    // No rules matched - return first candidate (backward compatibility)
+    // Check if there are transitions without guards/rules (fallback transitions)
+    const fallbackTransitions = candidates.filter(t =>
+      !t.specificTriggeringRule && !t.guard?.expression && (!t.matchingRules || t.matchingRules.length === 0)
+    );
+
+    if (fallbackTransitions.length === 1) {
+      return fallbackTransitions[0];
+    }
+
+    // Multiple candidates without disambiguation - this is non-deterministic
+    // Log warning and return first candidate for backward compatibility
+    if (candidates.length > 1) {
+      console.warn(
+        `Non-deterministic transitions from state '${currentState}' for event '${event.type}': ` +
+        `${candidates.length} candidates without distinguishing guards/rules. Using first match.`
+      );
+    }
     return candidates[0];
   }
 
@@ -1345,6 +1381,38 @@ export class FSMRuntime extends EventEmitter {
    */
   getInstancesByMachine(machineName: string): FSMInstance[] {
     return Array.from(this.instances.values()).filter(i => i.machineName === machineName);
+  }
+
+  /**
+   * Get pending timeout information for an instance
+   * Returns array of { event, totalMs, elapsedMs, remainingMs }
+   */
+  getPendingTimeouts(instanceId: string): Array<{
+    event: string;
+    totalMs: number;
+    elapsedMs: number;
+    remainingMs: number;
+    targetState: string;
+  }> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return [];
+
+    const machine = this.machines.get(instance.machineName);
+    if (!machine) return [];
+
+    const timeoutTransitions = machine.transitions.filter(
+      t => t.from === instance.currentState && t.type === TransitionType.TIMEOUT && t.timeoutMs
+    );
+
+    const elapsedMs = Date.now() - instance.updatedAt;
+
+    return timeoutTransitions.map(t => ({
+      event: t.event,
+      totalMs: t.timeoutMs!,
+      elapsedMs: Math.min(elapsedMs, t.timeoutMs!),
+      remainingMs: Math.max(0, t.timeoutMs! - elapsedMs),
+      targetState: t.to
+    }));
   }
 
   /**

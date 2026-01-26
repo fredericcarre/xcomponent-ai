@@ -670,6 +670,12 @@
     ::-webkit-scrollbar-thumb:hover {
       background: var(--glass-bg);
     }
+
+    /* Pulse animation for urgent countdowns */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
   </style>
 </head>
 <body>
@@ -1617,10 +1623,33 @@
       renderInstanceContext(instance);
     }
 
-    // Render instance context/publicMember
+    // Timer interval for countdown updates
+    let countdownInterval = null;
+
+    // Format milliseconds as human-readable time
+    function formatTimeRemaining(ms) {
+      if (ms <= 0) return 'Expired';
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+
+      if (days > 0) return `${days}d ${hours % 24}h`;
+      if (hours > 0) return `${hours}h ${minutes % 60}m`;
+      if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+      return `${seconds}s`;
+    }
+
+    // Render instance context/publicMember with timeout countdown
     function renderInstanceContext(instance) {
       const container = document.getElementById('instance-context');
       if (!container) return;
+
+      // Clear previous countdown interval
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
 
       if (!instance) {
         container.innerHTML = '<div style="font-size: 12px; color: #666;">Select an instance to see its data</div>';
@@ -1629,24 +1658,93 @@
 
       const contextData = instance.publicMember || instance.context || {};
       const entries = Object.entries(contextData);
+      const pendingTimeouts = instance.pendingTimeouts || [];
 
-      if (entries.length === 0) {
-        container.innerHTML = '<div style="font-size: 12px; color: #666;">No context data</div>';
-        return;
+      // Build timeout countdown HTML
+      let timeoutHtml = '';
+      if (pendingTimeouts.length > 0) {
+        timeoutHtml = `
+          <div style="margin-bottom: 12px; padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px;">
+            <div style="font-size: 10px; color: #ef4444; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>⏱️</span> Pending Timeouts
+            </div>
+            ${pendingTimeouts.map((timeout, idx) => {
+              const percentage = Math.max(0, Math.min(100, ((timeout.totalMs - timeout.remainingMs) / timeout.totalMs) * 100));
+              return `
+                <div style="margin-bottom: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 11px; color: #fbbf24;">${timeout.event}</span>
+                    <span id="timeout-countdown-${idx}" style="font-size: 11px; color: #f87171; font-weight: 600;">${formatTimeRemaining(timeout.remainingMs)}</span>
+                  </div>
+                  <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                    <div id="timeout-bar-${idx}" style="height: 100%; width: ${percentage}%; background: linear-gradient(90deg, #ef4444, #f59e0b); border-radius: 3px; transition: width 1s linear;"></div>
+                  </div>
+                  <div style="font-size: 9px; color: #666; margin-top: 2px;">→ ${timeout.targetState}</div>
+                </div>`;
+            }).join('')}
+          </div>`;
+
+        // Start countdown interval
+        const startTime = Date.now();
+        const initialTimeouts = pendingTimeouts.map(t => ({ ...t }));
+
+        countdownInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          let anyActive = false;
+
+          initialTimeouts.forEach((timeout, idx) => {
+            const newRemaining = Math.max(0, timeout.remainingMs - elapsed);
+            const percentage = Math.max(0, Math.min(100, ((timeout.totalMs - newRemaining) / timeout.totalMs) * 100));
+
+            const countdownEl = document.getElementById(`timeout-countdown-${idx}`);
+            const barEl = document.getElementById(`timeout-bar-${idx}`);
+
+            if (countdownEl) {
+              countdownEl.textContent = formatTimeRemaining(newRemaining);
+              if (newRemaining <= 0) {
+                countdownEl.style.color = '#ef4444';
+                countdownEl.style.animation = 'none';
+              } else if (newRemaining < 60000) {
+                countdownEl.style.animation = 'pulse 1s ease-in-out infinite';
+              }
+            }
+            if (barEl) {
+              barEl.style.width = `${percentage}%`;
+            }
+
+            if (newRemaining > 0) anyActive = true;
+          });
+
+          // Stop interval if all timeouts expired
+          if (!anyActive) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+            // Refresh instances to get updated state
+            setTimeout(() => loadInstances(), 500);
+          }
+        }, 1000);
+      }
+
+      // Build context data HTML
+      let contextHtml = '';
+      if (entries.length > 0) {
+        contextHtml = `
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${entries.map(([key, value]) => {
+              const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+              return `
+                <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #3b82f6;">
+                  <span style="color: #888; font-size: 11px;">${key}</span>
+                  <span style="color: #f0f0f0; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayValue}">${displayValue}</span>
+                </div>`;
+            }).join('')}
+          </div>`;
       }
 
       container.innerHTML = `
         <div style="font-size: 10px; color: #888; margin-bottom: 8px;">ID: ${instance.id.substring(0, 8)}... | State: <span style="color: #a855f7; font-weight: 600;">${instance.currentState}</span></div>
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          ${entries.map(([key, value]) => {
-            const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-            return `
-              <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #3b82f6;">
-                <span style="color: #888; font-size: 11px;">${key}</span>
-                <span style="color: #f0f0f0; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayValue}">${displayValue}</span>
-              </div>`;
-          }).join('')}
-        </div>
+        ${timeoutHtml}
+        ${contextHtml || '<div style="font-size: 11px; color: #666;">No context data</div>'}
       `;
     }
 

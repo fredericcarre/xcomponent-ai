@@ -770,10 +770,10 @@
             </div>
           </div>
           <div class="transitions-section">
-            <div class="transitions-header">Available Transitions</div>
+            <div class="transitions-header">⚡ Quick Actions</div>
             <div id="transitions-list">
               <div class="empty-state" style="padding: 20px 0;">
-                <div style="font-size: 12px;">Select an instance to see transitions</div>
+                <div style="font-size: 12px;">Select an instance to see available actions</div>
               </div>
             </div>
           </div>
@@ -884,22 +884,33 @@
       renderComponentOverview();
     }
 
-    // Apply accessibility styling to Mermaid SVG after rendering
-    function applyStateAccessibilityStyles(card, currentState, reachableStates) {
+    // Apply current state highlighting and unreachable states graying to Mermaid SVG
+    function applyStateStyles(card, currentState, reachableStates) {
       const svg = card.querySelector('svg');
       if (!svg) return;
 
-      // Find all state nodes in the Mermaid SVG
-      const nodes = svg.querySelectorAll('g.node, g.stateGroup, g[class*="state"]');
+      // Debug: log what we're looking for
+      console.log('Applying styles - currentState:', currentState, 'reachable:', [...reachableStates]);
 
-      nodes.forEach(node => {
-        // Find the text element to get the state name
-        const textEls = node.querySelectorAll('text, tspan');
+      // In Mermaid stateDiagram-v2, states are in groups with class "node" or specific state classes
+      // Try multiple approaches to find state elements
+      const allGroups = svg.querySelectorAll('g');
+
+      allGroups.forEach(group => {
+        // Look for text elements that contain state names
+        const textEls = group.querySelectorAll('text');
+        if (textEls.length === 0) return;
+
+        // Get the state name from text content
         let stateName = null;
-
         for (const textEl of textEls) {
           const text = textEl.textContent?.trim();
-          if (text && text !== '' && !text.includes('-->') && !text.includes(':')) {
+          // Skip empty, arrows, and special markers
+          if (text && text.length > 0 &&
+              !text.includes('-->') &&
+              !text.includes(':') &&
+              !text.startsWith('[') &&
+              text !== '●') {
             stateName = text;
             break;
           }
@@ -907,26 +918,35 @@
 
         if (!stateName) return;
 
-        // Find the shape element (rect, path, etc.)
-        const shape = node.querySelector('rect, path.state-box, polygon');
-        if (!shape) return;
+        // Find the shape element (rect is most common for states)
+        const shapes = group.querySelectorAll('rect, polygon, path, ellipse, circle');
+        const shape = shapes.length > 0 ? shapes[0] : null;
 
         if (stateName === currentState) {
-          // Current state: bright purple/magenta border with glow
-          shape.style.stroke = '#a855f7';
-          shape.style.strokeWidth = '4px';
-          shape.style.filter = 'drop-shadow(0 0 8px #a855f7)';
+          // Current state: bright purple/magenta border with glow + violet text
+          if (shape) {
+            shape.style.stroke = '#a855f7';
+            shape.style.strokeWidth = '4px';
+            shape.style.filter = 'drop-shadow(0 0 10px #a855f7)';
+          }
+          textEls.forEach(t => {
+            t.style.fill = '#c084fc';
+            t.style.fontWeight = '700';
+          });
+          console.log('Highlighted current state:', stateName);
         } else if (!reachableStates.has(stateName)) {
           // Unreachable state: grayed out
-          shape.style.fill = '#1a1a1a';
-          shape.style.stroke = '#333';
-          shape.style.strokeWidth = '1px';
-          shape.style.opacity = '0.4';
-          // Also gray out the text
+          if (shape) {
+            shape.style.fill = '#1a1a1a';
+            shape.style.stroke = '#333';
+            shape.style.strokeWidth = '1px';
+            shape.style.opacity = '0.35';
+          }
           textEls.forEach(t => {
-            t.style.fill = '#444';
-            t.style.opacity = '0.4';
+            t.style.fill = '#555';
+            t.style.opacity = '0.35';
           });
+          console.log('Grayed out unreachable state:', stateName);
         }
       });
     }
@@ -1245,13 +1265,13 @@
         // Render all Mermaid diagrams
         await mermaid.run({ querySelector: '.diagram-card-content .mermaid' });
 
-        // Apply accessibility styling after Mermaid renders
+        // Apply current state highlighting and gray out unreachable states after Mermaid renders
         setTimeout(() => {
           machineStateInfo.forEach(info => {
             const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
             if (card && info.currentState) {
               const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
-              applyStateAccessibilityStyles(card, info.currentState, reachableStates);
+              applyStateStyles(card, info.currentState, reachableStates);
             }
           });
 
@@ -1542,65 +1562,41 @@
       if (!transitions || transitions.length === 0) {
         container.innerHTML = `
           <div class="empty-state" style="padding: 20px 0;">
-            <div style="font-size: 12px;">No transitions available from current state</div>
+            <div style="font-size: 12px;">No actions available from current state</div>
           </div>`;
         return;
       }
 
-      const component = getCurrentComponent();
-
-      container.innerHTML = transitions.map(t => {
-        // Get type label
-        let typeLabel = '';
-        let typeColor = '#666';
-        if (t.type === 'inter_machine') {
-          typeLabel = '🔗 Inter-Machine';
-          typeColor = '#10b981';
-        } else if (t.type === 'triggerable') {
-          typeLabel = '⚡ Triggerable';
-          typeColor = '#3b82f6';
-        } else {
-          typeLabel = '→ Regular';
-          typeColor = '#666';
-        }
-
-        // Get parameters if inter-machine
-        let paramsInfo = '';
-        if (t.targetMachine && component) {
-          const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
-          if (targetMachine && targetMachine.contextSchema) {
-            const params = Object.entries(targetMachine.contextSchema).map(([key, schema]) => {
-              const required = schema.required ? '<span style="color: #ef4444;">*</span>' : '';
-              return `<div style="font-size: 11px; color: #888; margin-left: 8px;">• ${key} <span style="color: #666;">(${schema.type})</span>${required}</div>`;
-            }).join('');
-            if (params) {
-              paramsInfo = `<div style="margin-top: 6px; padding: 6px 8px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border-left: 2px solid #3b82f6;">
-                <div style="font-size: 11px; color: #3b82f6; font-weight: 600; margin-bottom: 4px;">Required Parameters:</div>
-                ${params}
-              </div>`;
-            }
-          }
-        }
-
-        return `
-          <div class="transition-item ${t.type === 'inter_machine' ? 'inter-machine' : ''}">
-            <div class="transition-info">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                <div class="transition-event">${t.event}</div>
-                <div style="font-size: 10px; font-weight: 600; color: ${typeColor}; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">${typeLabel}</div>
-              </div>
-              <div class="transition-path">${t.from} → ${t.to}</div>
-              ${t.targetMachine ? `<div class="transition-target" style="margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.15); border-radius: 4px; border-left: 2px solid #10b981;">
-                <div style="font-size: 11px; font-weight: 600; color: #10b981;">⚙️ Creates new instance in machine: <span style="font-weight: 700;">${t.targetMachine}</span></div>
-              </div>` : ''}
-              ${paramsInfo}
-            </div>
-            <button class="transition-send-btn" onclick="sendTransitionEvent('${instance.id}', '${t.event}')">
-              Send Event
-            </button>
-          </div>
-        `;
-      }).join('');
+      // Render as quick action buttons (same style as overview)
+      container.innerHTML = `
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          ${transitions.map(t => {
+            const isInterMachine = t.type === 'inter_machine';
+            const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
+            const icon = isInterMachine ? '🔗' : '→';
+            const targetInfo = isInterMachine && t.targetMachine ? ` (creates ${t.targetMachine})` : '';
+            return `<button onclick="sendTransitionEvent('${instance.id}', '${t.event}')"
+              style="padding: 10px 16px; background: ${btnColor}; border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: transform 0.1s, opacity 0.1s; flex: 1; min-width: 120px;"
+              onmouseover="this.style.opacity='0.8'; this.style.transform='translateY(-1px)'"
+              onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'"
+              title="${t.from} → ${t.to}${targetInfo}">
+              ${icon} ${t.event}
+            </button>`;
+          }).join('')}
+        </div>
+        <div style="margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+          <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Transition Details</div>
+          ${transitions.map(t => {
+            const isInterMachine = t.type === 'inter_machine';
+            return `<div style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px;">
+              <span style="color: ${isInterMachine ? '#10b981' : '#3b82f6'}; font-weight: 600;">${t.event}</span>
+              <span style="color: #666; margin: 0 6px;">:</span>
+              <span style="color: #888;">${t.from} → ${t.to}</span>
+              ${isInterMachine ? `<span style="color: #10b981; margin-left: 8px; font-size: 11px;">🔗 ${t.targetMachine}</span>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      `;
     }
 
     function clearTransitions() {

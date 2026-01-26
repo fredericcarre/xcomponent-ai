@@ -102,35 +102,111 @@ export function generateMermaidDiagram(machine: StateMachine): string {
 }
 
 /**
+ * Compute reachable states from the current state using BFS
+ */
+export function computeReachableStates(
+  machine: StateMachine,
+  currentState: string
+): Set<string> {
+  const reachable = new Set<string>();
+  const queue: string[] = [currentState];
+  reachable.add(currentState);
+
+  while (queue.length > 0) {
+    const state = queue.shift()!;
+    machine.transitions.forEach(transition => {
+      if (transition.from === state && !reachable.has(transition.to)) {
+        reachable.add(transition.to);
+        queue.push(transition.to);
+      }
+    });
+  }
+
+  return reachable;
+}
+
+/**
+ * Get transitions that are directly available from current state
+ */
+export function getAvailableTransitions(
+  machine: StateMachine,
+  currentState: string
+): Set<number> {
+  const available = new Set<number>();
+  machine.transitions.forEach((transition, index) => {
+    if (transition.from === currentState) {
+      available.add(index);
+    }
+  });
+  return available;
+}
+
+/**
  * Generate Mermaid diagram with styling based on state metadata
  * - Entry states: yellow
  * - Terminal states (no outgoing transitions): green
  * - Error states: red
  * - Current state (if provided): highlighted with thick border
+ * - Unreachable states: grayed out (when currentState is provided)
  * - Inter-machine transitions: green arrows
  */
 export function generateStyledMermaidDiagram(
   machine: StateMachine,
   currentState?: string
 ): string {
-  const baseDiagram = generateMermaidDiagram(machine);
+  const lines: string[] = [];
   const styleLines: string[] = [];
-
-  // Define color classes once at the end
   const usedClasses = new Set<string>();
+
+  lines.push('stateDiagram-v2');
+  lines.push('');
+
+  // Mark initial state
+  lines.push(`    [*] --> ${machine.initialState}`);
+  lines.push('');
 
   // Detect terminal states automatically
   const terminalStates = detectTerminalStates(machine);
+
+  // Compute reachable states if current state is provided
+  const reachableStates = currentState
+    ? computeReachableStates(machine, currentState)
+    : null;
+
+  // Get available transitions from current state
+  const availableTransitions = currentState
+    ? getAvailableTransitions(machine, currentState)
+    : null;
+
+  // Add all transitions with styling
+  machine.transitions.forEach((transition, index) => {
+    const transitionLabel = transition.event;
+    lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
+
+    // Gray out unavailable transitions (not starting from current state)
+    if (availableTransitions && !availableTransitions.has(index)) {
+      // linkStyle uses 0-based index, but we have [*] --> initial as index 0
+      // so our transitions start at index 1
+      lines.push(`    linkStyle ${index + 1} stroke:#444,stroke-width:1px,opacity:0.4`);
+    }
+  });
+
+  lines.push('');
 
   // Collect state styles
   const stateStyles: string[] = [];
   machine.states.forEach(state => {
     let className = '';
+    const isReachable = !reachableStates || reachableStates.has(state.name);
 
     // Current state takes priority for highlighting
     if (currentState && state.name === currentState) {
       className = 'currentState';
       usedClasses.add('currentState');
+    } else if (!isReachable) {
+      // Unreachable states are grayed out
+      className = 'inactiveState';
+      usedClasses.add('inactiveState');
     } else if (state.type === 'entry') {
       className = 'entryState';
       usedClasses.add('entryState');
@@ -161,13 +237,12 @@ export function generateStyledMermaidDiagram(
   if (usedClasses.has('errorState')) {
     styleLines.push(`    classDef errorState fill:#ef4444,stroke:#dc2626,stroke-width:3px,color:#fff`);
   }
-
-  // Note: linkStyle doesn't work well in stateDiagram-v2 with our setup
-  // Inter-machine transitions are indicated in the label with [→TargetMachine]
-  // No need for additional styling
+  if (usedClasses.has('inactiveState')) {
+    styleLines.push(`    classDef inactiveState fill:#333,stroke:#444,stroke-width:1px,color:#666,opacity:0.5`);
+  }
 
   // Combine: base diagram + class definitions + state class applications
-  let result = baseDiagram;
+  let result = lines.join('\n');
   if (styleLines.length > 0 || stateStyles.length > 0) {
     result += '\n\n' + styleLines.join('\n');
     if (stateStyles.length > 0) {

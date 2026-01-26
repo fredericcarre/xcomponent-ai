@@ -770,10 +770,18 @@
             </div>
           </div>
           <div class="transitions-section">
-            <div class="transitions-header">Available Transitions</div>
+            <!-- Instance Context/PublicMember -->
+            <div id="instance-context-section" style="margin-bottom: 16px;">
+              <div class="transitions-header">📦 Instance Data</div>
+              <div id="instance-context" style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-top: 8px;">
+                <div style="font-size: 12px; color: #666;">Select an instance to see its data</div>
+              </div>
+            </div>
+
+            <div class="transitions-header">⚡ Quick Actions</div>
             <div id="transitions-list">
               <div class="empty-state" style="padding: 20px 0;">
-                <div style="font-size: 12px;">Select an instance to see transitions</div>
+                <div style="font-size: 12px;">Select an instance to see available actions</div>
               </div>
             </div>
           </div>
@@ -846,9 +854,10 @@
     socket.on('state_change', (data) => {
       // Force refresh instances and re-render
       loadInstances().then(() => {
-        // Also refresh diagram if the selected instance changed state
+        // Also refresh diagram and transitions if the selected instance changed state
         if (selectedInstanceId && data.instanceId === selectedInstanceId) {
           renderMachineDiagram();
+          loadTransitionsForInstance(selectedInstanceId);
         }
       });
     });
@@ -884,22 +893,33 @@
       renderComponentOverview();
     }
 
-    // Apply accessibility styling to Mermaid SVG after rendering
-    function applyStateAccessibilityStyles(card, currentState, reachableStates) {
+    // Apply current state highlighting and unreachable states graying to Mermaid SVG
+    function applyStateStyles(card, currentState, reachableStates) {
       const svg = card.querySelector('svg');
       if (!svg) return;
 
-      // Find all state nodes in the Mermaid SVG
-      const nodes = svg.querySelectorAll('g.node, g.stateGroup, g[class*="state"]');
+      // Debug: log what we're looking for
+      console.log('Applying styles - currentState:', currentState, 'reachable:', [...reachableStates]);
 
-      nodes.forEach(node => {
-        // Find the text element to get the state name
-        const textEls = node.querySelectorAll('text, tspan');
+      // In Mermaid stateDiagram-v2, states are in groups with class "node" or specific state classes
+      // Try multiple approaches to find state elements
+      const allGroups = svg.querySelectorAll('g');
+
+      allGroups.forEach(group => {
+        // Look for text elements that contain state names
+        const textEls = group.querySelectorAll('text');
+        if (textEls.length === 0) return;
+
+        // Get the state name from text content
         let stateName = null;
-
         for (const textEl of textEls) {
           const text = textEl.textContent?.trim();
-          if (text && text !== '' && !text.includes('-->') && !text.includes(':')) {
+          // Skip empty, arrows, and special markers
+          if (text && text.length > 0 &&
+              !text.includes('-->') &&
+              !text.includes(':') &&
+              !text.startsWith('[') &&
+              text !== '●') {
             stateName = text;
             break;
           }
@@ -907,26 +927,35 @@
 
         if (!stateName) return;
 
-        // Find the shape element (rect, path, etc.)
-        const shape = node.querySelector('rect, path.state-box, polygon');
-        if (!shape) return;
+        // Find the shape element (rect is most common for states)
+        const shapes = group.querySelectorAll('rect, polygon, path, ellipse, circle');
+        const shape = shapes.length > 0 ? shapes[0] : null;
 
         if (stateName === currentState) {
-          // Current state: bright purple/magenta border with glow
-          shape.style.stroke = '#a855f7';
-          shape.style.strokeWidth = '4px';
-          shape.style.filter = 'drop-shadow(0 0 8px #a855f7)';
+          // Current state: bright purple/magenta border with glow + violet text
+          if (shape) {
+            shape.style.stroke = '#a855f7';
+            shape.style.strokeWidth = '4px';
+            shape.style.filter = 'drop-shadow(0 0 10px #a855f7)';
+          }
+          textEls.forEach(t => {
+            t.style.fill = '#c084fc';
+            t.style.fontWeight = '700';
+          });
+          console.log('Highlighted current state:', stateName);
         } else if (!reachableStates.has(stateName)) {
           // Unreachable state: grayed out
-          shape.style.fill = '#1a1a1a';
-          shape.style.stroke = '#333';
-          shape.style.strokeWidth = '1px';
-          shape.style.opacity = '0.4';
-          // Also gray out the text
+          if (shape) {
+            shape.style.fill = '#1a1a1a';
+            shape.style.stroke = '#333';
+            shape.style.strokeWidth = '1px';
+            shape.style.opacity = '0.35';
+          }
           textEls.forEach(t => {
-            t.style.fill = '#444';
-            t.style.opacity = '0.4';
+            t.style.fill = '#555';
+            t.style.opacity = '0.35';
           });
+          console.log('Grayed out unreachable state:', stateName);
         }
       });
     }
@@ -1194,6 +1223,15 @@
               // Get available transitions from current state
               const availableTransitions = (machine.transitions || []).filter(t => t.from === currentState);
               if (availableTransitions.length > 0) {
+                // Check if any transition targets a machine with contextSchema
+                const getTargetSchema = (t) => {
+                  if (t.type === 'inter_machine' && t.targetMachine) {
+                    const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
+                    return targetMachine?.contextSchema || null;
+                  }
+                  return null;
+                };
+
                 quickActionsHtml = `<div class="quick-actions" style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);" onclick="event.stopPropagation()">
                   <div style="font-size: 11px; color: #888; margin-bottom: 8px; font-weight: 600;">⚡ Quick Actions</div>
                   <div style="display: flex; flex-wrap: wrap; gap: 6px;">
@@ -1201,12 +1239,16 @@
                       const isInterMachine = t.type === 'inter_machine';
                       const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
                       const icon = isInterMachine ? '🔗' : '→';
+                      const schema = getTargetSchema(t);
+                      const hasParams = schema && Object.keys(schema).length > 0;
+                      const paramsIcon = hasParams ? ' 📝' : '';
+                      const paramsTitle = hasParams ? ' (has parameters - click card for details)' : '';
                       return `<button onclick="event.stopPropagation(); sendQuickEvent('${firstInstance.id}', '${t.event}')"
                         style="padding: 6px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 11px; font-weight: 600; cursor: pointer; transition: transform 0.1s, opacity 0.1s;"
                         onmouseover="this.style.opacity='0.8'; this.style.transform='translateY(-1px)'"
                         onmouseout="this.style.opacity='1'; this.style.transform='translateY(0)'"
-                        title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}">
-                        ${icon} ${t.event}
+                        title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}${paramsTitle}">
+                        ${icon} ${t.event}${paramsIcon}
                       </button>`;
                     }).join('')}
                   </div>
@@ -1245,13 +1287,13 @@
         // Render all Mermaid diagrams
         await mermaid.run({ querySelector: '.diagram-card-content .mermaid' });
 
-        // Apply accessibility styling after Mermaid renders
+        // Apply current state highlighting and gray out unreachable states after Mermaid renders
         setTimeout(() => {
           machineStateInfo.forEach(info => {
             const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
             if (card && info.currentState) {
               const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
-              applyStateAccessibilityStyles(card, info.currentState, reachableStates);
+              applyStateStyles(card, info.currentState, reachableStates);
             }
           });
 
@@ -1492,6 +1534,15 @@
         instances.forEach(instance => {
           const isEntry = component.entryMachine === machine.name;
           const isSelected = instance.id === selectedInstanceId;
+
+          // Format context/publicMember preview (first 2 fields)
+          const contextData = instance.publicMember || instance.context || {};
+          const contextEntries = Object.entries(contextData).slice(0, 2);
+          const contextPreview = contextEntries.length > 0
+            ? contextEntries.map(([k, v]) => `<span style="color: #888;">${k}:</span> <span style="color: #aaa;">${String(v).substring(0, 15)}${String(v).length > 15 ? '...' : ''}</span>`).join(', ')
+            : '';
+          const hasMoreContext = Object.keys(contextData).length > 2;
+
           html += `
             <div class="instance-item ${isSelected ? 'selected' : ''}" onclick="selectInstance('${instance.id}')">
               <div class="instance-header">
@@ -1500,6 +1551,7 @@
               </div>
               <div class="instance-id">${instance.id.substring(0, 8)}</div>
               <div class="instance-state">State: ${instance.currentState}</div>
+              ${contextPreview ? `<div style="font-size: 10px; margin-top: 4px; color: #666;">${contextPreview}${hasMoreContext ? ' ...' : ''}</div>` : ''}
             </div>`;
         });
       });
@@ -1521,6 +1573,40 @@
 
       renderInstanceList();
       loadTransitionsForInstance(instanceId);
+      renderInstanceContext(instance);
+    }
+
+    // Render instance context/publicMember
+    function renderInstanceContext(instance) {
+      const container = document.getElementById('instance-context');
+      if (!container) return;
+
+      if (!instance) {
+        container.innerHTML = '<div style="font-size: 12px; color: #666;">Select an instance to see its data</div>';
+        return;
+      }
+
+      const contextData = instance.publicMember || instance.context || {};
+      const entries = Object.entries(contextData);
+
+      if (entries.length === 0) {
+        container.innerHTML = '<div style="font-size: 12px; color: #666;">No context data</div>';
+        return;
+      }
+
+      container.innerHTML = `
+        <div style="font-size: 10px; color: #888; margin-bottom: 8px;">ID: ${instance.id.substring(0, 8)}... | State: <span style="color: #a855f7; font-weight: 600;">${instance.currentState}</span></div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          ${entries.map(([key, value]) => {
+            const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+            return `
+              <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #3b82f6;">
+                <span style="color: #888; font-size: 11px;">${key}</span>
+                <span style="color: #f0f0f0; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayValue}">${displayValue}</span>
+              </div>`;
+          }).join('')}
+        </div>
+      `;
     }
 
     // Transitions Panel
@@ -1528,6 +1614,7 @@
       const instance = allInstances.find(i => i.id === instanceId);
       if (!instance) {
         clearTransitions();
+        renderInstanceContext(null);
         return;
       }
 
@@ -1536,70 +1623,75 @@
       renderTransitions(availableTransitions, instance);
     }
 
+    // Get contextSchema for a transition's target machine (for inter_machine) or current machine
+    function getTransitionSchema(transition) {
+      const component = getCurrentComponent();
+      if (!component) return null;
+
+      if (transition.type === 'inter_machine' && transition.targetMachine) {
+        const targetMachine = component.stateMachines.find(m => m.name === transition.targetMachine);
+        return targetMachine?.contextSchema || null;
+      }
+      return null;
+    }
+
     function renderTransitions(transitions, instance) {
       const container = document.getElementById('transitions-list');
 
       if (!transitions || transitions.length === 0) {
         container.innerHTML = `
           <div class="empty-state" style="padding: 20px 0;">
-            <div style="font-size: 12px;">No transitions available from current state</div>
+            <div style="font-size: 12px;">No actions available from current state</div>
           </div>`;
         return;
       }
 
-      const component = getCurrentComponent();
+      // Render transitions with parameter forms
+      container.innerHTML = transitions.map((t, idx) => {
+        const isInterMachine = t.type === 'inter_machine';
+        const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
+        const icon = isInterMachine ? '🔗' : '→';
+        const schema = getTransitionSchema(t);
 
-      container.innerHTML = transitions.map(t => {
-        // Get type label
-        let typeLabel = '';
-        let typeColor = '#666';
-        if (t.type === 'inter_machine') {
-          typeLabel = '🔗 Inter-Machine';
-          typeColor = '#10b981';
-        } else if (t.type === 'triggerable') {
-          typeLabel = '⚡ Triggerable';
-          typeColor = '#3b82f6';
-        } else {
-          typeLabel = '→ Regular';
-          typeColor = '#666';
-        }
-
-        // Get parameters if inter-machine
-        let paramsInfo = '';
-        if (t.targetMachine && component) {
-          const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
-          if (targetMachine && targetMachine.contextSchema) {
-            const params = Object.entries(targetMachine.contextSchema).map(([key, schema]) => {
-              const required = schema.required ? '<span style="color: #ef4444;">*</span>' : '';
-              return `<div style="font-size: 11px; color: #888; margin-left: 8px;">• ${key} <span style="color: #666;">(${schema.type})</span>${required}</div>`;
-            }).join('');
-            if (params) {
-              paramsInfo = `<div style="margin-top: 6px; padding: 6px 8px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border-left: 2px solid #3b82f6;">
-                <div style="font-size: 11px; color: #3b82f6; font-weight: 600; margin-bottom: 4px;">Required Parameters:</div>
-                ${params}
-              </div>`;
-            }
-          }
+        // Build parameter form if schema exists
+        let paramsForm = '';
+        if (schema && Object.keys(schema).length > 0) {
+          paramsForm = `
+            <div style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+              <div style="font-size: 10px; color: #888; margin-bottom: 8px; text-transform: uppercase;">Parameters</div>
+              ${Object.entries(schema).map(([key, field]) => {
+                const required = field.required ? '<span style="color: #ef4444;">*</span>' : '';
+                const inputType = field.type === 'number' ? 'number' : 'text';
+                return `
+                  <div style="margin-bottom: 8px;">
+                    <label style="display: block; font-size: 11px; color: #aaa; margin-bottom: 4px;">
+                      ${field.label || key} ${required}
+                    </label>
+                    <input type="${inputType}"
+                           id="param-${idx}-${key}"
+                           placeholder="${field.placeholder || ''}"
+                           ${field.required ? 'required' : ''}
+                           style="width: 100%; padding: 8px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 4px; color: var(--text-primary); font-size: 12px;">
+                  </div>`;
+              }).join('')}
+            </div>`;
         }
 
         return `
-          <div class="transition-item ${t.type === 'inter_machine' ? 'inter-machine' : ''}">
-            <div class="transition-info">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                <div class="transition-event">${t.event}</div>
-                <div style="font-size: 10px; font-weight: 600; color: ${typeColor}; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">${typeLabel}</div>
-              </div>
-              <div class="transition-path">${t.from} → ${t.to}</div>
-              ${t.targetMachine ? `<div class="transition-target" style="margin-top: 6px; padding: 6px 8px; background: rgba(16, 185, 129, 0.15); border-radius: 4px; border-left: 2px solid #10b981;">
-                <div style="font-size: 11px; font-weight: 600; color: #10b981;">⚙️ Creates new instance in machine: <span style="font-weight: 700;">${t.targetMachine}</span></div>
-              </div>` : ''}
-              ${paramsInfo}
+          <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid ${isInterMachine ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="color: ${btnColor}; font-weight: 600; font-size: 14px;">${icon} ${t.event}</span>
+              <span style="color: #666; font-size: 11px;">${t.from} → ${t.to}</span>
             </div>
-            <button class="transition-send-btn" onclick="sendTransitionEvent('${instance.id}', '${t.event}')">
-              Send Event
+            ${isInterMachine ? `<div style="font-size: 11px; color: #10b981; margin-bottom: 8px;">Creates: ${t.targetMachine}</div>` : ''}
+            ${paramsForm}
+            <button onclick="sendTransitionEventWithParams('${instance.id}', '${t.event}', ${idx}, ${schema ? 'true' : 'false'})"
+              style="width: 100%; margin-top: 10px; padding: 10px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+              onmouseover="this.style.opacity='0.85'"
+              onmouseout="this.style.opacity='1'">
+              Send ${t.event}
             </button>
-          </div>
-        `;
+          </div>`;
       }).join('');
     }
 
@@ -1608,6 +1700,52 @@
         <div class="empty-state" style="padding: 20px 0;">
           <div style="font-size: 12px;">Select an instance to see transitions</div>
         </div>`;
+    }
+
+    // Send event with parameters collected from form
+    async function sendTransitionEventWithParams(instanceId, eventType, transitionIdx, hasParams) {
+      const component = getCurrentComponent();
+      if (!component) return;
+
+      let payload = {};
+
+      if (hasParams) {
+        // Find the transition to get its schema
+        const transition = currentTransitions[transitionIdx];
+        const schema = getTransitionSchema(transition);
+
+        if (schema) {
+          for (const [key, field] of Object.entries(schema)) {
+            const input = document.getElementById(`param-${transitionIdx}-${key}`);
+            if (input) {
+              let value = input.value;
+              // Convert to number if needed
+              if (field.type === 'number' && value) {
+                value = parseFloat(value);
+              }
+              if (value !== '' && value !== null) {
+                payload[key] = value;
+              }
+            }
+          }
+        }
+      }
+
+      try {
+        const res = await fetch(`/api/components/${component.name}/instances/${instanceId}/events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: eventType, payload })
+        });
+        if (res.ok) {
+          showToast(`Event "${eventType}" sent`, 'success');
+        } else {
+          const error = await res.json();
+          showToast(`Error: ${error.error || 'Failed'}`, 'error');
+        }
+      } catch (error) {
+        showToast('Failed to send event', 'error');
+      }
     }
 
     async function sendTransitionEvent(instanceId, eventType) {
@@ -1626,7 +1764,7 @@
       }
     }
 
-    // Quick event sender from overview
+    // Quick event sender from overview (simple, no params - opens detail for params)
     async function sendQuickEvent(instanceId, eventType) {
       const component = getCurrentComponent();
       if (!component) return;

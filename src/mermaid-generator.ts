@@ -173,8 +173,12 @@ export function generateStyledMermaidDiagram(
     ? computeReachableStates(machine, currentState)
     : null;
 
-  // Add all transitions
+  // Add all transitions (except inter_machine which are shown as external green arrows)
   machine.transitions.forEach((transition) => {
+    // Skip inter_machine transitions - they are displayed as green arrows between machines
+    if (transition.type === 'inter_machine') {
+      return;
+    }
     const transitionLabel = transition.event;
     lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
   });

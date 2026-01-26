@@ -91,3 +91,27 @@ distributed-build: ## Build distributed Docker images
 	cd examples/distributed && docker compose build
 
 distributed-restart: distributed-down distributed-up ## Restart distributed infrastructure
+
+# ============================================
+# Integration Tests (Docker-based)
+# ============================================
+
+test-integration-up: ## Start integration test infrastructure (PostgreSQL, RabbitMQ, Redis)
+	@echo "$(GREEN)Starting integration test infrastructure...$(NC)"
+	docker compose -f tests/integration/docker-compose.yml up -d
+	@echo "$(YELLOW)Waiting for services to be ready...$(NC)"
+	@sleep 5
+	@echo "$(GREEN)Integration infrastructure ready!$(NC)"
+
+test-integration-down: ## Stop integration test infrastructure
+	@echo "$(GREEN)Stopping integration test infrastructure...$(NC)"
+	docker compose -f tests/integration/docker-compose.yml down
+
+test-integration: test-integration-up ## Run integration tests with Docker infrastructure
+	@echo "$(GREEN)Running integration tests...$(NC)"
+	INTEGRATION_TEST=true npm test -- --testPathPattern=integration --coverage=false --testTimeout=30000 || true
+	@make test-integration-down
+
+test-integration-clean: ## Remove integration test containers and volumes
+	@echo "$(GREEN)Cleaning integration test resources...$(NC)"
+	docker compose -f tests/integration/docker-compose.yml down -v

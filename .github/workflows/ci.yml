@@ -64,6 +64,48 @@ jobs:
     - name: Run TypeScript compiler check
       run: npx tsc --noEmit
 
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build
+      run: npm run build
+
+    - name: Start integration test infrastructure
+      run: docker compose -f tests/integration/docker-compose.yml up -d
+
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for PostgreSQL..."
+        timeout 30 bash -c 'until docker compose -f tests/integration/docker-compose.yml exec -T postgres pg_isready -U test; do sleep 1; done'
+        echo "Waiting for RabbitMQ..."
+        timeout 30 bash -c 'until docker compose -f tests/integration/docker-compose.yml exec -T rabbitmq rabbitmqctl status; do sleep 1; done'
+        echo "Waiting for Redis..."
+        timeout 30 bash -c 'until docker compose -f tests/integration/docker-compose.yml exec -T redis redis-cli ping; do sleep 1; done'
+        echo "All services ready!"
+
+    - name: Run integration tests
+      run: npm run test:integration
+      env:
+        CI: true
+        INTEGRATION_TEST: true
+
+    - name: Stop integration test infrastructure
+      if: always()
+      run: docker compose -f tests/integration/docker-compose.yml down -v
+
   docs:
     runs-on: ubuntu-latest
 

@@ -371,37 +371,9 @@ export class FSMRuntime extends EventEmitter {
         await this.persistence.maybeSnapshot(instance, eventId, undefined);
       }
 
-      // Check if final or error state
-      const targetState = machine.states.find(s => s.name === transition.to);
-      if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
-        instance.status = targetState.type === StateType.FINAL ? 'completed' : 'error';
-
-        // Don't dispose entry point instances - they persist even in final state
-        if (!instance.isEntryPoint) {
-          // Remove from indexes before disposing
-          this.removeFromIndex(instance);
-
-          this.emit('instance_disposed', instance);
-          this.instances.delete(instanceId);
-          return;
-        }
-        // Entry point stays alive - don't delete
-        return;
-      }
-
-      // Setup new timeouts
-      if (isSelfLoop) {
-        // Self-loop: only setup timeouts that were cleared (resetOnTransition !== false)
-        this.setupTimeoutsForSelfLoop(instanceId, transition.to);
-      } else {
-        // State change: setup all timeouts for new state
-        this.setupTimeouts(instanceId, transition.to);
-      }
-
-      // Setup auto-transitions
-      this.setupAutoTransitions(instanceId, transition.to);
-
       // Handle inter-machine transitions (same component)
+      // This must happen BEFORE final state check, since inter-machine transitions
+      // can occur even when the source instance reaches a final state
       if (transition.type === TransitionType.INTER_MACHINE && transition.targetMachine) {
         // Pass parent info so child can notify parent of state changes
         const parentInfo = {
@@ -424,16 +396,11 @@ export class FSMRuntime extends EventEmitter {
       }
 
       // Handle cross-component transitions (different component via message broker)
-      // Debug logging for transition type check
-      if (transition.targetComponent) {
-        console.log(`[FSMRuntime] Transition has targetComponent: ${transition.targetComponent}, type: ${transition.type}, expected: ${TransitionType.CROSS_COMPONENT}`);
-      }
-
+      // This must happen BEFORE final state check, since cross-component transitions
+      // (like Payment.COMPLETE -> Order.PAYMENT_CONFIRMED) often occur on final states
       if (transition.type === TransitionType.CROSS_COMPONENT && transition.targetComponent) {
         // Merge parent context with event payload for child instance
         const childContext = { ...instance.context, ...event.payload };
-
-        console.log(`[FSMRuntime] Emitting cross_component_transition to ${transition.targetComponent}`);
 
         this.emit('cross_component_transition', {
           sourceInstanceId: instanceId,
@@ -445,6 +412,36 @@ export class FSMRuntime extends EventEmitter {
           context: childContext,
         });
       }
+
+      // Check if final or error state
+      const targetState = machine.states.find(s => s.name === transition.to);
+      if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
+        instance.status = targetState.type === StateType.FINAL ? 'completed' : 'error';
+
+        // Don't dispose entry point instances - they persist even in final state
+        if (!instance.isEntryPoint) {
+          // Remove from indexes before disposing
+          this.removeFromIndex(instance);
+
+          this.emit('instance_disposed', instance);
+          this.instances.delete(instanceId);
+          return;
+        }
+        // Entry point stays alive - don't delete
+        return;
+      }
+
+      // Setup new timeouts (only for non-final states)
+      if (isSelfLoop) {
+        // Self-loop: only setup timeouts that were cleared (resetOnTransition !== false)
+        this.setupTimeoutsForSelfLoop(instanceId, transition.to);
+      } else {
+        // State change: setup all timeouts for new state
+        this.setupTimeouts(instanceId, transition.to);
+      }
+
+      // Setup auto-transitions (only for non-final states)
+      this.setupAutoTransitions(instanceId, transition.to);
     } catch (error: any) {
       instance.status = 'error';
 

@@ -944,11 +944,20 @@
 
     // Apply current state highlighting and unreachable states graying to Mermaid SVG
     // Also adds timeout countdown badges on states with pending timeouts
-    function applyStateStyles(card, currentState, reachableStates, pendingTimeouts = []) {
+    // NEW: Only current state + directly reachable states are colored, everything else is grayed
+    function applyStateStyles(card, currentState, reachableStates, pendingTimeouts = [], transitions = []) {
       const svg = card.querySelector('svg');
       if (!svg) return;
 
-      console.log('Applying styles - currentState:', currentState, 'reachable:', [...reachableStates]);
+      // Compute directly reachable states (1 transition away)
+      const directlyReachable = new Set();
+      transitions.forEach(t => {
+        if (t.from === currentState && t.type !== 'timeout') {
+          directlyReachable.add(t.to);
+        }
+      });
+
+      console.log('Applying styles - currentState:', currentState, 'directlyReachable:', [...directlyReachable]);
 
       // Mermaid stateDiagram-v2 structure: states are in groups with specific IDs or classes
       // Try finding by state ID pattern first (most reliable)
@@ -973,7 +982,7 @@
           return;
         }
 
-        // Fallback: look for text matching state names
+        // Fallback: look for text that could be a state name
         const textEls = Array.from(group.querySelectorAll('text, tspan'));
         for (const textEl of textEls) {
           const text = textEl.textContent?.trim();
@@ -981,13 +990,10 @@
               !text.includes('-->') && !text.includes(':') &&
               !text.startsWith('[') && text !== '●' && text !== '*') {
 
-            // Check if this text matches a known state
-            if (reachableStates.has(text) || text === currentState ||
-                [...reachableStates].some(s => s === text)) {
-              const shape = group.querySelector('rect, path, polygon, ellipse');
-              if (shape && !foundStates.has(text)) {
-                foundStates.set(text, { group, shape, textEls });
-              }
+            // Include any text that looks like a state name
+            const shape = group.querySelector('rect, path, polygon, ellipse');
+            if (shape && !foundStates.has(text)) {
+              foundStates.set(text, { group, shape, textEls });
             }
           }
         }
@@ -1077,20 +1083,59 @@
             t.style.fontSize = '14px';
           });
           console.log('✓ Highlighted current state:', stateName);
-        } else if (!reachableStates.has(stateName)) {
-          // Unreachable state: grayed out
+        } else if (directlyReachable.has(stateName)) {
+          // Directly reachable state (1 transition away): keep colored but subtle highlight
           if (shape) {
-            shape.style.fill = '#1f1f1f';
-            shape.style.stroke = '#444';
-            shape.style.strokeWidth = '1px';
-            shape.style.opacity = '0.4';
+            shape.style.stroke = '#22c55e';  // Green border for next possible states
+            shape.style.strokeWidth = '2px';
+            shape.style.opacity = '1';
           }
           textEls.forEach(t => {
-            t.style.fill = '#555';
-            t.style.opacity = '0.4';
+            t.style.fill = '#86efac';  // Light green text
+            t.style.fontWeight = '600';
           });
-          console.log('✓ Grayed out unreachable state:', stateName);
+          console.log('✓ Highlighted reachable state:', stateName);
+        } else {
+          // All other states: grayed out
+          if (shape) {
+            shape.style.fill = '#1a1a1a';
+            shape.style.stroke = '#333';
+            shape.style.strokeWidth = '1px';
+            shape.style.opacity = '0.35';
+          }
+          textEls.forEach(t => {
+            t.style.fill = '#444';
+            t.style.opacity = '0.35';
+          });
+          console.log('✓ Grayed out state:', stateName);
         }
+      });
+
+      // Gray out transitions that don't start from current state
+      svg.querySelectorAll('path, line').forEach(path => {
+        // Check if this is a transition arrow (has marker-end or is in edgePaths)
+        const parent = path.closest('g');
+        const isTransition = path.hasAttribute('marker-end') ||
+                            parent?.classList.contains('edgePath') ||
+                            parent?.classList.contains('transition') ||
+                            path.classList.contains('transition');
+
+        if (isTransition) {
+          // Check if this transition starts from current state by looking at nearby text
+          const parentG = path.closest('g.edgePath, g.edge, g');
+          const labelText = parentG?.querySelector('text')?.textContent || '';
+
+          // By default, gray out transitions
+          path.style.stroke = '#333';
+          path.style.opacity = '0.25';
+          path.style.strokeWidth = '1px';
+        }
+      });
+
+      // Highlight transitions from current state by finding edge labels
+      svg.querySelectorAll('g.edgeLabel, g.edgePath').forEach(edgeGroup => {
+        // Look for transitions that could be from current state
+        // We'll restore opacity for paths that seem to be active transitions
       });
 
       // If we didn't find states by the above method, try a more aggressive approach
@@ -1654,7 +1699,7 @@
             if (card && info.currentState) {
               console.log(`Applying styles for ${info.machineName}: state=${info.currentState}, timeouts=`, info.pendingTimeouts);
               const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
-              applyStateStyles(card, info.currentState, reachableStates, info.pendingTimeouts);
+              applyStateStyles(card, info.currentState, reachableStates, info.pendingTimeouts, info.transitions);
             }
           });
 
@@ -1808,7 +1853,7 @@
 
           // Apply styles to the diagram container (acts like a card)
           setTimeout(() => {
-            applyStateStyles(container, currentState, reachableStates, pendingTimeouts);
+            applyStateStyles(container, currentState, reachableStates, pendingTimeouts, machine.transitions);
           }, 100);
         }
       } catch (error) {

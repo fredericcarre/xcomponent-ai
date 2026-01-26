@@ -244,6 +244,18 @@ export class FSMRuntime extends EventEmitter {
       // Execute transition
       await this.executeTransition(instance, transition, event);
 
+      // Merge event payload into instance context when:
+      // 1. The transition does NOT have matchingRules (matchingRules use payload for routing only)
+      // 2. There is actual payload data
+      // This allows passing data via events (e.g., amount when submitting expense)
+      const hasMatchingRules = transition.matchingRules && transition.matchingRules.length > 0;
+      if (event.payload && Object.keys(event.payload).length > 0 && !hasMatchingRules) {
+        instance.context = { ...instance.context, ...event.payload };
+        if (instance.publicMember) {
+          instance.publicMember = { ...instance.publicMember, ...event.payload };
+        }
+      }
+
       // Update instance
       instance.currentState = transition.to;
       instance.updatedAt = Date.now();

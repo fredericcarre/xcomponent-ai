@@ -732,7 +732,11 @@
 
       <!-- Instances -->
       <div class="sidebar-section flex">
-        <div class="section-title">Instances</div>
+        <div class="section-title">Instances <span id="instance-count" style="color: var(--text-muted); font-weight: normal;"></span></div>
+        <!-- Search filter for instances -->
+        <input type="text" id="instance-filter" placeholder="Filter by ID, state, or data..."
+          style="width: 100%; padding: 8px 10px; margin-bottom: 12px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); font-size: 12px;"
+          oninput="renderInstanceList()">
         <div class="instance-list" id="instance-list">
           <div class="empty-state" style="padding: 40px 20px;">
             <div class="empty-state-icon">📦</div>
@@ -887,9 +891,10 @@
     });
 
     socket.on('state_change', (data) => {
+      console.log('state_change event received:', data);
       // Force refresh instances and re-render
       loadInstances().then(() => {
-        // Also refresh diagram and transitions if the selected instance changed state
+        // Refresh diagram and transitions if the selected instance changed state
         if (selectedInstanceId && data.instanceId === selectedInstanceId) {
           renderMachineDiagram();
           loadTransitionsForInstance(selectedInstanceId);
@@ -995,17 +1000,35 @@
             // Add timeout countdown badge if there are pending timeouts
             if (pendingTimeouts.length > 0) {
               const timeout = pendingTimeouts[0]; // Show first timeout
-              const bbox = shape.getBBox ? shape.getBBox() : { x: 0, y: 0, width: 100, height: 40 };
+              let bbox = { x: 0, y: 0, width: 100, height: 40 };
+              try {
+                if (shape.getBBox) {
+                  bbox = shape.getBBox();
+                }
+              } catch (e) {
+                console.warn('getBBox failed for', stateName, e);
+              }
+
+              // Ensure bbox has reasonable values
+              if (!bbox || bbox.width < 10 || bbox.height < 10) {
+                bbox = { x: 0, y: 0, width: 100, height: 40 };
+              }
+
+              console.log(`Adding timeout badge for ${stateName}:`, { timeout, bbox });
 
               // Create countdown group
               const countdownGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
               countdownGroup.setAttribute('class', 'timeout-countdown');
               countdownGroup.setAttribute('data-timeout-id', `state-timeout-${stateName}`);
 
+              // Position badge at top-right of state shape
+              const badgeX = bbox.x + bbox.width - 60;
+              const badgeY = bbox.y - 14;
+
               // Badge background
               const badgeBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-              badgeBg.setAttribute('x', bbox.x + bbox.width - 60);
-              badgeBg.setAttribute('y', bbox.y - 12);
+              badgeBg.setAttribute('x', String(badgeX));
+              badgeBg.setAttribute('y', String(badgeY));
               badgeBg.setAttribute('width', '65');
               badgeBg.setAttribute('height', '22');
               badgeBg.setAttribute('rx', '4');
@@ -1015,8 +1038,8 @@
 
               // Timer icon
               const timerIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              timerIcon.setAttribute('x', bbox.x + bbox.width - 55);
-              timerIcon.setAttribute('y', bbox.y + 4);
+              timerIcon.setAttribute('x', String(badgeX + 5));
+              timerIcon.setAttribute('y', String(badgeY + 16));
               timerIcon.setAttribute('font-size', '12');
               timerIcon.setAttribute('fill', '#ffffff');
               timerIcon.textContent = '⏱';
@@ -1024,8 +1047,8 @@
 
               // Countdown text
               const countdownText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              countdownText.setAttribute('x', bbox.x + bbox.width - 40);
-              countdownText.setAttribute('y', bbox.y + 4);
+              countdownText.setAttribute('x', String(badgeX + 20));
+              countdownText.setAttribute('y', String(badgeY + 16));
               countdownText.setAttribute('font-size', '11');
               countdownText.setAttribute('font-weight', '600');
               countdownText.setAttribute('fill', '#ffffff');
@@ -1613,9 +1636,12 @@
           // Clear any existing state countdowns before re-applying
           clearStateCountdowns();
 
+          console.log('Applying state styles, machineStateInfo:', machineStateInfo);
+
           machineStateInfo.forEach(info => {
             const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
             if (card && info.currentState) {
+              console.log(`Applying styles for ${info.machineName}: state=${info.currentState}, timeouts=`, info.pendingTimeouts);
               const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
               applyStateStyles(card, info.currentState, reachableStates, info.pendingTimeouts);
             }
@@ -1625,7 +1651,7 @@
           if (interMachineLinks.length > 0) {
             drawInterMachineArrows(container, interMachineLinks, machineInitialStates);
           }
-        }, 200);
+        }, 300);
 
       } else {
         // Cards mode: Use Mermaid flowchart to show inter-machine connections
@@ -1692,6 +1718,7 @@
       document.getElementById('component-overview').classList.add('hidden');
       document.getElementById('machine-detail').classList.add('active');
       document.getElementById('detail-title').textContent = machineName;
+      renderInstanceList();  // Refresh to show only this machine's instances
       renderMachineDiagram();
     }
 
@@ -1702,6 +1729,7 @@
       document.getElementById('component-overview').classList.remove('hidden');
       document.getElementById('machine-detail').classList.remove('active');
       clearTransitions();
+      renderInstanceList();  // Refresh to show all instances
     }
 
     // Render machine diagram
@@ -1732,7 +1760,17 @@
         const data = await res.json();
 
         const container = document.getElementById('diagram-container');
-        container.innerHTML = '<div class="mermaid">' + data.diagram + '</div>';
+
+        // Build diagram HTML with current state badge if available
+        let diagramHtml = '<div class="mermaid">' + data.diagram + '</div>';
+
+        if (data.currentState && selectedInstanceId) {
+          diagramHtml += `<div style="margin-top: 12px; padding: 8px 16px; background: linear-gradient(135deg, #a855f7, #7c3aed); border-radius: 8px; color: #fff; font-size: 14px; font-weight: 700; text-align: center; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);">
+            🎯 Current: ${data.currentState}
+          </div>`;
+        }
+
+        container.innerHTML = diagramHtml;
         await mermaid.run({ querySelector: '#diagram-container .mermaid' });
 
         // Apply state highlighting and timeout countdown if instance is selected
@@ -1768,17 +1806,32 @@
       const res = await fetch(`/api/instances?t=${Date.now()}`);
       const data = await res.json();
       allInstances = data.instances || [];
+      console.log('loadInstances: loaded', allInstances.length, 'instances');
+
+      // Debug: log instances with pendingTimeouts
+      allInstances.forEach(inst => {
+        if (inst.pendingTimeouts && inst.pendingTimeouts.length > 0) {
+          console.log(`Instance ${inst.id} (${inst.machineName}/${inst.currentState}) has timeouts:`, inst.pendingTimeouts);
+        }
+      });
+
       renderInstanceList();
       updateStats();
 
       // Update component overview if visible
-      if (!document.getElementById('component-overview').classList.contains('hidden')) {
+      const overviewHidden = document.getElementById('component-overview').classList.contains('hidden');
+      console.log('loadInstances: overview hidden?', overviewHidden);
+      if (!overviewHidden) {
+        console.log('loadInstances: calling renderComponentOverview');
         await renderComponentOverview();
       }
     }
 
     function renderInstanceList() {
       const container = document.getElementById('instance-list');
+      const countEl = document.getElementById('instance-count');
+      const filterInput = document.getElementById('instance-filter');
+      const filterText = (filterInput?.value || '').toLowerCase().trim();
       const component = getCurrentComponent();
 
       if (!component) {
@@ -1787,26 +1840,57 @@
             <div class="empty-state-icon">📦</div>
             <div style="font-size: 12px;">No component selected</div>
           </div>`;
+        if (countEl) countEl.textContent = '';
         return;
       }
 
-      // Group instances by machine
+      // Filter instances: by selected machine (when in detail view) and by search text
+      let filteredInstances = allInstances;
+
+      // If in detail view (machine selected), only show instances of that machine
+      if (selectedMachineName && document.getElementById('machine-detail').classList.contains('active')) {
+        filteredInstances = filteredInstances.filter(i => i.machineName === selectedMachineName);
+      }
+
+      // Apply text filter
+      if (filterText) {
+        filteredInstances = filteredInstances.filter(instance => {
+          const contextData = instance.publicMember || instance.context || {};
+          const searchableText = [
+            instance.id,
+            instance.machineName,
+            instance.currentState,
+            ...Object.values(contextData).map(v => String(v))
+          ].join(' ').toLowerCase();
+          return searchableText.includes(filterText);
+        });
+      }
+
+      // Update count display
+      if (countEl) {
+        const machineFilter = selectedMachineName && document.getElementById('machine-detail').classList.contains('active')
+          ? ` (${selectedMachineName})`
+          : '';
+        countEl.textContent = `(${filteredInstances.length}${machineFilter})`;
+      }
+
+      if (filteredInstances.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 40px 20px;">
+            <div class="empty-state-icon">📦</div>
+            <div style="font-size: 12px;">${filterText ? 'No matching instances' : 'No instances'}</div>
+          </div>`;
+        return;
+      }
+
+      // Group filtered instances by machine
       const instancesByMachine = {};
-      allInstances.forEach(instance => {
+      filteredInstances.forEach(instance => {
         if (!instancesByMachine[instance.machineName]) {
           instancesByMachine[instance.machineName] = [];
         }
         instancesByMachine[instance.machineName].push(instance);
       });
-
-      if (allInstances.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state" style="padding: 40px 20px;">
-            <div class="empty-state-icon">📦</div>
-            <div style="font-size: 12px;">No instances</div>
-          </div>`;
-        return;
-      }
 
       let html = '';
       component.stateMachines.forEach(machine => {

@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies (needed for build)
+RUN npm ci
 
 # Copy source and build
 COPY tsconfig.json ./
@@ -16,6 +16,9 @@ COPY public ./public
 
 # Build TypeScript
 RUN npm run build 2>/dev/null || npx tsc
+
+# Remove dev dependencies after build
+RUN npm prune --omit=dev
 
 # Expose dashboard port
 EXPOSE 3000

@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies including amqplib and pg
-RUN npm ci && npm install amqplib pg
+# Install all dependencies
+RUN npm ci
 
 # Copy source and build
 COPY tsconfig.json ./
@@ -20,6 +20,9 @@ RUN npm run build 2>/dev/null || npx tsc
 
 # Copy runtime script
 COPY examples/distributed/runtime.js ./runtime.js
+
+# Prune dev deps but keep amqplib and pg needed for distributed mode
+RUN npm prune --omit=dev && npm install --no-save amqplib pg
 
 # Start runtime
 CMD ["node", "runtime.js"]

@@ -98,13 +98,8 @@ export function generateMermaidDiagram(machine: StateMachine): string {
 
   lines.push('');
 
-  // Detect terminal states (no outgoing transitions)
-  const terminalStates = detectTerminalStates(machine);
-
-  // Mark terminal states with arrow to [*]
-  terminalStates.forEach(stateName => {
-    lines.push(`    ${stateName} --> [*]`);
-  });
+  // Note: Terminal states are styled with colors but we don't add [*] arrows
+  // as they are not needed in this use case
 
   return lines.join('\n');
 }
@@ -176,7 +171,7 @@ export function generateStyledMermaidDiagram(
   // Add link styles for inter-machine transitions (green arrows)
   const linkStyles: string[] = [];
   interMachineTransitions.forEach(t => {
-    linkStyles.push(`    linkStyle ${t.index} stroke:#10b981,stroke-width:3px`);
+    linkStyles.push(`    linkStyle ${t.index} stroke:#10b981`);
   });
 
   // Combine: base diagram + class definitions + state class applications + link styles

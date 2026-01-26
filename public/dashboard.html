@@ -250,6 +250,36 @@
       color: var(--text-primary);
     }
 
+    .overview-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .view-mode-btn {
+      padding: 8px 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .view-mode-btn:hover {
+      background: var(--glass-bg);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .view-mode-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #000;
+      font-weight: 600;
+    }
+
     .overview-legend {
       display: flex;
       gap: 20px;
@@ -291,6 +321,58 @@
       padding: 24px;
       overflow: auto;
       position: relative;
+    }
+
+    /* Diagram Grid Mode */
+    .diagram-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 24px;
+      padding: 20px;
+    }
+
+    .diagram-card {
+      background: var(--bg-tertiary);
+      border: 2px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.3s;
+    }
+
+    .diagram-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .diagram-card.entry-machine {
+      border-color: var(--accent);
+      background: rgba(251, 191, 36, 0.05);
+    }
+
+    .diagram-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .diagram-card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .diagram-card-content {
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 300px;
     }
 
     .machine-card {
@@ -645,18 +727,22 @@
       <div class="component-overview" id="component-overview">
         <div class="overview-header">
           <div class="overview-title" id="overview-title">Component Overview</div>
-          <div class="overview-legend">
-            <div class="legend-item">
-              <div class="legend-box entry"></div>
-              <span>Entry Point</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-box terminal"></div>
-              <span>Terminal State</span>
-            </div>
-            <div class="legend-item">
-              <div class="legend-line inter-machine"></div>
-              <span>Inter-machine Transition</span>
+          <div class="overview-controls">
+            <button class="view-mode-btn active" id="btn-cards" onclick="setOverviewMode('cards')">📊 Cards</button>
+            <button class="view-mode-btn" id="btn-diagrams" onclick="setOverviewMode('diagrams')">📈 Diagrams</button>
+            <div class="overview-legend">
+              <div class="legend-item">
+                <div class="legend-box entry"></div>
+                <span>Entry Point</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-box terminal"></div>
+                <span>Terminal State</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-line inter-machine"></div>
+                <span>Inter-machine Transition</span>
+              </div>
             </div>
           </div>
         </div>
@@ -724,6 +810,7 @@
     let selectedInstanceId = null;
     let allInstances = [];
     let currentTransitions = [];
+    let overviewMode = 'cards'; // 'cards' or 'diagrams'
 
     // Socket.IO connection
     socket = io();
@@ -782,8 +869,16 @@
       return componentsData.find(c => c.name === selectedComponentName);
     }
 
+    // Set overview display mode
+    function setOverviewMode(mode) {
+      overviewMode = mode;
+      document.getElementById('btn-cards').classList.toggle('active', mode === 'cards');
+      document.getElementById('btn-diagrams').classList.toggle('active', mode === 'diagrams');
+      renderComponentOverview();
+    }
+
     // Component Overview - Show all machines with inter-machine connections
-    function renderComponentOverview() {
+    async function renderComponentOverview() {
       const component = getCurrentComponent();
       if (!component) {
         document.getElementById('component-graph').innerHTML = `
@@ -799,111 +894,152 @@
       const machines = component.stateMachines || [];
       const container = document.getElementById('component-graph');
 
-      // Collect inter-machine transitions
-      const interMachineLinks = [];
-      machines.forEach(machine => {
-        (machine.transitions || []).forEach(transition => {
-          if (transition.type === 'inter_machine' && transition.targetMachine) {
-            interMachineLinks.push({
-              from: machine.name,
-              to: transition.targetMachine,
-              event: transition.event,
-              fromState: transition.from
-            });
+      if (overviewMode === 'diagrams') {
+        // Diagram mode: Show full Mermaid diagrams
+        let diagramsHtml = '<div class="diagram-grid">';
+
+        for (const machine of machines) {
+          const isEntry = component.entryMachine === machine.name;
+          const machineInstances = allInstances.filter(i => i.machineName === machine.name);
+
+          try {
+            const res = await fetch(`/api/machines/${machine.name}/diagram`);
+            const data = await res.json();
+
+            diagramsHtml += `
+              <div class="diagram-card ${isEntry ? 'entry-machine' : ''}" onclick="selectMachine('${machine.name}')">
+                <div class="diagram-card-header">
+                  <div class="diagram-card-title">
+                    ${machine.name}
+                    ${isEntry ? '<span class="entry-star">⭐</span>' : ''}
+                  </div>
+                  <span class="instance-badge">${machineInstances.length} instances</span>
+                </div>
+                <div class="diagram-card-content">
+                  <div class="mermaid">${data.diagram}</div>
+                </div>
+              </div>`;
+          } catch (error) {
+            console.error(`Error loading diagram for ${machine.name}:`, error);
+          }
+        }
+
+        diagramsHtml += '</div>';
+        container.innerHTML = diagramsHtml;
+        container.style.position = 'static';
+        container.style.height = 'auto';
+
+        // Render all Mermaid diagrams
+        await mermaid.run({ querySelector: '.diagram-card-content .mermaid' });
+
+      } else {
+        // Cards mode: Show summary cards with SVG arrows
+        // Collect inter-machine transitions
+        const interMachineLinks = [];
+        machines.forEach(machine => {
+          (machine.transitions || []).forEach(transition => {
+            if (transition.type === 'inter_machine' && transition.targetMachine) {
+              interMachineLinks.push({
+                from: machine.name,
+                to: transition.targetMachine,
+                event: transition.event,
+                fromState: transition.from
+              });
+            }
+          });
+        });
+
+        // Layout machines in a grid
+        const cols = Math.ceil(Math.sqrt(machines.length));
+        const cardWidth = 200;
+        const cardHeight = 140;
+        const spacingX = 120;
+        const spacingY = 100;
+
+        // Calculate positions
+        const positions = {};
+        machines.forEach((machine, idx) => {
+          const row = Math.floor(idx / cols);
+          const col = idx % cols;
+          positions[machine.name] = {
+            x: col * (cardWidth + spacingX) + 40,
+            y: row * (cardHeight + spacingY) + 40
+          };
+        });
+
+        // Build SVG for arrows
+        const svgWidth = cols * (cardWidth + spacingX) + 100;
+        const svgHeight = Math.ceil(machines.length / cols) * (cardHeight + spacingY) + 100;
+
+        let svgHtml = `<svg width="${svgWidth}" height="${svgHeight}" style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+          <defs>
+            <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+              <path d="M 0 0 L 10 6 L 0 12 z" fill="#10b981" />
+            </marker>
+          </defs>`;
+
+        // Draw inter-machine arrows
+        interMachineLinks.forEach((link, idx) => {
+          const fromPos = positions[link.from];
+          const toPos = positions[link.to];
+          if (fromPos && toPos) {
+            const x1 = fromPos.x + cardWidth / 2;
+            const y1 = fromPos.y + cardHeight / 2;
+            const x2 = toPos.x + cardWidth / 2;
+            const y2 = toPos.y + cardHeight / 2;
+
+            // Calculate curve control point
+            const midX = (x1 + x2) / 2;
+            const midY = (y1 + y2) / 2;
+            const offset = 30;
+
+            svgHtml += `
+              <path d="M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}"
+                    fill="none" stroke="#10b981" stroke-width="3"
+                    marker-end="url(#arrowhead)" />
+              <text x="${midX}" y="${midY - offset - 8}" fill="#10b981" font-size="11"
+                    text-anchor="middle" font-weight="600">${link.event}</text>`;
           }
         });
-      });
 
-      // Layout machines in a grid
-      const cols = Math.ceil(Math.sqrt(machines.length));
-      const cardWidth = 200;
-      const cardHeight = 140;
-      const spacingX = 120;
-      const spacingY = 100;
+        svgHtml += '</svg>';
 
-      // Calculate positions
-      const positions = {};
-      machines.forEach((machine, idx) => {
-        const row = Math.floor(idx / cols);
-        const col = idx % cols;
-        positions[machine.name] = {
-          x: col * (cardWidth + spacingX) + 40,
-          y: row * (cardHeight + spacingY) + 40
-        };
-      });
+        // Build machine cards
+        let cardsHtml = svgHtml;
+        machines.forEach(machine => {
+          const pos = positions[machine.name];
+          const isEntry = component.entryMachine === machine.name;
+          const machineInstances = allInstances.filter(i => i.machineName === machine.name);
 
-      // Build SVG for arrows
-      const svgWidth = cols * (cardWidth + spacingX) + 100;
-      const svgHeight = Math.ceil(machines.length / cols) * (cardHeight + spacingY) + 100;
-
-      let svgHtml = `<svg width="${svgWidth}" height="${svgHeight}" style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
-        <defs>
-          <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-            <polygon points="0 0, 10 3, 0 6" fill="#10b981" />
-          </marker>
-        </defs>`;
-
-      // Draw inter-machine arrows
-      interMachineLinks.forEach((link, idx) => {
-        const fromPos = positions[link.from];
-        const toPos = positions[link.to];
-        if (fromPos && toPos) {
-          const x1 = fromPos.x + cardWidth / 2;
-          const y1 = fromPos.y + cardHeight / 2;
-          const x2 = toPos.x + cardWidth / 2;
-          const y2 = toPos.y + cardHeight / 2;
-
-          // Calculate curve control point
-          const midX = (x1 + x2) / 2;
-          const midY = (y1 + y2) / 2;
-          const offset = 30;
-
-          svgHtml += `
-            <path d="M ${x1} ${y1} Q ${midX} ${midY - offset} ${x2} ${y2}"
-                  fill="none" stroke="#10b981" stroke-width="3"
-                  marker-end="url(#arrowhead)" />
-            <text x="${midX}" y="${midY - offset - 8}" fill="#10b981" font-size="11"
-                  text-anchor="middle" font-weight="600">${link.event}</text>`;
-        }
-      });
-
-      svgHtml += '</svg>';
-
-      // Build machine cards
-      let cardsHtml = svgHtml;
-      machines.forEach(machine => {
-        const pos = positions[machine.name];
-        const isEntry = component.entryMachine === machine.name;
-        const machineInstances = allInstances.filter(i => i.machineName === machine.name);
-
-        cardsHtml += `
-          <div class="machine-card ${isEntry ? 'entry-machine' : ''}"
-               style="left: ${pos.x}px; top: ${pos.y}px; width: ${cardWidth}px;"
-               onclick="selectMachine('${machine.name}')">
-            <div class="machine-card-header">
-              <span class="machine-card-name">${machine.name}</span>
-              ${isEntry ? '<span class="entry-star">⭐</span>' : ''}
-            </div>
-            <div class="machine-card-info">
-              <div class="info-row">
-                <span class="info-label">States:</span>
-                <span>${machine.states.length}</span>
+          cardsHtml += `
+            <div class="machine-card ${isEntry ? 'entry-machine' : ''}"
+                 style="left: ${pos.x}px; top: ${pos.y}px; width: ${cardWidth}px;"
+                 onclick="selectMachine('${machine.name}')">
+              <div class="machine-card-header">
+                <span class="machine-card-name">${machine.name}</span>
+                ${isEntry ? '<span class="entry-star">⭐</span>' : ''}
               </div>
-              <div class="info-row">
-                <span class="info-label">Transitions:</span>
-                <span>${machine.transitions.length}</span>
+              <div class="machine-card-info">
+                <div class="info-row">
+                  <span class="info-label">States:</span>
+                  <span>${machine.states.length}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Transitions:</span>
+                  <span>${machine.transitions.length}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Instances:</span>
+                  <span class="instance-badge">${machineInstances.length}</span>
+                </div>
               </div>
-              <div class="info-row">
-                <span class="info-label">Instances:</span>
-                <span class="instance-badge">${machineInstances.length}</span>
-              </div>
-            </div>
-          </div>`;
-      });
+            </div>`;
+        });
 
-      container.innerHTML = cardsHtml;
-      container.style.position = 'relative';
-      container.style.height = svgHeight + 'px';
+        container.innerHTML = cardsHtml;
+        container.style.position = 'relative';
+        container.style.height = svgHeight + 'px';
+      }
     }
 
     // Select machine to view detail

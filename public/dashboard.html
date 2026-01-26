@@ -826,6 +826,20 @@
     let currentTransitions = [];
     let overviewMode = 'diagrams'; // 'cards' or 'diagrams' - default to diagrams
 
+    // Format milliseconds as human-readable time (used by multiple functions)
+    function formatTimeRemaining(ms) {
+      if (ms <= 0) return 'Expired';
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+
+      if (days > 0) return `${days}d ${hours % 24}h`;
+      if (hours > 0) return `${hours}h ${minutes % 60}m`;
+      if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+      return `${seconds}s`;
+    }
+
     // Socket.IO connection
     socket = io();
 
@@ -900,7 +914,8 @@
     }
 
     // Apply current state highlighting and unreachable states graying to Mermaid SVG
-    function applyStateStyles(card, currentState, reachableStates) {
+    // Also adds timeout countdown badges on states with pending timeouts
+    function applyStateStyles(card, currentState, reachableStates, pendingTimeouts = []) {
       const svg = card.querySelector('svg');
       if (!svg) return;
 
@@ -953,7 +968,7 @@
 
       // Apply styles to found states
       foundStates.forEach((data, stateName) => {
-        const { shape, textEls } = data;
+        const { group, shape, textEls } = data;
 
         if (stateName === currentState) {
           // Current state: violet/purple highlighting
@@ -961,6 +976,53 @@
             shape.style.stroke = '#a855f7';
             shape.style.strokeWidth = '4px';
             shape.style.filter = 'drop-shadow(0 0 12px #a855f7)';
+
+            // Add timeout countdown badge if there are pending timeouts
+            if (pendingTimeouts.length > 0) {
+              const timeout = pendingTimeouts[0]; // Show first timeout
+              const bbox = shape.getBBox ? shape.getBBox() : { x: 0, y: 0, width: 100, height: 40 };
+
+              // Create countdown group
+              const countdownGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+              countdownGroup.setAttribute('class', 'timeout-countdown');
+              countdownGroup.setAttribute('data-timeout-id', `state-timeout-${stateName}`);
+
+              // Badge background
+              const badgeBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              badgeBg.setAttribute('x', bbox.x + bbox.width - 60);
+              badgeBg.setAttribute('y', bbox.y - 12);
+              badgeBg.setAttribute('width', '65');
+              badgeBg.setAttribute('height', '22');
+              badgeBg.setAttribute('rx', '4');
+              badgeBg.setAttribute('fill', '#ef4444');
+              badgeBg.setAttribute('opacity', '0.95');
+              countdownGroup.appendChild(badgeBg);
+
+              // Timer icon
+              const timerIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              timerIcon.setAttribute('x', bbox.x + bbox.width - 55);
+              timerIcon.setAttribute('y', bbox.y + 4);
+              timerIcon.setAttribute('font-size', '12');
+              timerIcon.setAttribute('fill', '#ffffff');
+              timerIcon.textContent = '⏱';
+              countdownGroup.appendChild(timerIcon);
+
+              // Countdown text
+              const countdownText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              countdownText.setAttribute('x', bbox.x + bbox.width - 40);
+              countdownText.setAttribute('y', bbox.y + 4);
+              countdownText.setAttribute('font-size', '11');
+              countdownText.setAttribute('font-weight', '600');
+              countdownText.setAttribute('fill', '#ffffff');
+              countdownText.setAttribute('id', `countdown-text-${stateName}`);
+              countdownText.textContent = formatTimeRemaining(timeout.remainingMs);
+              countdownGroup.appendChild(countdownText);
+
+              group.appendChild(countdownGroup);
+
+              // Start live countdown update for this state
+              startStateCountdown(stateName, timeout);
+            }
           }
           textEls.forEach(t => {
             t.style.fill = '#e879f9';  // Bright violet
@@ -1167,6 +1229,53 @@
       }
     }
 
+    // Track active state countdown intervals
+    const stateCountdownIntervals = new Map();
+
+    // Start a live countdown update for a state in the diagram
+    function startStateCountdown(stateName, timeout) {
+      // Clear existing interval for this state
+      if (stateCountdownIntervals.has(stateName)) {
+        clearInterval(stateCountdownIntervals.get(stateName));
+      }
+
+      const startTime = Date.now();
+      const initialRemaining = timeout.remainingMs;
+
+      const intervalId = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const newRemaining = Math.max(0, initialRemaining - elapsed);
+
+        const textEl = document.getElementById(`countdown-text-${stateName}`);
+        if (textEl) {
+          textEl.textContent = formatTimeRemaining(newRemaining);
+
+          // Add pulsing effect when under 1 minute
+          if (newRemaining < 60000 && newRemaining > 0) {
+            const parentGroup = textEl.closest('.timeout-countdown');
+            if (parentGroup) {
+              parentGroup.style.animation = 'pulse 1s ease-in-out infinite';
+            }
+          }
+        }
+
+        // Stop and refresh when timeout expires
+        if (newRemaining <= 0) {
+          clearInterval(intervalId);
+          stateCountdownIntervals.delete(stateName);
+          setTimeout(() => loadInstances(), 500);
+        }
+      }, 1000);
+
+      stateCountdownIntervals.set(stateName, intervalId);
+    }
+
+    // Clear all state countdown intervals
+    function clearStateCountdowns() {
+      stateCountdownIntervals.forEach((intervalId) => clearInterval(intervalId));
+      stateCountdownIntervals.clear();
+    }
+
     // Compute reachable states from current state (BFS)
     function computeReachableStatesJS(transitions, currentState) {
       const reachable = new Set([currentState]);
@@ -1279,11 +1388,12 @@
               currentState = firstInstance.currentState;
               url += `&instanceId=${firstInstance.id}`;
 
-              // Store info for post-render styling
+              // Store info for post-render styling (including pending timeouts)
               machineStateInfo.push({
                 machineName: machine.name,
                 currentState: currentState,
-                transitions: machine.transitions || []
+                transitions: machine.transitions || [],
+                pendingTimeouts: firstInstance.pendingTimeouts || []
               });
 
               currentStateText = `<div style="margin-top: 8px; padding: 8px 12px; background: linear-gradient(135deg, #a855f7, #7c3aed); border-radius: 8px; color: #fff; font-size: 13px; font-weight: 700; text-align: center; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);">
@@ -1387,11 +1497,14 @@
 
         // Apply current state highlighting and gray out unreachable states after Mermaid renders
         setTimeout(() => {
+          // Clear any existing state countdowns before re-applying
+          clearStateCountdowns();
+
           machineStateInfo.forEach(info => {
             const card = container.querySelector(`.diagram-card[data-machine="${info.machineName}"]`);
             if (card && info.currentState) {
               const reachableStates = computeReachableStatesJS(info.transitions, info.currentState);
-              applyStateStyles(card, info.currentState, reachableStates);
+              applyStateStyles(card, info.currentState, reachableStates, info.pendingTimeouts);
             }
           });
 
@@ -1623,22 +1736,8 @@
       renderInstanceContext(instance);
     }
 
-    // Timer interval for countdown updates
+    // Timer interval for countdown updates (for Instance Data panel)
     let countdownInterval = null;
-
-    // Format milliseconds as human-readable time
-    function formatTimeRemaining(ms) {
-      if (ms <= 0) return 'Expired';
-      const seconds = Math.floor(ms / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      const days = Math.floor(hours / 24);
-
-      if (days > 0) return `${days}d ${hours % 24}h`;
-      if (hours > 0) return `${hours}h ${minutes % 60}m`;
-      if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-      return `${seconds}s`;
-    }
 
     // Render instance context/publicMember with timeout countdown
     function renderInstanceContext(instance) {

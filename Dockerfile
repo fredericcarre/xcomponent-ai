@@ -43,12 +43,12 @@ FROM node:20-alpine AS development
 
 WORKDIR /app
 
-# Install dependencies
+# Copy package files and tsconfig first
 COPY package*.json ./
-RUN npm install
-
-# Copy configuration
 COPY tsconfig.json ./
+
+# Install dependencies (skip prepare script as source isn't copied yet)
+RUN npm ci --ignore-scripts
 
 # Copy source code
 COPY src ./src

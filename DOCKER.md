@@ -4,7 +4,9 @@ Ce guide explique comment utiliser Docker pour développer et tester xcomponent-
 
 ## Prérequis
 
-- Docker et Docker Compose installés
+- Docker et Docker Compose V2 installés
+  - Utilise la commande `docker compose` (avec espace) et non `docker-compose` (avec tiret)
+  - Docker Desktop inclut déjà Compose V2
 - Make (optionnel, pour utiliser les commandes simplifiées)
 
 ## Démarrage Rapide
@@ -26,10 +28,10 @@ make dev
 
 ```bash
 # Build les images
-docker-compose build
+docker compose build
 
 # Démarrer l'environnement de développement
-docker-compose up dev
+docker compose up dev
 ```
 
 ## Accès au Dashboard

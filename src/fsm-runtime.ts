@@ -199,6 +199,28 @@ export class FSMRuntime extends EventEmitter {
     // Add to indexes for fast lookups
     this.addToIndex(instance);
 
+    // Record creation event in history (for traceability)
+    const creationEvent: import('./types').PersistedEvent = {
+      id: `create-${instanceId}`,
+      instanceId,
+      machineName,
+      componentName: this.componentDef.name,
+      event: {
+        type: 'INSTANCE_CREATED',
+        payload: {
+          parentInstanceId: parentInfo?.instanceId,
+          parentMachineName: parentInfo?.machineName,
+          triggerEvent: parentInfo ? 'inter_machine transition' : (instance.isEntryPoint ? 'entry point auto-create' : 'manual create'),
+          initialContext
+        },
+        timestamp: Date.now()
+      },
+      stateBefore: '',
+      stateAfter: machine.initialState,
+      persistedAt: Date.now()
+    };
+    this.eventHistory.set(instanceId, [creationEvent]);
+
     this.emit('instance_created', instance);
 
     // Setup timeout transitions if any from initial state

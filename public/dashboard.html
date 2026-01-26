@@ -803,6 +803,14 @@
               </div>
             </div>
 
+            <!-- Instance History/Traceability -->
+            <div id="instance-history-section" style="margin-bottom: 16px;">
+              <div class="transitions-header">📜 Event History</div>
+              <div id="instance-history" style="padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-top: 8px; max-height: 300px; overflow-y: auto;">
+                <div style="font-size: 12px; color: #666;">Select an instance to see its history</div>
+              </div>
+            </div>
+
             <div class="transitions-header">⚡ Quick Actions</div>
             <div id="transitions-list">
               <div class="empty-state" style="padding: 20px 0;">
@@ -1731,6 +1739,8 @@
       document.getElementById('component-overview').classList.remove('hidden');
       document.getElementById('machine-detail').classList.remove('active');
       clearTransitions();
+      renderInstanceContext(null);
+      loadInstanceHistory(null);
       renderInstanceList();  // Refresh to show all instances
     }
 
@@ -1949,6 +1959,7 @@
       renderInstanceList();
       loadTransitionsForInstance(instanceId);
       renderInstanceContext(instance);
+      loadInstanceHistory(instanceId);
     }
 
     // Timer interval for countdown updates (for Instance Data panel)
@@ -2062,12 +2073,94 @@
       `;
     }
 
+    // Instance History/Traceability
+    async function loadInstanceHistory(instanceId) {
+      const container = document.getElementById('instance-history');
+      if (!container) return;
+
+      if (!instanceId) {
+        container.innerHTML = '<div style="font-size: 12px; color: #666;">Select an instance to see its history</div>';
+        return;
+      }
+
+      container.innerHTML = '<div style="font-size: 12px; color: #888;">Loading history...</div>';
+
+      try {
+        const res = await fetch(`/api/instances/${instanceId}/history`);
+        const data = await res.json();
+        const history = data.history || [];
+
+        if (history.length === 0) {
+          container.innerHTML = '<div style="font-size: 12px; color: #666;">No history available</div>';
+          return;
+        }
+
+        // Sort by timestamp (most recent first)
+        history.sort((a, b) => b.persistedAt - a.persistedAt);
+
+        const historyHtml = history.map((event, idx) => {
+          const time = new Date(event.persistedAt).toLocaleTimeString();
+          const date = new Date(event.persistedAt).toLocaleDateString();
+          const eventType = event.event?.type || 'Unknown';
+          const payload = event.event?.payload || {};
+          const payloadEntries = Object.entries(payload);
+
+          // Format state transition
+          const stateTransition = event.stateBefore !== event.stateAfter
+            ? `<span style="color: #888;">${event.stateBefore}</span> <span style="color: #22c55e;">→</span> <span style="color: #a855f7; font-weight: 600;">${event.stateAfter}</span>`
+            : `<span style="color: #888;">stayed in</span> <span style="color: #a855f7;">${event.stateAfter}</span>`;
+
+          // Build payload display
+          let payloadHtml = '';
+          if (payloadEntries.length > 0) {
+            payloadHtml = `
+              <div style="margin-top: 6px; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 10px;">
+                ${payloadEntries.map(([key, value]) => {
+                  const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                  return `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                    <span style="color: #666;">${key}:</span>
+                    <span style="color: #f0f0f0; max-width: 120px; overflow: hidden; text-overflow: ellipsis;" title="${displayValue}">${displayValue}</span>
+                  </div>`;
+                }).join('')}
+              </div>`;
+          }
+
+          // Determine event icon and color based on type
+          let eventIcon = '⚡';
+          let eventColor = '#3b82f6';
+          if (eventType.includes('APPROVE')) { eventIcon = '✅'; eventColor = '#22c55e'; }
+          else if (eventType.includes('REJECT')) { eventIcon = '❌'; eventColor = '#ef4444'; }
+          else if (eventType.includes('SUBMIT')) { eventIcon = '📤'; eventColor = '#f59e0b'; }
+          else if (eventType.includes('CANCEL')) { eventIcon = '🚫'; eventColor = '#6b7280'; }
+          else if (eventType.includes('TIMEOUT')) { eventIcon = '⏰'; eventColor = '#f97316'; }
+          else if (eventType.includes('REVISE') || eventType.includes('CHANGE')) { eventIcon = '✏️'; eventColor = '#8b5cf6'; }
+
+          return `
+            <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 6px; margin-bottom: 8px; border-left: 3px solid ${eventColor};">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-size: 12px; font-weight: 600; color: ${eventColor};">${eventIcon} ${eventType}</span>
+                <span style="font-size: 9px; color: #666;">${time}</span>
+              </div>
+              <div style="font-size: 11px; margin-bottom: 4px;">${stateTransition}</div>
+              ${payloadHtml}
+              <div style="font-size: 9px; color: #555; margin-top: 4px;">${date}</div>
+            </div>`;
+        }).join('');
+
+        container.innerHTML = historyHtml;
+      } catch (error) {
+        console.error('Error loading instance history:', error);
+        container.innerHTML = '<div style="font-size: 12px; color: #ef4444;">Error loading history</div>';
+      }
+    }
+
     // Transitions Panel
     function loadTransitionsForInstance(instanceId) {
       const instance = allInstances.find(i => i.id === instanceId);
       if (!instance) {
         clearTransitions();
         renderInstanceContext(null);
+        loadInstanceHistory(null);
         return;
       }
 

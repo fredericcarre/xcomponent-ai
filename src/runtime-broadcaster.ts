@@ -297,20 +297,30 @@ export class RuntimeBroadcaster {
             if (msg.targetMachine && inst.machineName !== msg.targetMachine) {
               return false;
             }
-            // Match by context properties (e.g., orderId)
+            // Match by common context properties (only compare fields that exist in both contexts)
             if (msg.matchContext) {
               const context = inst.context || inst.publicMember || {};
+              let hasMatch = false;
               for (const [key, value] of Object.entries(msg.matchContext)) {
-                if (context[key] !== value) {
-                  return false;
+                // Only check properties that exist in target context
+                if (key in context) {
+                  if (context[key] === value) {
+                    hasMatch = true; // At least one matching property found
+                  } else {
+                    return false; // Property exists but doesn't match
+                  }
                 }
+              }
+              // Must have at least one matching property to be considered a match
+              if (!hasMatch) {
+                return false;
               }
             }
             return true;
           });
 
           if (matchingInstances.length === 0) {
-            console.log(`[RuntimeBroadcaster] No matching instances for cross-component event ${msg.event.type}`);
+            console.log(`[RuntimeBroadcaster] No matching instances for cross-component event ${msg.event.type} (matchContext: ${JSON.stringify(msg.matchContext)})`);
             return;
           }
 

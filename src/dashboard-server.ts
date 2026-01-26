@@ -137,7 +137,8 @@ export class DashboardServer {
           name: m.name,
           states: m.states,
           initialState: m.initialState,
-          transitions: m.transitions
+          transitions: m.transitions,
+          contextSchema: m.contextSchema
         }))
       }));
       res.json({ components });

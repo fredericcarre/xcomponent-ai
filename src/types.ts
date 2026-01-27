@@ -205,9 +205,21 @@ export interface State {
   name: string;
   /** State type */
   type: StateType;
-  /** Entry method name */
+  /**
+   * Method to call when entering this state.
+   * YAML key: onEntry
+   * The runtime emits 'entry_method' event with { method, state, instanceId, context, sender }
+   */
+  onEntry?: string;
+  /**
+   * Method to call when exiting this state.
+   * YAML key: onExit
+   * The runtime emits 'exit_method' event with { method, state, instanceId, context, sender }
+   */
+  onExit?: string;
+  /** @deprecated Use onEntry instead */
   entryMethod?: string;
-  /** Exit method name */
+  /** @deprecated Use onExit instead */
   exitMethod?: string;
   /** Metadata */
   metadata?: Record<string, any>;
@@ -253,6 +265,16 @@ export interface Transition {
   targetComponent?: string;
   /** Target event to send when cross-component instance is created */
   targetEvent?: string;
+  /**
+   * Context mapping for cross-component and inter-machine transitions.
+   * Maps source context properties to target context properties.
+   * When present, only mapped properties are sent (selective + rename).
+   * When absent, the full source context is sent as-is.
+   *
+   * Format: { targetProperty: sourceProperty }
+   * Example: { paymentAmount: "amount", orderId: "orderId" }
+   */
+  contextMapping?: Record<string, string>;
   /** Triggered method name */
   triggeredMethod?: string;
   /**

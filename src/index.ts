@@ -58,3 +58,11 @@ export {
   PostgresConfig,
   createPostgresStores
 } from './postgres-persistence';
+
+// Redis persistence
+export {
+  RedisEventStore,
+  RedisSnapshotStore,
+  RedisConfig,
+  createRedisStores
+} from './redis-persistence';

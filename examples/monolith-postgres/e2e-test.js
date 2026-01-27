@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * End-to-end test for distributed Order/Payment flow
+ * End-to-end test for monolith Order/Payment flow
  *
- * Tests the complete cross-component communication:
+ * Tests the complete cross-component communication in single-process mode:
  * 1. Dashboard is accessible and healthy
- * 2. Both runtimes are registered
- * 3. Both components (Order, Payment) are available
- * 4. Can create an Order instance
- * 5. SUBMIT order creates a Payment instance (cross-component)
- * 6. Process payment through its states
- * 7. COMPLETE payment sends PAYMENT_CONFIRMED to Order (cross-component)
- * 8. Order transitions to Paid state
+ * 2. Both components (Order, Payment) are available via in-memory broker
+ * 3. Can create an Order instance
+ * 4. SUBMIT order creates a Payment instance (cross-component via in-memory broker)
+ * 5. Business logic auto-validates payment (checkPaymentMethod)
+ * 6. COMPLETE payment sends PAYMENT_CONFIRMED to Order (cross-component)
+ * 7. Order transitions through to Completed
+ * 8. Verify database event logging (if PostgreSQL is configured)
  */
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
@@ -59,19 +59,13 @@ async function waitFor(condition, description, timeoutMs = TIMEOUT_MS) {
   throw new Error(`Timeout waiting for: ${description}${errorMsg}`);
 }
 
-// Helper to find instance by ID (handles both instanceId and id fields)
-function findInstanceById(instances, id) {
-  return instances.find(i => i.instanceId === id || i.id === id);
-}
-
-// Helper to get instance ID from instance object
 function getInstanceId(instance) {
   return instance.instanceId || instance.id;
 }
 
 async function main() {
   console.log('='.repeat(60));
-  console.log('  E2E Test: Distributed Order/Payment Cross-Component Flow');
+  console.log('  E2E Test: Monolith Order/Payment Cross-Component Flow');
   console.log('='.repeat(60));
   console.log(`Dashboard URL: ${DASHBOARD_URL}\n`);
 
@@ -80,7 +74,6 @@ async function main() {
   // ============================================================
   console.log('\n--- Phase 1: Infrastructure Health ---\n');
 
-  // Test 1: Dashboard health
   console.log('1. Checking dashboard health...');
   const health = await fetchJson(`${DASHBOARD_URL}/health`);
   if (health.status !== 'ok') {
@@ -88,18 +81,17 @@ async function main() {
   }
   console.log(`  [OK] Dashboard healthy (mode: ${health.mode})`);
 
-  // Test 2: Runtimes registered
+  // In monolith mode, runtimes register via in-memory broker
   console.log('\n2. Waiting for runtimes...');
   const runtimesResult = await waitFor(
     async () => {
       const data = await fetchJson(`${DASHBOARD_URL}/api/runtimes`);
       return data.runtimes && data.runtimes.length >= 2 ? data : null;
     },
-    'At least 2 runtimes registered'
+    'At least 2 runtimes registered (via in-memory broker)'
   );
   console.log(`   Runtimes: ${runtimesResult.runtimes.map(r => r.runtimeId).join(', ')}`);
 
-  // Test 3: Components registered
   console.log('\n3. Waiting for components...');
   const componentsResult = await waitFor(
     async () => {
@@ -126,7 +118,6 @@ async function main() {
   };
 
   console.log(`4. Creating Order instance (${orderId})...`);
-  // In distributed mode, instance creation is async via RabbitMQ
   await fetchJson(
     `${DASHBOARD_URL}/api/components/OrderComponent/instances`,
     {
@@ -139,13 +130,11 @@ async function main() {
   );
   console.log('  [OK] Create instance command sent');
 
-  // Wait for instance to be created (async via RabbitMQ)
   console.log('\n5. Waiting for Order instance to be created...');
   let orderInstanceId = null;
   const orderInstance = await waitFor(
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
-      // Find the Order instance with our orderId in context
       const order = instances.instances && instances.instances.find(
         i => i.componentName === 'OrderComponent' &&
              i.machineName === 'Order' &&
@@ -162,7 +151,7 @@ async function main() {
   console.log(`   Instance ID: ${orderInstanceId}, State: ${orderInstance.currentState}`);
 
   // ============================================================
-  // Phase 3: Submit Order (Cross-Component Communication)
+  // Phase 3: Submit Order (Cross-Component via In-Memory Broker)
   // ============================================================
   console.log('\n--- Phase 3: Submit Order (triggers Payment creation) ---\n');
 
@@ -176,7 +165,6 @@ async function main() {
   );
   console.log('  [OK] SUBMIT event sent');
 
-  // Wait for Order to be in PendingPayment state
   console.log('\n7. Waiting for Order to transition to PendingPayment...');
   await waitFor(
     async () => {
@@ -189,13 +177,11 @@ async function main() {
     'Order in PendingPayment state'
   );
 
-  // Wait for Payment instance to be created (cross-component!)
-  console.log('\n8. Waiting for Payment instance to be created (cross-component)...');
+  console.log('\n8. Waiting for Payment instance to be created (cross-component via in-memory broker)...');
   let paymentInstance = null;
   await waitFor(
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
-      // Find a Payment instance that was created after our order
       paymentInstance = instances.instances && instances.instances.find(
         i => i.componentName === 'PaymentComponent' &&
              i.machineName === 'Payment' &&
@@ -213,10 +199,6 @@ async function main() {
   // ============================================================
   console.log('\n--- Phase 4: Process Payment ---\n');
 
-  // Send PROCESS event
-  // Business logic (checkPaymentMethod) auto-validates if card type is visa/mastercard/cb.
-  // The triggered method runs during the transition, then sender.sendToSelf(VALIDATE)
-  // is queued and executes after Pending→Processing completes.
   console.log('9. Sending PROCESS event to Payment...');
   console.log('   (Business logic will auto-validate: paymentMethod=visa)');
   await fetchJson(
@@ -227,7 +209,6 @@ async function main() {
     }
   );
 
-  // Wait for Validated state (auto-validated by checkPaymentMethod business logic)
   console.log('\n10. Waiting for Payment to be auto-validated by business logic...');
   await waitFor(
     async () => {
@@ -254,7 +235,6 @@ async function main() {
     }
   );
 
-  // Wait for Payment to be Completed
   await waitFor(
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
@@ -329,7 +309,7 @@ async function main() {
   );
 
   // ============================================================
-  // Phase 8: Verify Database Event Logging
+  // Phase 8: Verify Database Event Logging (if PostgreSQL configured)
   // ============================================================
   console.log('\n--- Phase 8: Verify Database Event Logging ---\n');
 
@@ -338,12 +318,10 @@ async function main() {
     console.log('15. Verifying events are logged in PostgreSQL...');
 
     try {
-      // Dynamic import of pg (may not be installed in all environments)
       const { Client } = require('pg');
       const client = new Client({ connectionString: databaseUrl });
       await client.connect();
 
-      // Query events for our Order instance
       const orderEventsQuery = `
         SELECT event_type, from_state, to_state, machine_name
         FROM fsm_events
@@ -354,26 +332,11 @@ async function main() {
 
       console.log(`  [OK] Found ${orderEventsResult.rows.length} events in database for orderId: ${orderId}`);
 
-      // Verify expected Order transitions
-      const expectedOrderTransitions = [
-        { event: 'SUBMIT', from: 'Created', to: 'PendingPayment' },
-        { event: 'PAYMENT_CONFIRMED', from: 'PendingPayment', to: 'Paid' },
-        { event: 'SHIP', from: 'Paid', to: 'Shipped' },
-        { event: 'DELIVER', from: 'Shipped', to: 'Completed' }
-      ];
-
       const orderEvents = orderEventsResult.rows.filter(e => e.machine_name === 'Order');
       console.log(`  Order events logged: ${orderEvents.length}`);
       for (const evt of orderEvents) {
         console.log(`    - ${evt.event_type}: ${evt.from_state} -> ${evt.to_state}`);
       }
-
-      // Verify expected Payment transitions
-      const expectedPaymentTransitions = [
-        { event: 'PROCESS', from: 'Pending', to: 'Processing' },
-        { event: 'VALIDATE', from: 'Processing', to: 'Validated' },
-        { event: 'COMPLETE', from: 'Validated', to: 'Completed' }
-      ];
 
       const paymentEvents = orderEventsResult.rows.filter(e => e.machine_name === 'Payment');
       console.log(`  Payment events logged: ${paymentEvents.length}`);
@@ -381,7 +344,13 @@ async function main() {
         console.log(`    - ${evt.event_type}: ${evt.from_state} -> ${evt.to_state}`);
       }
 
-      // Verify Order transitions match expected
+      const expectedOrderTransitions = [
+        { event: 'SUBMIT', from: 'Created', to: 'PendingPayment' },
+        { event: 'PAYMENT_CONFIRMED', from: 'PendingPayment', to: 'Paid' },
+        { event: 'SHIP', from: 'Paid', to: 'Shipped' },
+        { event: 'DELIVER', from: 'Shipped', to: 'Completed' }
+      ];
+
       for (const expected of expectedOrderTransitions) {
         const found = orderEvents.find(e =>
           e.event_type === expected.event &&
@@ -394,7 +363,12 @@ async function main() {
       }
       console.log('  [OK] All expected Order transitions verified');
 
-      // Verify Payment transitions match expected
+      const expectedPaymentTransitions = [
+        { event: 'PROCESS', from: 'Pending', to: 'Processing' },
+        { event: 'VALIDATE', from: 'Processing', to: 'Validated' },
+        { event: 'COMPLETE', from: 'Validated', to: 'Completed' }
+      ];
+
       for (const expected of expectedPaymentTransitions) {
         const found = paymentEvents.find(e =>
           e.event_type === expected.event &&
@@ -407,19 +381,6 @@ async function main() {
       }
       console.log('  [OK] All expected Payment transitions verified');
 
-      // Query snapshots to verify final state
-      const snapshotsQuery = `
-        SELECT instance_id, machine_name, current_state, context->>'orderId' as order_id
-        FROM fsm_snapshots
-        WHERE context->>'orderId' = $1
-      `;
-      const snapshotsResult = await client.query(snapshotsQuery, [orderId]);
-
-      console.log(`\n  Snapshots for orderId ${orderId}:`);
-      for (const snap of snapshotsResult.rows) {
-        console.log(`    - ${snap.machine_name}: ${snap.current_state}`);
-      }
-
       await client.end();
       console.log('  [OK] Database verification complete');
 
@@ -428,7 +389,6 @@ async function main() {
         console.log('  [SKIP] pg module not installed, skipping database verification');
       } else {
         console.error('  [WARN] Database verification failed:', dbError.message);
-        // Don't fail the test, just log the warning
       }
     }
   } else {
@@ -441,17 +401,17 @@ async function main() {
   console.log('\n' + '='.repeat(60));
   console.log('  All E2E Tests Passed!');
   console.log('='.repeat(60));
-  console.log('\nCross-component communication verified:');
+  console.log('\nMonolith cross-component communication verified:');
   console.log(`  1. Order ${orderId} created in OrderComponent`);
   console.log(`  2. SUBMIT triggered Payment creation in PaymentComponent (contextMapping: orderId, amount, paymentMethod)`);
-  console.log(`  3. Payment PROCESS → checkPaymentMethod business logic auto-validated (visa accepted)`);
+  console.log(`  3. Payment PROCESS -> checkPaymentMethod business logic auto-validated (visa accepted)`);
   console.log(`  4. Payment: Pending -> Processing -> Validated -> Completed`);
   console.log(`  5. COMPLETE triggered PAYMENT_CONFIRMED to OrderComponent (matchingRules: orderId)`);
   console.log(`  6. Order completed: Created -> PendingPayment -> Paid -> Shipped -> Completed`);
   if (databaseUrl) {
-    console.log(`  6. All events verified in PostgreSQL database`);
+    console.log(`  7. All events verified in PostgreSQL database`);
   }
-  console.log('\nDistributed system with RabbitMQ messaging is working correctly!');
+  console.log('\nMonolith mode with in-memory broker is working correctly!');
 }
 
 main()

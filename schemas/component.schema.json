@@ -115,12 +115,20 @@
         "type": {
           "type": "string",
           "description": "Type of transition",
-          "enum": ["regular", "inter_machine", "timeout", "auto", "internal"],
+          "enum": ["regular", "inter_machine", "cross_component", "timeout", "auto", "internal", "triggerable"],
           "default": "regular"
         },
         "targetMachine": {
           "type": "string",
-          "description": "Target machine for inter_machine transitions"
+          "description": "Target machine for inter_machine and cross_component transitions"
+        },
+        "targetComponent": {
+          "type": "string",
+          "description": "Target component for cross_component transitions"
+        },
+        "targetEvent": {
+          "type": "string",
+          "description": "Event to send to existing instances in target component (cross_component)"
         },
         "targetState": {
           "type": "string",
@@ -128,7 +136,7 @@
         },
         "contextMapping": {
           "type": "object",
-          "description": "Context mapping for inter_machine transitions",
+          "description": "Context mapping for cross_component and inter_machine transitions. Maps target property names to source property names. When present, only mapped properties are sent. Format: { targetProp: sourceProp }",
           "additionalProperties": {
             "type": "string"
           }

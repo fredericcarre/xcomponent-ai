@@ -34,7 +34,8 @@ class SenderImpl implements Sender {
   ) {}
 
   async sendToSelf(event: FSMEvent): Promise<void> {
-    // Queue event asynchronously to avoid race conditions
+    // Event is automatically queued if called during a transition
+    // (onExit, triggeredMethod, or onEntry). Processed after transition completes.
     return this.runtime.sendEvent(this.currentInstanceId, event);
   }
 
@@ -111,6 +112,11 @@ export class FSMRuntime extends EventEmitter {
 
   // In-memory event history (used when persistence is not configured)
   private eventHistory: Map<string, import('./types').PersistedEvent[]>; // instanceId → events
+
+  // Event queue: events emitted by triggered methods / onEntry / onExit are deferred
+  // until the current transition is fully complete (XComponent pattern)
+  private _processingTransition: boolean = false;
+  private _eventQueue: Array<{ instanceId: string; event: FSMEvent; resolve: () => void; reject: (err: any) => void }> = [];
 
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
@@ -254,6 +260,16 @@ export class FSMRuntime extends EventEmitter {
   async sendEvent(instanceId: string, event: FSMEvent): Promise<void> {
     console.log(`[FSMRuntime] sendEvent called: instanceId=${instanceId}, event=${JSON.stringify(event)}`);
 
+    // If a transition is in progress, queue this event for later processing.
+    // This ensures triggered methods, onEntry, and onExit cannot cause
+    // re-entrant state changes during a transition (XComponent pattern).
+    if (this._processingTransition) {
+      console.log(`[FSMRuntime] Transition in progress — queueing event ${event.type} for ${instanceId}`);
+      return new Promise<void>((resolve, reject) => {
+        this._eventQueue.push({ instanceId, event, resolve, reject });
+      });
+    }
+
     const instance = this.instances.get(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -289,8 +305,28 @@ export class FSMRuntime extends EventEmitter {
 
     const previousState = instance.currentState;
 
+    // Mark transition as in progress — any sendEvent calls from triggered methods,
+    // onEntry, or onExit will be queued until this transition completes.
+    this._processingTransition = true;
+
     try {
-      // Execute transition
+      // Step 1: Execute onExit method of source state (if defined)
+      const sourceState = machine.states.find(s => s.name === previousState);
+      const exitMethod = sourceState?.onExit || sourceState?.exitMethod;
+      if (exitMethod) {
+        const sender = new SenderImpl(this, instance.id, this.registry);
+        const instanceContext = instance.publicMember || instance.context;
+        this._safeEmitUserCode('exit_method', {
+          instanceId: instance.id,
+          method: exitMethod,
+          state: previousState,
+          event,
+          context: instanceContext,
+          sender,
+        });
+      }
+
+      // Step 2: Execute triggered method of transition (if defined)
       await this.executeTransition(instance, transition, event);
 
       // Merge event payload into instance context when:
@@ -385,6 +421,21 @@ export class FSMRuntime extends EventEmitter {
         },
       });
 
+      // Step 4: Execute onEntry method of target state (if defined)
+      const entryMethod = newStateObj?.onEntry || newStateObj?.entryMethod;
+      if (entryMethod) {
+        const sender = new SenderImpl(this, instance.id, this.registry);
+        const instanceContext = instance.publicMember || instance.context;
+        this._safeEmitUserCode('entry_method', {
+          instanceId,
+          method: entryMethod,
+          state: transition.to,
+          event,
+          context: instanceContext,
+          sender,
+        });
+      }
+
       // Notify parent if configured (child-to-parent communication)
       await this.notifyParentIfConfigured(instance, machine, transition, previousState);
 
@@ -404,9 +455,11 @@ export class FSMRuntime extends EventEmitter {
           instanceId: instanceId,
           machineName: instance.machineName,
         };
-        // Merge parent context with event payload for child instance
-        // Event payload takes precedence (allows passing parameters to child)
-        const childContext = { ...instance.context, ...event.payload };
+        // Build child context: apply contextMapping if defined, otherwise merge all
+        const sourceContext = { ...instance.context, ...event.payload };
+        const childContext = transition.contextMapping
+          ? this.applyContextMapping(transition.contextMapping, sourceContext)
+          : sourceContext;
         const newInstanceId = this.createInstance(
           transition.targetMachine,
           childContext,
@@ -423,8 +476,11 @@ export class FSMRuntime extends EventEmitter {
       // This must happen BEFORE final state check, since cross-component transitions
       // (like Payment.COMPLETE -> Order.PAYMENT_CONFIRMED) often occur on final states
       if (transition.type === TransitionType.CROSS_COMPONENT && transition.targetComponent) {
-        // Merge parent context with event payload for child instance
-        const childContext = { ...instance.context, ...event.payload };
+        // Build context: apply contextMapping if defined, otherwise merge all
+        const sourceContext = { ...instance.context, ...event.payload };
+        const childContext = transition.contextMapping
+          ? this.applyContextMapping(transition.contextMapping, sourceContext)
+          : sourceContext;
 
         this.emit('cross_component_transition', {
           sourceInstanceId: instanceId,
@@ -493,6 +549,26 @@ export class FSMRuntime extends EventEmitter {
         },
       });
       this.instances.delete(instanceId);
+    } finally {
+      // Transition complete — unlock and drain the event queue
+      this._processingTransition = false;
+      await this._drainEventQueue();
+    }
+  }
+
+  /**
+   * Drain queued events that were deferred during a transition.
+   * Events are processed in FIFO order, one at a time.
+   */
+  private async _drainEventQueue(): Promise<void> {
+    while (this._eventQueue.length > 0) {
+      const queued = this._eventQueue.shift()!;
+      try {
+        await this.sendEvent(queued.instanceId, queued.event);
+        queued.resolve();
+      } catch (err) {
+        queued.reject(err);
+      }
     }
   }
 
@@ -900,12 +976,11 @@ export class FSMRuntime extends EventEmitter {
    * enabling cross-instance communication (XComponent pattern)
    */
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
-    // In production, execute triggered methods here
     if (transition.triggeredMethod) {
       const sender = new SenderImpl(this, instance.id, this.registry);
       const instanceContext = instance.publicMember || instance.context;
 
-      this.emit('triggered_method', {
+      this._safeEmitUserCode('triggered_method', {
         instanceId: instance.id,
         method: transition.triggeredMethod,
         event,
@@ -1388,6 +1463,42 @@ export class FSMRuntime extends EventEmitter {
    *   context: { Id: 42, Total: 99.99 }
    *   result: { orderId: 42, total: 99.99 }
    */
+  /**
+   * Safely emit a user code event (triggered_method, entry_method, exit_method).
+   * Exceptions thrown by synchronous handlers are caught and emitted as
+   * 'user_code_error' events — they do NOT abort the transition.
+   */
+  private _safeEmitUserCode(eventName: string, data: any): void {
+    try {
+      this.emit(eventName, data);
+    } catch (error: any) {
+      console.error(`[FSMRuntime] Error in user code handler '${data.method}' (${eventName}):`, error.message);
+      this.emit('user_code_error', {
+        instanceId: data.instanceId,
+        method: data.method,
+        hook: eventName,
+        error: error.message,
+        stack: error.stack,
+      });
+    }
+  }
+
+  /**
+   * Apply contextMapping: { targetProp: "sourceProp" }
+   * Only mapped properties are included in the result.
+   * Supports nested property access via dot notation.
+   */
+  private applyContextMapping(
+    mapping: Record<string, string>,
+    sourceContext: Record<string, any>
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const [targetProp, sourceProp] of Object.entries(mapping)) {
+      result[targetProp] = this.getNestedProperty(sourceContext, sourceProp);
+    }
+    return result;
+  }
+
   private applyPayloadTemplate(
     template: Record<string, any>,
     context: Record<string, any>

@@ -74,6 +74,71 @@ async function main() {
     runtime = new FSMRuntime(component);
   }
 
+  // ============================================================
+  // USER BUSINESS LOGIC
+  // Register handlers for triggeredMethod, onEntry, and onExit
+  // ============================================================
+
+  // Triggered method: runs during a specific transition
+  // Example: check card type when processing payment
+  runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+    console.log(`[BusinessLogic] triggeredMethod: ${method}`);
+
+    if (method === 'checkPaymentMethod') {
+      const cardType = (context.paymentMethod || '').toLowerCase();
+      const accepted = ['visa', 'mastercard', 'cb'];
+
+      if (accepted.includes(cardType)) {
+        console.log(`[BusinessLogic] Payment method "${cardType}" accepted for order ${context.orderId}`);
+        // Card accepted: auto-validate after a short delay (simulating API call)
+        setTimeout(() => {
+          sender.sendToSelf({ type: 'VALIDATE', payload: {} });
+        }, 500);
+      } else {
+        console.log(`[BusinessLogic] Payment method "${cardType || 'unknown'}" REJECTED for order ${context.orderId}`);
+        // Card not accepted: reject immediately
+        setTimeout(() => {
+          sender.sendToSelf({ type: 'REJECT', payload: { reason: `Unsupported payment method: ${cardType || 'none'}` } });
+        }, 500);
+      }
+    }
+  });
+
+  // Entry method: runs when entering a state (regardless of which event led there)
+  runtime.on('entry_method', async ({ method, state, context, sender }) => {
+    console.log(`[BusinessLogic] onEntry: ${method} (state: ${state})`);
+
+    if (method === 'logProcessingStarted') {
+      console.log(`[BusinessLogic] Processing payment for order ${context.orderId}, amount: ${context.amount}`);
+    }
+    if (method === 'notifyPaymentSuccess') {
+      console.log(`[BusinessLogic] Payment SUCCEEDED for order ${context.orderId}`);
+    }
+    if (method === 'notifyPaymentFailure') {
+      console.log(`[BusinessLogic] Payment FAILED for order ${context.orderId}`);
+    }
+    if (method === 'notifyPaymentPending') {
+      console.log(`[BusinessLogic] Order ${context.orderId} is waiting for payment...`);
+    }
+    if (method === 'notifyPaymentReceived') {
+      console.log(`[BusinessLogic] Order ${context.orderId} payment received! Ready to ship.`);
+    }
+    if (method === 'notifyShipped') {
+      console.log(`[BusinessLogic] Order ${context.orderId} has been shipped!`);
+    }
+    if (method === 'notifyDelivered') {
+      console.log(`[BusinessLogic] Order ${context.orderId} delivered successfully!`);
+    }
+    if (method === 'notifyCancelled') {
+      console.log(`[BusinessLogic] Order ${context.orderId} has been cancelled.`);
+    }
+  });
+
+  // Exit method: runs when leaving a state (regardless of which event causes it)
+  runtime.on('exit_method', async ({ method, state, context, sender }) => {
+    console.log(`[BusinessLogic] onExit: ${method} (leaving state: ${state})`);
+  });
+
   // Connect to message broker and start broadcasting
   console.log('[Runtime] Connecting to message broker...');
   const broadcaster = await createRuntimeBroadcaster(runtime, component, brokerUrl, {

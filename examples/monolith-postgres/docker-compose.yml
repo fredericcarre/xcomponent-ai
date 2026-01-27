@@ -1,0 +1,42 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: xcomponent-monolith-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: xcomponent
+      POSTGRES_PASSWORD: xcomponent123
+      POSTGRES_DB: xcomponent_fsm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../distributed/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xcomponent -d xcomponent_fsm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Single-process monolith: both components + dashboard + in-memory broker
+  app:
+    build:
+      context: ../..
+      dockerfile: examples/monolith-postgres/Dockerfile
+    container_name: xcomponent-monolith-app
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: xcomponent-monolith-network

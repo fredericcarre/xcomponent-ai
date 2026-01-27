@@ -191,6 +191,7 @@ export class RedisMessageBroker implements MessageBroker {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private subscribeClient: any;
   private handlers: Map<string, (message: CrossComponentMessage) => void> = new Map();
+  private channelHandlers: Map<string, Set<(message: any) => void>> = new Map();
   private connected = false;
   private redisUrl: string;
 
@@ -238,6 +239,7 @@ export class RedisMessageBroker implements MessageBroker {
       await this.subscribeClient.quit();
     }
     this.handlers.clear();
+    this.channelHandlers.clear();
     this.connected = false;
   }
 
@@ -254,32 +256,58 @@ export class RedisMessageBroker implements MessageBroker {
     await this.publishClient.publish(channel, serialized);
   }
 
-  subscribe(componentName: string, handler: (message: CrossComponentMessage) => void): void {
+  async subscribe(channelOrComponent: string, handler: (message: any) => void): Promise<void> {
     if (!this.connected) {
       throw new Error('RedisMessageBroker is not connected. Call connect() first.');
     }
 
-    this.handlers.set(componentName, handler);
+    // Channel-based subscriptions (containing ':') use the raw channel name.
+    // Component-based subscriptions (plain names) add the 'xcomponent:' prefix.
+    const redisChannel = channelOrComponent.includes(':')
+      ? channelOrComponent
+      : `xcomponent:${channelOrComponent}`;
 
-    const channel = `xcomponent:${componentName}`;
+    // Store handler
+    if (channelOrComponent.includes(':')) {
+      if (!this.channelHandlers.has(channelOrComponent)) {
+        this.channelHandlers.set(channelOrComponent, new Set());
+      }
+      this.channelHandlers.get(channelOrComponent)!.add(handler);
+    } else {
+      this.handlers.set(channelOrComponent, handler);
+    }
 
-    this.subscribeClient.subscribe(channel, (messageJson: string) => {
+    await this.subscribeClient.subscribe(redisChannel, (messageJson: string) => {
       try {
-        const message: CrossComponentMessage = JSON.parse(messageJson);
-        const h = this.handlers.get(componentName);
-        if (h) {
-          h(message);
+        const message = JSON.parse(messageJson);
+        if (channelOrComponent.includes(':')) {
+          const handlers = this.channelHandlers.get(channelOrComponent);
+          if (handlers) {
+            handlers.forEach(h => h(message));
+          }
+        } else {
+          const h = this.handlers.get(channelOrComponent);
+          if (h) {
+            h(message);
+          }
         }
       } catch (err) {
-        console.error(`Failed to parse message from Redis channel ${channel}:`, err);
+        console.error(`Failed to parse message from Redis channel ${redisChannel}:`, err);
       }
     });
   }
 
-  unsubscribe(componentName: string): void {
-    this.handlers.delete(componentName);
-    const channel = `xcomponent:${componentName}`;
-    this.subscribeClient.unsubscribe(channel);
+  unsubscribe(channelOrComponent: string): void {
+    const redisChannel = channelOrComponent.includes(':')
+      ? channelOrComponent
+      : `xcomponent:${channelOrComponent}`;
+
+    if (channelOrComponent.includes(':')) {
+      this.channelHandlers.delete(channelOrComponent);
+    } else {
+      this.handlers.delete(channelOrComponent);
+    }
+    this.subscribeClient.unsubscribe(redisChannel);
   }
 }
 

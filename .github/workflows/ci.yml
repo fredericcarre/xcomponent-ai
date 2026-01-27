@@ -127,8 +127,9 @@ jobs:
         timeout 30 bash -c 'until docker compose -f examples/distributed/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
         echo "Waiting for Dashboard..."
         timeout 60 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
-        echo "Waiting for runtimes to register..."
-        sleep 10
+        echo "Waiting for runtimes to register (polling)..."
+        timeout 60 bash -c 'until [ "$(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")" -ge 2 ]; do echo "  runtimes: $(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")"; sleep 3; done'
+        echo "All services ready!"
 
     - name: Verify dashboard health
       run: |
@@ -176,6 +177,156 @@ jobs:
     - name: Stop distributed example
       if: always()
       run: docker compose -f examples/distributed/docker-compose.yml down -v
+
+  distributed-redis:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build and start distributed Redis example
+      run: |
+        cd examples/distributed-redis
+        docker compose build
+        docker compose up -d
+
+    - name: Wait for services to be healthy
+      run: |
+        echo "Waiting for Redis..."
+        timeout 30 bash -c 'until docker compose -f examples/distributed-redis/docker-compose.yml exec -T redis redis-cli ping; do sleep 1; done'
+        echo "Waiting for PostgreSQL..."
+        timeout 30 bash -c 'until docker compose -f examples/distributed-redis/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
+        echo "Waiting for Dashboard..."
+        timeout 60 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
+        echo "Waiting for runtimes to register (polling)..."
+        timeout 60 bash -c 'until [ "$(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")" -ge 2 ]; do echo "  runtimes: $(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")"; sleep 3; done'
+        echo "All services ready!"
+
+    - name: Verify dashboard health
+      run: |
+        echo "Checking dashboard health endpoint..."
+        curl -sf http://localhost:3000/health | jq .
+
+    - name: Verify runtimes registered
+      run: |
+        echo "Checking connected runtimes..."
+        RUNTIMES=$(curl -sf http://localhost:3000/api/runtimes | jq '.runtimes | length')
+        echo "Connected runtimes: $RUNTIMES"
+        if [ "$RUNTIMES" -lt 2 ]; then
+          echo "ERROR: Expected at least 2 runtimes, got $RUNTIMES"
+          docker compose -f examples/distributed-redis/docker-compose.yml logs
+          exit 1
+        fi
+
+    - name: Verify components registered
+      run: |
+        echo "Checking registered components..."
+        curl -sf http://localhost:3000/api/components | jq .
+        COMPONENTS=$(curl -sf http://localhost:3000/api/components | jq '.components | length')
+        echo "Registered components: $COMPONENTS"
+        if [ "$COMPONENTS" -lt 2 ]; then
+          echo "ERROR: Expected at least 2 components (Order, Payment), got $COMPONENTS"
+          docker compose -f examples/distributed-redis/docker-compose.yml logs
+          exit 1
+        fi
+
+    - name: Run E2E cross-component test (Redis)
+      run: |
+        echo "Running E2E test for cross-component communication (Redis broker)..."
+        node examples/distributed-redis/e2e-test.js
+
+    - name: Show logs on failure
+      if: failure()
+      run: |
+        echo "=== Dashboard logs ==="
+        docker compose -f examples/distributed-redis/docker-compose.yml logs dashboard
+        echo "=== Order runtime logs ==="
+        docker compose -f examples/distributed-redis/docker-compose.yml logs runtime-order
+        echo "=== Payment runtime logs ==="
+        docker compose -f examples/distributed-redis/docker-compose.yml logs runtime-payment
+
+    - name: Stop distributed Redis example
+      if: always()
+      run: docker compose -f examples/distributed-redis/docker-compose.yml down -v
+
+  monolith-postgres:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build and start monolith example
+      run: |
+        cd examples/monolith-postgres
+        docker compose build
+        docker compose up -d
+
+    - name: Wait for services to be healthy
+      run: |
+        echo "Waiting for PostgreSQL..."
+        timeout 30 bash -c 'until docker compose -f examples/monolith-postgres/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
+        echo "Waiting for Dashboard..."
+        timeout 90 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
+        echo "Waiting for runtimes to register (polling)..."
+        timeout 60 bash -c 'until [ "$(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")" -ge 2 ]; do echo "  runtimes: $(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")"; sleep 3; done'
+        echo "All services ready!"
+
+    - name: Verify dashboard health
+      run: |
+        echo "Checking dashboard health endpoint..."
+        curl -sf http://localhost:3000/health | jq .
+
+    - name: Verify runtimes registered
+      run: |
+        echo "Checking connected runtimes..."
+        RUNTIMES=$(curl -sf http://localhost:3000/api/runtimes | jq '.runtimes | length')
+        echo "Connected runtimes: $RUNTIMES"
+        if [ "$RUNTIMES" -lt 2 ]; then
+          echo "ERROR: Expected at least 2 runtimes, got $RUNTIMES"
+          docker compose -f examples/monolith-postgres/docker-compose.yml logs
+          exit 1
+        fi
+
+    - name: Verify components registered
+      run: |
+        echo "Checking registered components..."
+        curl -sf http://localhost:3000/api/components | jq .
+        COMPONENTS=$(curl -sf http://localhost:3000/api/components | jq '.components | length')
+        echo "Registered components: $COMPONENTS"
+        if [ "$COMPONENTS" -lt 2 ]; then
+          echo "ERROR: Expected at least 2 components (Order, Payment), got $COMPONENTS"
+          docker compose -f examples/monolith-postgres/docker-compose.yml logs
+          exit 1
+        fi
+
+    - name: Verify database is connected
+      run: |
+        echo "Checking database availability via health..."
+        DB=$(curl -sf http://localhost:3000/health | jq '.database')
+        echo "Database available: $DB"
+        if [ "$DB" != "true" ]; then
+          echo "ERROR: PostgreSQL should be connected"
+          exit 1
+        fi
+
+    - name: Run E2E cross-component test (Monolith + PostgreSQL)
+      run: |
+        echo "Running E2E test for monolith mode with PostgreSQL persistence..."
+        DATABASE_URL=postgresql://xcomponent:xcomponent123@localhost:5432/xcomponent_fsm node examples/monolith-postgres/e2e-test.js
+
+    - name: Show logs on failure
+      if: failure()
+      run: |
+        echo "=== App logs ==="
+        docker compose -f examples/monolith-postgres/docker-compose.yml logs app
+        echo "=== PostgreSQL logs ==="
+        docker compose -f examples/monolith-postgres/docker-compose.yml logs postgres
+
+    - name: Stop monolith example
+      if: always()
+      run: docker compose -f examples/monolith-postgres/docker-compose.yml down -v
 
   docs:
     runs-on: ubuntu-latest

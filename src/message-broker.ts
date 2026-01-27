@@ -70,11 +70,38 @@ export interface MessageBroker {
 /**
  * In-Memory Message Broker
  * For single-process deployment (default)
+ *
+ * Uses singleton pattern when accessed via createMessageBroker('memory')
+ * to ensure all runtimes in the same process share the same broker.
  */
 export class InMemoryMessageBroker extends EventEmitter implements MessageBroker {
+  private static instance: InMemoryMessageBroker | null = null;
+
   private handlers: Map<string, (message: CrossComponentMessage) => void> = new Map();
   private channelHandlers: Map<string, Set<(message: any) => void>> = new Map();
   private connected = false;
+
+  /**
+   * Get the singleton instance (used by createMessageBroker)
+   */
+  static getInstance(): InMemoryMessageBroker {
+    if (!InMemoryMessageBroker.instance) {
+      InMemoryMessageBroker.instance = new InMemoryMessageBroker();
+    }
+    return InMemoryMessageBroker.instance;
+  }
+
+  /**
+   * Reset the singleton (useful for testing)
+   */
+  static resetInstance(): void {
+    if (InMemoryMessageBroker.instance) {
+      InMemoryMessageBroker.instance.handlers.clear();
+      InMemoryMessageBroker.instance.channelHandlers.clear();
+      InMemoryMessageBroker.instance.connected = false;
+    }
+    InMemoryMessageBroker.instance = null;
+  }
 
   async connect(): Promise<void> {
     this.connected = true;
@@ -91,22 +118,22 @@ export class InMemoryMessageBroker extends EventEmitter implements MessageBroker
   }
 
   async publish(channel: string, message: CrossComponentMessage | any): Promise<void> {
-    // Check if this is a cross-component message (has targetComponent field)
-    if (message.targetComponent) {
-      // Cross-component message: use component-based routing
+    // Always use channel-based routing first (this is the primary mechanism)
+    const channelHandlers = this.channelHandlers.get(channel);
+    if (channelHandlers && channelHandlers.size > 0) {
+      // Async invocation to simulate network behavior
+      setImmediate(() => {
+        channelHandlers.forEach(handler => handler(message));
+      });
+    }
+
+    // Fallback to component-based routing for backward compatibility
+    // (only if message has targetComponent and no channel handlers matched)
+    if (message.targetComponent && (!channelHandlers || channelHandlers.size === 0)) {
       const handler = this.handlers.get(message.targetComponent);
       if (handler) {
         // Async invocation to simulate network behavior
         setImmediate(() => handler(message));
-      }
-    } else {
-      // General channel-based message (e.g., xcomponent:events:state_change)
-      const handlers = this.channelHandlers.get(channel);
-      if (handlers && handlers.size > 0) {
-        // Async invocation to simulate network behavior
-        setImmediate(() => {
-          handlers.forEach(handler => handler(message));
-        });
       }
     }
   }
@@ -453,10 +480,13 @@ export class RabbitMQMessageBroker implements MessageBroker {
 
 /**
  * Factory function to create appropriate broker based on configuration
+ *
+ * For 'memory' broker, returns a singleton instance so all runtimes
+ * in the same process share the same broker for cross-component communication.
  */
 export function createMessageBroker(brokerUrl?: string): MessageBroker {
   if (!brokerUrl || brokerUrl === 'memory' || brokerUrl === 'in-memory') {
-    return new InMemoryMessageBroker();
+    return InMemoryMessageBroker.getInstance();
   }
 
   if (brokerUrl.startsWith('redis://') || brokerUrl.startsWith('rediss://')) {

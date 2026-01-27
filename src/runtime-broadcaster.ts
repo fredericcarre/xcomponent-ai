@@ -286,6 +286,9 @@ export class RuntimeBroadcaster {
 
     // Query instances command
     await this.broker.subscribe(DashboardChannels.QUERY_INSTANCES, async (_msg: any) => {
+      // Re-announce ourselves so late-starting dashboards discover us
+      await this.announce();
+
       const instances = this.runtime.getAllInstances().map(inst => ({
         id: inst.id,
         machineName: inst.machineName,

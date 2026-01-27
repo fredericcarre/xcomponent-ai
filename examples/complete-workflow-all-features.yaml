@@ -103,9 +103,6 @@ stateMachines:
         to: Validated
         event: VALIDATE
         type: regular
-        guards:
-          - keys: [ProductId, Quantity, CustomerId, ShippingAddress]
-          - customFunction: "event.payload.Quantity > 0"
         triggeredMethod: onOrderValidated
 
       # Validated → InventoryChecked (Auto-transition - Phase 1)
@@ -205,8 +202,6 @@ stateMachines:
         matchingRules:
           - eventProperty: productId
             instanceProperty: ProductId
-        guards:
-          - customFunction: "context.StockLevel >= event.payload.quantity"
         triggeredMethod: onInventoryReserved
 
       - from: Available
@@ -216,8 +211,6 @@ stateMachines:
         matchingRules:
           - eventProperty: productId
             instanceProperty: ProductId
-        guards:
-          - customFunction: "context.StockLevel < event.payload.quantity"
 
   # ============================================================
   # PAYMENT: Payment processing
@@ -262,8 +255,6 @@ stateMachines:
         event: GATEWAY_SUCCESS
         type: auto
         timeoutMs: 100
-        guards:
-          - keys: [transactionId]
         triggeredMethod: notifyOrderPaymentSuccess
 
       # Processing → Failed (Timeout - safety mechanism)

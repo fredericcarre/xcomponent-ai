@@ -151,9 +151,6 @@
           "description": "Whether to reset timeout timer on self-transitions",
           "default": false
         },
-        "guard": {
-          "$ref": "#/definitions/Guard"
-        },
         "triggeredMethod": {
           "type": "string",
           "description": "Method to call when this transition fires"
@@ -163,13 +160,6 @@
           "description": "Rules for property-based event routing",
           "items": {
             "$ref": "#/definitions/MatchingRule"
-          }
-        },
-        "specificTriggeringRules": {
-          "type": "array",
-          "description": "Rules to disambiguate between multiple possible transitions",
-          "items": {
-            "$ref": "#/definitions/TriggeringRule"
           }
         },
         "description": {
@@ -196,23 +186,6 @@
         }
       ]
     },
-    "Guard": {
-      "type": "object",
-      "description": "Condition that must be true for the transition to fire",
-      "properties": {
-        "keys": {
-          "type": "array",
-          "description": "Required keys that must exist in event payload",
-          "items": {
-            "type": "string"
-          }
-        },
-        "expression": {
-          "type": "string",
-          "description": "JavaScript expression that must evaluate to true"
-        }
-      }
-    },
     "MatchingRule": {
       "type": "object",
       "description": "Rule for routing events to instances by property matching",
@@ -231,17 +204,6 @@
           "description": "Comparison operator",
           "enum": ["===", "!==", ">", "<", ">=", "<="],
           "default": "==="
-        }
-      }
-    },
-    "TriggeringRule": {
-      "type": "object",
-      "description": "Rule to select this transition when multiple transitions match",
-      "required": ["expression"],
-      "properties": {
-        "expression": {
-          "type": "string",
-          "description": "JavaScript expression that must evaluate to true"
         }
       }
     },

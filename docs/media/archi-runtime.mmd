@@ -20,24 +20,14 @@ sequenceDiagram
     Runtime->>Instance: Find applicable transition
     Instance-->>Runtime: transition found
 
-    alt Guard Evaluation
-        Runtime->>Runtime: evaluateGuards(guards, event, context)
-        alt Guards Pass
-            Runtime->>Instance: executeTransition()
-            Instance->>Instance: Update state
-            Instance-->>Runtime: State changed
-            Runtime->>Monitor: logTransition(entry)
-            Monitor->>Monitor: Store log entry
-            Runtime->>WS: broadcastStateChange(data)
-            WS->>Clients: state_change event
-            Runtime-->>User: Success
-        else Guards Fail
-            Runtime->>Monitor: emit('guard_failed')
-            Runtime->>WS: broadcast guard_failed
-            WS->>Clients: guard_failed event
-            Runtime-->>User: Guard failed
-        end
-    end
+    Runtime->>Instance: executeTransition()
+    Instance->>Instance: Update state
+    Instance-->>Runtime: State changed
+    Runtime->>Monitor: logTransition(entry)
+    Monitor->>Monitor: Store log entry
+    Runtime->>WS: broadcastStateChange(data)
+    WS->>Clients: state_change event
+    Runtime-->>User: Success
 
     alt Final or Error State
         Instance->>Runtime: State is final/error

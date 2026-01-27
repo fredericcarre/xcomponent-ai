@@ -42,19 +42,11 @@ stateMachines:
         to: Validated
         event: VALIDATE
         type: triggerable
-        guards:
-          - keys:
-              - amount
-              - instrument
-              - clientId
-          - customFunction: "event.payload.amount <= 100000"
         triggeredMethod: validateOrderLimits
       - from: Pending
         to: Rejected
         event: VALIDATE
         type: regular
-        guards:
-          - customFunction: "event.payload.amount > 100000"
       - from: Pending
         to: Rejected
         event: TIMEOUT

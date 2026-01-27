@@ -136,47 +136,6 @@ Transition vers le même état.
 
 ---
 
-## Guards (conditions)
-
-Les guards permettent de conditionner les transitions.
-
-### Guard par clés requises
-```yaml
-- from: Received
-  to: Validated
-  event: VALIDATE
-  guard:
-    keys:
-      - amount
-      - customerId
-```
-
-### Guard par expression
-```yaml
-- from: Received
-  to: Validated
-  event: VALIDATE
-  guard:
-    expression: "event.payload.amount > 0 && event.payload.amount <= 100000"
-```
-
-### Guards multiples (premier qui matche)
-```yaml
-- from: Executing
-  to: FullyExecuted
-  event: EXECUTION_REPORT
-  guard:
-    expression: "event.payload.executedQty === context.remainingQty"
-
-- from: Executing
-  to: PartiallyExecuted
-  event: EXECUTION_REPORT
-  guard:
-    expression: "event.payload.executedQty < context.remainingQty"
-```
-
----
-
 ## Property Matching (Pattern XComponent)
 
 Permet de router les événements vers les instances par propriétés, sans connaître l'ID.
@@ -419,23 +378,21 @@ stateMachines:
 
       - from: Executing
         to: WaitingRetry
-        event: TRANSIENT_ERROR
-        guard:
-          expression: "context.retryCount < 3"
-        triggeredMethod: incrementRetryCount
+        event: RETRY
+        triggeredMethod: handleRetry
 
       - from: Executing
         to: MaxRetriesExceeded
-        event: TRANSIENT_ERROR
-        guard:
-          expression: "context.retryCount >= 3"
+        event: MAX_RETRIES_REACHED
 
       - from: WaitingRetry
         to: Executing
-        event: RETRY
+        event: RETRY_EXECUTE
         type: timeout
         timeoutMs: 5000  # Backoff de 5 secondes
 ```
+
+**Note:** La logique de décision retry/abandon est gérée dans le `triggeredMethod` `handleRetry` en TypeScript. Le handler vérifie `context.retryCount` et envoie soit `RETRY` (via timeout) soit `MAX_RETRIES_REACHED` selon le cas.
 
 ### Pattern 5: État composite (sub-states simulés)
 
@@ -503,7 +460,7 @@ stateMachines:
 ### Transitions
 - Toujours avoir un chemin vers un état terminal
 - Prévoir les cas d'erreur explicitement
-- Utiliser les guards pour la logique conditionnelle, pas le code
+- Utiliser les `triggeredMethod` pour la logique conditionnelle métier en TypeScript
 
 ### Traçabilité
 - Les transitions importantes doivent avoir des `triggeredMethod` pour la logique métier
@@ -553,6 +510,5 @@ Avant de générer un composant, vérifier:
 - [ ] L'état initial existe dans la liste des états
 - [ ] Toutes les transitions référencent des états existants
 - [ ] Il existe au moins un chemin vers un état terminal
-- [ ] Les guards utilisent des propriétés disponibles dans le contexte
 - [ ] Les `inter_machine` ont un `targetMachine` valide
 - [ ] Les `timeout` ont une valeur `timeout` en millisecondes

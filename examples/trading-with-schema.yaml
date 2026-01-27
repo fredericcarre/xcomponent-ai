@@ -63,12 +63,6 @@ stateMachines:
         to: Validated
         event: VALIDATE
         type: triggerable
-        guards:
-          - keys:
-              - amount
-              - symbol
-              - clientId
-          - customFunction: "event.payload.amount <= 100000"
       - from: Validated
         to: Executed
         event: EXECUTE

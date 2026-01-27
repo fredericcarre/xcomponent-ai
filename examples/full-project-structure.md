@@ -107,10 +107,6 @@ stateMachines:
         to: OrderSubmitted
         event: CHECKOUT
         type: triggerable
-        guards:
-          - keys: [customerId, items, shippingAddress]
-          - customFunction: "event.payload.items.length > 0"
-          - customFunction: "event.payload.totalAmount >= 1"
         triggeredMethod: sendOrderConfirmationEmail
 
       # Fraud check
@@ -122,14 +118,10 @@ stateMachines:
       - from: FraudCheck
         to: PaymentPending
         event: FRAUD_CHECK_PASSED
-        guards:
-          - customFunction: "event.payload.riskScore < 0.3"
 
       - from: FraudCheck
         to: FraudRejected
         event: FRAUD_CHECK_FAILED
-        guards:
-          - customFunction: "event.payload.riskScore >= 0.8"
 
       # Payment flow (inter-machine)
       - from: PaymentPending
@@ -153,14 +145,10 @@ stateMachines:
       - from: PaymentConfirmed
         to: Shipped
         event: SHIPPED
-        guards:
-          - keys: [trackingNumber, carrier]
 
       - from: Shipped
         to: Delivered
         event: DELIVERY_CONFIRMED
-        guards:
-          - keys: [deliveryTimestamp, signature]
 
       # Cancellation (from multiple states)
       - from: CartPending
@@ -202,8 +190,6 @@ stateMachines:
       - from: Authorizing
         to: Authorized
         event: AUTHORIZATION_SUCCESS
-        guards:
-          - keys: [authorizationCode, cardLast4]
 
       - from: Authorizing
         to: Failed

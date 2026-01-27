@@ -123,14 +123,6 @@ stateMachines:
         event: VALIDATE
         type: triggerable
         description: Validate order against compliance rules
-        guards:
-          - keys:
-              - amount
-              - symbol
-              - clientId
-            description: "Ensure required fields are present"
-          - customFunction: "event.payload.amount <= 100000"
-            description: "Enforce position limit: max 100,000 units per order"
         metadata:
           triggeredBy: "Compliance system or manual approval"
           averageTime: "2-5 seconds"

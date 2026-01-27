@@ -747,10 +747,6 @@ export class DashboardServer {
     // Add transitions
     (machine.transitions || []).forEach((t: any) => {
       let label = t.event;
-      if (t.guard?.expression) {
-        const shortExpr = t.guard.expression.replace(/context\./g, '');
-        label += ` [${shortExpr}]`;
-      }
       // Add matching rules indicator
       if (t.matchingRules && t.matchingRules.length > 0) {
         const rulesText = t.matchingRules.map((r: any) => `${r.eventProperty}=${r.instanceProperty}`).join(',');

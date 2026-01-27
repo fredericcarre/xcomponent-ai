@@ -273,7 +273,7 @@ export class FSMRuntime extends EventEmitter {
    * Send event to an instance
    *
    * Supports multiple transitions from same state with same event.
-   * When multiple transitions exist with guards, uses "first matching guard wins" semantics.
+   * When multiple transitions exist, uses matching rules for disambiguation.
    */
   async sendEvent(instanceId: string, event: FSMEvent): Promise<void> {
     console.log(`[FSMRuntime] sendEvent called: instanceId=${instanceId}, event=${JSON.stringify(event)}`);
@@ -309,7 +309,7 @@ export class FSMRuntime extends EventEmitter {
     // Use publicMember if available (XComponent pattern), otherwise fallback to context
     const instanceContext = instance.publicMember || instance.context;
 
-    // Find transition using XComponent-style disambiguation (specificTriggeringRule, matchingRules)
+    // Find transition using XComponent-style disambiguation (matchingRules)
     const transition = this.findTransition(machine, instance.currentState, event, instanceContext);
 
     if (!transition) {
@@ -913,47 +913,7 @@ export class FSMRuntime extends EventEmitter {
       return candidates[0];
     }
 
-    // Multiple candidates - try specific triggering rules first
-    for (const transition of candidates) {
-      if (transition.specificTriggeringRule) {
-        try {
-          const func = new Function(
-            'event',
-            'context',
-            `return ${transition.specificTriggeringRule}`
-          );
-          if (func(event, instanceContext)) {
-            return transition;
-          }
-        } catch {
-          // Rule evaluation failed, skip this transition
-          continue;
-        }
-      }
-    }
-
-    // If no specific triggering rules matched, try guard expressions
-    // Guard expressions allow conditional routing based on context (e.g., amount > 5000)
-    for (const transition of candidates) {
-      if (transition.guard?.expression) {
-        try {
-          const func = new Function(
-            'context',
-            'event',
-            `return ${transition.guard.expression}`
-          );
-          if (func(instanceContext, event)) {
-            return transition;
-          }
-        } catch {
-          // Guard evaluation failed, skip this transition
-          continue;
-        }
-      }
-    }
-
-    // Try matching rules
-    // This handles cases where multiple transitions differentiate by matching rules (e.g., different operators)
+    // Multiple candidates - try matching rules for disambiguation
     for (const transition of candidates) {
       if (transition.matchingRules && transition.matchingRules.length > 0) {
         // Create a mock instance to evaluate matching rules
@@ -974,9 +934,9 @@ export class FSMRuntime extends EventEmitter {
       }
     }
 
-    // Check if there are transitions without guards/rules (fallback transitions)
+    // Check if there are transitions without matching rules (fallback transitions)
     const fallbackTransitions = candidates.filter(t =>
-      !t.specificTriggeringRule && !t.guard?.expression && (!t.matchingRules || t.matchingRules.length === 0)
+      !t.matchingRules || t.matchingRules.length === 0
     );
 
     if (fallbackTransitions.length === 1) {
@@ -988,7 +948,7 @@ export class FSMRuntime extends EventEmitter {
     if (candidates.length > 1) {
       console.warn(
         `Non-deterministic transitions from state '${currentState}' for event '${event.type}': ` +
-        `${candidates.length} candidates without distinguishing guards/rules. Using first match.`
+        `${candidates.length} candidates without distinguishing matching rules. Using first match.`
       );
     }
     return candidates[0];

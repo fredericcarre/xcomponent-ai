@@ -64,9 +64,6 @@ stateMachines:
         to: Pending
         event: CreateOrder
         type: triggerable
-        guards:
-          - keys: [AssetName, Quantity]
-          - customFunction: "event.payload.Quantity > 0"
         triggeredMethod: initializeOrder
         metadata:
           description: Internal initialization
@@ -80,7 +77,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
         triggeredMethod: processPartialExecution
         metadata:
           description: Partial execution (Quantity < RemainingQuantity)
@@ -88,7 +84,6 @@ stateMachines:
             Order #42: RemainingQuantity = 1000
             Event: ExecutionInput { OrderId: 42, Quantity: 500 }
             → Matches Order #42 (property matching)
-            → 500 < 1000 (specific rule)
             → Transition to PartiallyExecuted
 
       - from: Pending
@@ -98,7 +93,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
         triggeredMethod: processFullExecution
         metadata:
           description: Full execution (Quantity === RemainingQuantity)
@@ -106,7 +100,6 @@ stateMachines:
             Order #42: RemainingQuantity = 1000
             Event: ExecutionInput { OrderId: 42, Quantity: 1000 }
             → Matches Order #42 (property matching)
-            → 1000 === 1000 (specific rule)
             → Transition to FullyExecuted
 
       # Subsequent partial executions
@@ -117,7 +110,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
         triggeredMethod: processPartialExecution
         metadata:
           description: Another partial fill
@@ -129,7 +121,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
         triggeredMethod: processFullExecution
         metadata:
           description: Final fill
@@ -151,8 +142,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        guards:
-          - customFunction: "event.payload.Quantity > context.RemainingQuantity"
         metadata:
           description: Reject if execution quantity exceeds remaining
 
@@ -191,8 +180,6 @@ stateMachines:
         to: SettlementValidated
         event: VALIDATE
         type: triggerable
-        guards:
-          - keys: [OrderId, TradeDate]
 
       - from: SettlementValidated
         to: Completed

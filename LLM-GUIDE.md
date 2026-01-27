@@ -50,8 +50,6 @@ stateMachines:
         to: Validated
         event: VALIDATE
         type: triggerable
-        guards:
-          - keys: [orderId, amount]
       - from: Validated
         to: Executed
         event: EXECUTE
@@ -197,7 +195,7 @@ GET /api/components/:componentName/diagrams/:machineName
 
 Returns Mermaid `stateDiagram-v2` syntax with:
 - State styling (entry/orange, final/green, error/red)
-- Transitions with guards
+- Transitions with event labels
 - State descriptions as notes
 
 ### 6. Distributed Mode (Multi-Process)
@@ -368,50 +366,6 @@ triggeredMethods:
 
 See: `examples/advanced-patterns-demo.yaml`
 
-### 8. Multiple Transitions with Guards (First Matching Wins)
-
-When multiple transitions from the same state use the same event, **guards differentiate them**.
-
-The **first transition with passing guards wins**:
-
-```yaml
-transitions:
-  # TRANSITION 1: Stay in PartiallyExecuted
-  - from: PartiallyExecuted
-    to: PartiallyExecuted
-    event: EXECUTION_NOTIFICATION
-    triggeredMethod: accumulateExecution
-    guards:
-      - type: custom
-        condition: "context.executedQuantity < context.totalQuantity"
-
-  # TRANSITION 2: Move to FullyExecuted
-  - from: PartiallyExecuted
-    to: FullyExecuted
-    event: EXECUTION_NOTIFICATION
-    triggeredMethod: accumulateExecution
-    guards:
-      - type: context
-        property: executedQuantity
-        operator: ">="
-        value: "{{totalQuantity}}"
-```
-
-**Execution order:**
-1. Event arrives
-2. Triggered method runs **once** (updates context)
-3. Guards evaluated **in YAML order**
-4. First matching guard → transition fires
-5. Other transitions skipped
-
-**Key points:**
-- Triggered method runs **before** guards (can update context)
-- Transitions defined in YAML are evaluated in order
-- First match wins - other transitions not tried
-- Useful for accumulation patterns (partial vs. full execution)
-
-See: `EVENT-ACCUMULATION-GUIDE.md` for complete guide.
-
 ---
 
 ## 📚 Key Concepts for LLMs
@@ -466,20 +420,6 @@ stateMachines:
 xcomponent-ai serve order.yaml payment.yaml
 ```
 
-### Guards
-
-Conditional transitions:
-
-```yaml
-transitions:
-  - from: Pending
-    to: Approved
-    event: APPROVE
-    guards:
-      - keys: [amount, clientId]  # Required fields
-      - customFunction: "event.payload.amount <= 100000"  # Max limit
-```
-
 ### Payload Templating
 
 Pass context data between machines:
@@ -531,20 +471,7 @@ states:
           address: "{{shippingAddress}}"
 ```
 
-### Pattern 3: Compliance with Guards
-
-```yaml
-transitions:
-  - from: Submitted
-    to: Approved
-    event: APPROVE
-    guards:
-      - keys: [complianceCheck, riskScore]
-      - customFunction: "event.payload.riskScore < 70"
-      - customFunction: "event.payload.complianceCheck === 'PASSED'"
-```
-
-### Pattern 4: Timeout Transitions
+### Pattern 3: Timeout Transitions
 
 ```yaml
 transitions:
@@ -625,10 +552,9 @@ describe('OrderEntry FSM', () => {
 1. **Start with YAML** - Define FSM first, code second
 2. **Use contextSchema** - Let dashboard generate forms automatically
 3. **Leverage cascadingRules** - Reduce orchestration code
-4. **Add guards** - Encode business rules in YAML
-5. **Test FSM** - Write tests for state transitions
-6. **Use serve for demos** - Quick prototypes with dashboard
-7. **Use programmatic mode for production** - More control, better scaling
+4. **Test FSM** - Write tests for state transitions
+5. **Use serve for demos** - Quick prototypes with dashboard
+6. **Use programmatic mode for production** - More control, better scaling
 
 ---
 

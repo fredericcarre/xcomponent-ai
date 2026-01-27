@@ -22,7 +22,7 @@ LLMs can generate code, but they cannot invent your business logic. An approval 
 │  ─────────────────────────         │  ────────────────────────  │
 │  • States and transitions          │  • API routes              │
 │  • Compliance rules                │  • UI components           │
-│  • Guards and conditions           │  • External integrations   │
+│  • Validation rules                │  • External integrations   │
 │  • Approval workflows              │  • Triggered methods       │
 │                                    │                            │
 │  ✅ Durable, auditable             │  ♻️  Regenerable by LLM    │
@@ -71,7 +71,7 @@ User: "Build a lending platform with credit checks and approval workflow"
 LLM (You): I'll use xcomponent-ai to structure this with sanctuarized business logic.
 
 1️⃣ Define FSM (immutable business logic):
-   fsm/loan-application.yaml → States, guards, compliance rules
+   fsm/loan-application.yaml → States, transitions, compliance rules
 
 2️⃣ Initialize runtime:
    src/runtime/index.ts → FSM runtime setup
@@ -143,7 +143,7 @@ npm install
 xcomponent-ai validate examples/e-commerce-order/component.yaml
 
 # Create FSM from natural language (AI-powered)
-xcomponent-ai ai-create "Trading order with compliance guards for amounts over 100k" -o trading.yaml
+xcomponent-ai ai-create "Trading order with compliance checks for amounts over 100k" -o trading.yaml
 
 # Load and inspect FSM
 xcomponent-ai load examples/trading.yaml
@@ -242,8 +242,6 @@ stateMachines:
       - from: Pending
         to: Validated
         event: VALIDATE
-        guards:
-          - customFunction: "event.payload.amount <= 100000"  # Compliance limit
         triggeredMethod: validateOrderLimits
       - from: Validated
         to: Executed
@@ -262,7 +260,7 @@ stateMachines:
 ```
 
 **Features demonstrated**:
-- Compliance guards (amount limits)
+- Triggered methods for business validation
 - Inter-machine transitions (Settlement)
 - Timeout handling
 - Error states
@@ -296,7 +294,6 @@ await runtime.broadcastEvent('Order', 'Pending', {
 
 **Features demonstrated**:
 - Property-based instance routing (OrderId matching)
-- Specific triggering rules (full vs partial execution)
 - Public member pattern (business object separation)
 - Scalable multi-instance management (100+ orders)
 
@@ -313,7 +310,7 @@ Complete customer onboarding with:
 PSD2-compliant payment processing with:
 - Strong Customer Authentication (SCA)
 - Refund capability (inter-machine)
-- Timeout guards
+- Timeout handling
 
 ## 🧠 Agentic AI Features
 
@@ -331,7 +328,7 @@ const result = await supervisor.processRequest(
 ### FSM Agent
 
 - **Create FSM**: Natural language → YAML
-- **Detect Missing Compliance**: Suggests AML, KYC, RGPD guards
+- **Detect Missing Compliance**: Suggests AML, KYC, RGPD checks
 - **Update FSM**: Apply changes via prompts
 - **Simulate Paths**: Test workflows before deployment
 
@@ -366,7 +363,7 @@ const analysis = await monitoringAgent.analyzeLogs('TradingComponent');
 
 // Insights:
 // "Bottleneck detected: Validated->Executed takes 8.2s on average"
-// "High error rate: 15.3%. Review error states and guards."
+// "High error rate: 15.3%. Review error states and transitions."
 ```
 
 ## 📡 Real-time Monitoring
@@ -411,7 +408,7 @@ Built on `@xstate/core` with XComponent-inspired enhancements:
 - **Event-driven execution**: Pub/Sub + WebSocket broadcasting
 - **Timeout transitions**: Automatic timeouts with configurable delays
 - **Inter-machine workflows**: Create new instances on transition
-- **Guard evaluation**: Conditional transitions (keys, contains, custom functions)
+- **Conditional transitions**: Matching rules for event routing
 
 See [archi-runtime.mmd](archi-runtime.mmd) for sequence diagram.
 
@@ -508,28 +505,6 @@ matchingRules:
   - eventProperty: threshold
     instanceProperty: balance
     operator: '>'  # Also: ===, !==, <, >=, <=
-```
-
-**Specific Triggering Rules** (differentiate multiple transitions):
-```yaml
-transitions:
-  # Full execution
-  - from: Pending
-    to: FullyExecuted
-    event: ExecutionInput
-    matchingRules:
-      - eventProperty: OrderId
-        instanceProperty: Id
-    specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
-
-  # Partial execution
-  - from: Pending
-    to: PartiallyExecuted
-    event: ExecutionInput
-    matchingRules:
-      - eventProperty: OrderId
-        instanceProperty: Id
-    specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
 ```
 
 **Public Member Pattern** (XComponent convention):

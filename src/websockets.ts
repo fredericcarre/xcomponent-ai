@@ -59,9 +59,6 @@ export class WebSocketManager {
       this.io.to(`component:${componentName}`).emit('instance_error', data);
     });
 
-    runtime.on('guard_failed', (data: any) => {
-      this.io.to(`component:${componentName}`).emit('guard_failed', data);
-    });
   }
 
   /**

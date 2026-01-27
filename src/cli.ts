@@ -135,8 +135,6 @@ stateMachines:
         to: Processing
         event: BEGIN
         type: triggerable
-        guards:
-          - keys: [userId]
       - from: Processing
         to: Complete
         event: SUCCESS
@@ -451,10 +449,6 @@ program
 
       runtime.on('instance_error', (data) => {
         console.error(`  ✗ Error: ${data.error}`);
-      });
-
-      runtime.on('guard_failed', (data) => {
-        console.log(`  ⚠ Guard failed for event: ${data.event.type}`);
       });
 
       const context = options.context ? JSON.parse(options.context) : {};

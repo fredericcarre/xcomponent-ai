@@ -443,6 +443,11 @@ export class FSMRuntime extends EventEmitter {
       if (targetState && (targetState.type === StateType.FINAL || targetState.type === StateType.ERROR)) {
         instance.status = targetState.type === StateType.FINAL ? 'completed' : 'error';
 
+        // Force save snapshot on terminal state so history queries always find it
+        if (this.persistence) {
+          await this.persistence.saveSnapshot(instance, eventId, undefined);
+        }
+
         // Don't dispose entry point instances - they persist even in final state
         if (!instance.isEntryPoint) {
           // Remove from indexes before disposing

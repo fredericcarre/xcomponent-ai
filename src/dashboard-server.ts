@@ -320,6 +320,7 @@ export class DashboardServer {
         const { machine, state, q, limit: limitStr } = req.query;
         const limit = Math.min(parseInt(limitStr as string) || 100, 500);
 
+        // Try snapshots first, fall back to events if no snapshots exist
         let query = `
           SELECT s.instance_id, s.machine_name, s.current_state, s.context,
                  s.event_count, s.created_at, s.updated_at
@@ -337,9 +338,8 @@ export class DashboardServer {
           conditions.push(`s.current_state = $${params.length}`);
         }
         if (q) {
-          // Search in context JSON (orderId, customerId, etc.)
           params.push(`%${q}%`);
-          conditions.push(`s.context::text ILIKE $${params.length}`);
+          conditions.push(`(s.context::text ILIKE $${params.length} OR s.instance_id::text ILIKE $${params.length})`);
         }
 
         if (conditions.length > 0) {
@@ -350,8 +350,54 @@ export class DashboardServer {
         params.push(limit);
 
         const result = await this.pgPool.query(query, params);
-        res.json({ instances: result.rows });
+
+        // If snapshots found, return them
+        if (result.rows.length > 0) {
+          res.json({ instances: result.rows });
+          return;
+        }
+
+        // Fallback: build instance list from fsm_events (snapshots may not exist
+        // if snapshotInterval is higher than the number of transitions)
+        let eventsQuery = `
+          SELECT e.instance_id, e.machine_name,
+                 (array_agg(e.to_state ORDER BY e.persisted_at DESC))[1] as current_state,
+                 (array_agg(e.event_payload ORDER BY e.persisted_at ASC))[1] as context,
+                 COUNT(*) as event_count,
+                 MIN(e.created_at) as created_at,
+                 MAX(e.created_at) as updated_at
+          FROM fsm_events e
+        `;
+        const evtConditions: string[] = [];
+        const evtParams: any[] = [];
+
+        if (machine) {
+          evtParams.push(machine);
+          evtConditions.push(`e.machine_name = $${evtParams.length}`);
+        }
+        if (q) {
+          evtParams.push(`%${q}%`);
+          evtConditions.push(`(e.event_payload::text ILIKE $${evtParams.length} OR e.instance_id::text ILIKE $${evtParams.length})`);
+        }
+
+        if (evtConditions.length > 0) {
+          eventsQuery += ' WHERE ' + evtConditions.join(' AND ');
+        }
+
+        eventsQuery += ` GROUP BY e.instance_id, e.machine_name`;
+
+        if (state) {
+          eventsQuery = `SELECT * FROM (${eventsQuery}) sub WHERE sub.current_state = $${evtParams.length + 1}`;
+          evtParams.push(state);
+        }
+
+        eventsQuery += ` ORDER BY updated_at DESC LIMIT $${evtParams.length + 1}`;
+        evtParams.push(limit);
+
+        const eventsResult = await this.pgPool.query(eventsQuery, evtParams);
+        res.json({ instances: eventsResult.rows });
       } catch (error: any) {
+        console.error('[Dashboard] History search error:', error.message);
         res.status(500).json({ error: error.message });
       }
     });

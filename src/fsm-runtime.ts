@@ -34,7 +34,8 @@ class SenderImpl implements Sender {
   ) {}
 
   async sendToSelf(event: FSMEvent): Promise<void> {
-    // Queue event asynchronously to avoid race conditions
+    // Event is automatically queued if called during a transition
+    // (onExit, triggeredMethod, or onEntry). Processed after transition completes.
     return this.runtime.sendEvent(this.currentInstanceId, event);
   }
 
@@ -111,6 +112,11 @@ export class FSMRuntime extends EventEmitter {
 
   // In-memory event history (used when persistence is not configured)
   private eventHistory: Map<string, import('./types').PersistedEvent[]>; // instanceId → events
+
+  // Event queue: events emitted by triggered methods / onEntry / onExit are deferred
+  // until the current transition is fully complete (XComponent pattern)
+  private _processingTransition: boolean = false;
+  private _eventQueue: Array<{ instanceId: string; event: FSMEvent; resolve: () => void; reject: (err: any) => void }> = [];
 
   constructor(component: Component, persistenceConfig?: PersistenceConfig) {
     super();
@@ -254,6 +260,16 @@ export class FSMRuntime extends EventEmitter {
   async sendEvent(instanceId: string, event: FSMEvent): Promise<void> {
     console.log(`[FSMRuntime] sendEvent called: instanceId=${instanceId}, event=${JSON.stringify(event)}`);
 
+    // If a transition is in progress, queue this event for later processing.
+    // This ensures triggered methods, onEntry, and onExit cannot cause
+    // re-entrant state changes during a transition (XComponent pattern).
+    if (this._processingTransition) {
+      console.log(`[FSMRuntime] Transition in progress — queueing event ${event.type} for ${instanceId}`);
+      return new Promise<void>((resolve, reject) => {
+        this._eventQueue.push({ instanceId, event, resolve, reject });
+      });
+    }
+
     const instance = this.instances.get(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -288,6 +304,10 @@ export class FSMRuntime extends EventEmitter {
     console.log(`[FSMRuntime] targetComponent: ${transition.targetComponent}, targetMachine: ${transition.targetMachine}, targetEvent: ${transition.targetEvent}`);
 
     const previousState = instance.currentState;
+
+    // Mark transition as in progress — any sendEvent calls from triggered methods,
+    // onEntry, or onExit will be queued until this transition completes.
+    this._processingTransition = true;
 
     try {
       // Step 1: Execute onExit method of source state (if defined)
@@ -529,6 +549,26 @@ export class FSMRuntime extends EventEmitter {
         },
       });
       this.instances.delete(instanceId);
+    } finally {
+      // Transition complete — unlock and drain the event queue
+      this._processingTransition = false;
+      await this._drainEventQueue();
+    }
+  }
+
+  /**
+   * Drain queued events that were deferred during a transition.
+   * Events are processed in FIFO order, one at a time.
+   */
+  private async _drainEventQueue(): Promise<void> {
+    while (this._eventQueue.length > 0) {
+      const queued = this._eventQueue.shift()!;
+      try {
+        await this.sendEvent(queued.instanceId, queued.event);
+        queued.resolve();
+      } catch (err) {
+        queued.reject(err);
+      }
     }
   }
 

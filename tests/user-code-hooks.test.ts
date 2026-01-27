@@ -267,4 +267,144 @@ describe('User Code Hooks (onEntry, onExit, triggeredMethod, contextMapping)', (
       expect(createdContext.field2).toBe('value2');
     });
   });
+
+  describe('Event queue (deferred execution during transitions)', () => {
+    const component: Component = {
+      name: 'PaymentComponent',
+      version: '1.0.0',
+      stateMachines: [
+        {
+          name: 'Payment',
+          initialState: 'Pending',
+          states: [
+            { name: 'Pending', type: StateType.ENTRY },
+            { name: 'Processing', type: StateType.REGULAR },
+            { name: 'Validated', type: StateType.REGULAR },
+            { name: 'Failed', type: StateType.FINAL },
+          ],
+          transitions: [
+            {
+              from: 'Pending',
+              to: 'Processing',
+              event: 'PROCESS',
+              type: TransitionType.REGULAR,
+              triggeredMethod: 'checkPayment',
+            },
+            {
+              from: 'Processing',
+              to: 'Validated',
+              event: 'VALIDATE',
+              type: TransitionType.REGULAR,
+            },
+            {
+              from: 'Processing',
+              to: 'Failed',
+              event: 'REJECT',
+              type: TransitionType.REGULAR,
+            },
+          ],
+        },
+      ],
+    };
+
+    it('should defer sender.sendToSelf until after current transition completes', async () => {
+      const runtime = new FSMRuntime(component);
+      const stateChanges: string[] = [];
+
+      // Track state changes
+      runtime.on('state_change', (data: any) => {
+        stateChanges.push(`${data.previousState}->${data.newState}`);
+      });
+
+      // In triggeredMethod, use sender to send VALIDATE event
+      runtime.on('triggered_method', (data: any) => {
+        if (data.method === 'checkPayment') {
+          // This should be queued, NOT executed immediately
+          data.sender.sendToSelf({ type: 'VALIDATE', payload: {}, timestamp: Date.now() });
+        }
+      });
+
+      const id = runtime.createInstance('Payment', { amount: 100 });
+
+      // Send PROCESS — should trigger checkPayment which queues VALIDATE
+      await runtime.sendEvent(id, { type: 'PROCESS', payload: {}, timestamp: Date.now() });
+
+      // Wait for queued event to be processed
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Both transitions should have happened in order
+      expect(stateChanges).toEqual([
+        'Pending->Processing',    // First: the PROCESS transition completes fully
+        'Processing->Validated',  // Then: the queued VALIDATE runs after
+      ]);
+
+      // Final state should be Validated
+      const instance = runtime.getInstance(id);
+      expect(instance?.currentState).toBe('Validated');
+    });
+
+    it('should process queued events in FIFO order', async () => {
+      // Component with multiple possible transitions from Processing
+      const multiComponent: Component = {
+        name: 'TestComponent',
+        version: '1.0.0',
+        stateMachines: [
+          {
+            name: 'Machine',
+            initialState: 'A',
+            states: [
+              { name: 'A', type: StateType.ENTRY },
+              { name: 'B', type: StateType.REGULAR },
+              { name: 'C', type: StateType.REGULAR },
+              { name: 'D', type: StateType.REGULAR },
+            ],
+            transitions: [
+              { from: 'A', to: 'B', event: 'GO', type: TransitionType.REGULAR, triggeredMethod: 'queueMultiple' },
+              { from: 'B', to: 'C', event: 'STEP1', type: TransitionType.REGULAR },
+              { from: 'C', to: 'D', event: 'STEP2', type: TransitionType.REGULAR },
+            ],
+          },
+        ],
+      };
+
+      const runtime = new FSMRuntime(multiComponent);
+      const stateChanges: string[] = [];
+
+      runtime.on('state_change', (data: any) => {
+        stateChanges.push(`${data.previousState}->${data.newState}`);
+      });
+
+      runtime.on('triggered_method', (data: any) => {
+        if (data.method === 'queueMultiple') {
+          // Queue two events — they should execute in order AFTER A->B completes
+          data.sender.sendToSelf({ type: 'STEP1', payload: {}, timestamp: Date.now() });
+          data.sender.sendToSelf({ type: 'STEP2', payload: {}, timestamp: Date.now() });
+        }
+      });
+
+      const id = runtime.createInstance('Machine', {});
+      await runtime.sendEvent(id, { type: 'GO', payload: {}, timestamp: Date.now() });
+
+      // Wait for queue drain
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(stateChanges).toEqual([
+        'A->B',   // First: GO transition
+        'B->C',   // Then: queued STEP1
+        'C->D',   // Then: queued STEP2
+      ]);
+    });
+
+    it('should not queue events sent outside a transition', async () => {
+      const runtime = new FSMRuntime(component);
+
+      const id = runtime.createInstance('Payment', { amount: 100 });
+
+      // Direct sendEvent (not from triggered method) should execute immediately
+      await runtime.sendEvent(id, { type: 'PROCESS', payload: {}, timestamp: Date.now() });
+
+      const instance = runtime.getInstance(id);
+      expect(instance?.currentState).toBe('Processing');
+    });
+  });
 });

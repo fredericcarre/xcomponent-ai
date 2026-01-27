@@ -46,6 +46,16 @@ Users write YAML (declarative) + TypeScript handlers (imperative).
 4. onEntry(targetState)        ← state-level: runs when ENTERING a state (any event)
 ```
 
+### Event queue (deferred execution)
+
+Events emitted via `sender.sendToSelf()` (or `sendTo`, `broadcast`) during a
+transition (from onExit, triggeredMethod, or onEntry) are **queued** and processed
+**after** the current transition completes. This prevents re-entrant state changes
+during a transition. Events are processed in FIFO order.
+
+Implementation: `_processingTransition` flag + `_eventQueue` array in FSMRuntime.
+`sendEvent()` checks the flag and queues if true. `finally` block drains the queue.
+
 ### Three hook points:
 
 | Hook | Defined on | YAML key | Runtime event | Status |

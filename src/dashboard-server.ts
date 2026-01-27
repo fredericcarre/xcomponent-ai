@@ -466,6 +466,7 @@ export class DashboardServer {
   }
 
   async start(port: number = 3000): Promise<void> {
+    console.log(`[Dashboard] Version: 2024-01-27-v2 - Starting...`);
     // Connect to message broker
     console.log(`[Dashboard] Connecting to message broker: ${this.brokerUrl.replace(/:[^:@]+@/, ':***@')}`);
     await this.broker.connect();

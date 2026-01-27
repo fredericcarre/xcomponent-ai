@@ -53,11 +53,13 @@ export class RuntimeBroadcaster {
    * Connect to the broker and start broadcasting events
    */
   async connect(): Promise<void> {
+    console.log(`[RuntimeBroadcaster] Version: 2024-01-27-v2 - Connecting...`);
     await this.broker.connect();
     this.connected = true;
 
     // Subscribe to commands from dashboard
     await this.subscribeToCommands();
+    console.log(`[RuntimeBroadcaster] Command subscriptions established`);
 
     // Register event listeners on the runtime
     this.attachRuntimeListeners();

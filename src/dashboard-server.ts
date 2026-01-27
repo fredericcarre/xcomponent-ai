@@ -255,11 +255,14 @@ export class DashboardServer {
     // Get all instances across all components
     this.app.get('/api/instances', (_req, res) => {
       const allInstances: any[] = [];
+      console.log(`[Dashboard] GET /api/instances - Cache has ${this.instanceCache.size} components`);
       this.instanceCache.forEach((instances, componentName) => {
+        console.log(`[Dashboard]   ${componentName}: ${instances.length} instances`);
         instances.forEach(inst => {
           allInstances.push({ ...inst, componentName });
         });
       });
+      console.log(`[Dashboard] Returning ${allInstances.length} total instances`);
       res.json({ instances: allInstances });
     });
 
@@ -323,7 +326,8 @@ export class DashboardServer {
   private async setupBrokerSubscriptions(): Promise<void> {
     // Subscribe to runtime announcements
     await this.broker.subscribe(DashboardChannels.RUNTIME_ANNOUNCE, async (msg: RuntimeRegistration) => {
-      console.log(`[Dashboard] Runtime announced: ${msg.runtimeId} (${msg.componentName})`);
+      const isNewRuntime = !this.runtimes.has(msg.runtimeId);
+      console.log(`[Dashboard] Runtime announced: ${msg.runtimeId} (${msg.componentName}) - ${isNewRuntime ? 'NEW' : 'existing'}`);
       this.runtimes.set(msg.runtimeId, msg);
       this.runtimeHeartbeats.set(msg.runtimeId, Date.now());
       this.components.set(msg.componentName, msg.component);
@@ -331,8 +335,17 @@ export class DashboardServer {
       // Notify browser clients
       this.io.emit('runtime_connected', msg);
       this.io.emit('components_list', { components: Array.from(this.components.values()) });
-      // Note: We don't query instances here to avoid infinite loop with runtime's re-announce
-      // The initial QUERY_INSTANCES on startup handles getting instances
+
+      // Query instances only for NEW runtimes to avoid infinite loop
+      // The infinite loop was: dashboard queries -> runtime re-announces -> dashboard queries -> ...
+      // By only querying for NEW runtimes, we break the loop
+      if (isNewRuntime) {
+        console.log(`[Dashboard] Querying instances for new runtime ${msg.runtimeId}`);
+        await this.broker.publish(DashboardChannels.QUERY_INSTANCES, {
+          type: 'query_all_instances',
+          timestamp: Date.now()
+        } as any);
+      }
     });
 
     // Subscribe to heartbeats
@@ -384,7 +397,9 @@ export class DashboardServer {
 
     // Subscribe to query responses (for instance data)
     await this.broker.subscribe(DashboardChannels.QUERY_RESPONSE, (msg: any) => {
+      console.log(`[Dashboard] Received QUERY_RESPONSE: type=${msg.type}, component=${msg.componentName}, instances=${msg.instances?.length || 0}`);
       if (msg.type === 'instances' && msg.componentName) {
+        console.log(`[Dashboard] Caching ${msg.instances?.length || 0} instances for ${msg.componentName}`);
         this.instanceCache.set(msg.componentName, msg.instances || []);
         this.io.emit('instances_update', { componentName: msg.componentName, instances: msg.instances });
       }
@@ -405,6 +420,7 @@ export class DashboardServer {
   }
 
   private addToInstanceCache(componentName: string, data: any): void {
+    console.log(`[Dashboard] addToInstanceCache: Adding instance ${data.instanceId} to ${componentName}`);
     const instances = this.instanceCache.get(componentName) || [];
     instances.push({
       instanceId: data.instanceId,
@@ -414,6 +430,7 @@ export class DashboardServer {
       context: data.context || {}
     });
     this.instanceCache.set(componentName, instances);
+    console.log(`[Dashboard] ${componentName} now has ${instances.length} instances in cache`);
   }
 
   private generateMermaidDiagram(machine: any, currentState?: string): string {

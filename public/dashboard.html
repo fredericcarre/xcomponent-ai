@@ -877,6 +877,12 @@
     });
 
     socket.on('instance_created', () => {
+      console.log('instance_created event received');
+      loadInstances();
+    });
+
+    socket.on('instances_update', (data) => {
+      console.log('instances_update event received:', data);
       loadInstances();
     });
 

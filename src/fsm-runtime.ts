@@ -250,7 +250,9 @@ export class FSMRuntime extends EventEmitter {
         '',
         machine.initialState,
         undefined,
-        undefined
+        undefined,
+        undefined,
+        instance.publicMember ? { ...instance.publicMember } : (instance.context ? { ...instance.context } : undefined)
       ).catch((err: any) => {
         console.error(`[FSMRuntime] Failed to persist creation event for ${instanceId}:`, err.message);
       });
@@ -380,7 +382,7 @@ export class FSMRuntime extends EventEmitter {
           undefined, // causedBy (handled internally by persistence)
           sourceComponentName,
           undefined, // targetComponentName
-          instance.publicMember ? { ...instance.publicMember } : undefined
+          instance.publicMember ? { ...instance.publicMember } : (instance.context ? { ...instance.context } : undefined)
         );
 
         // Set as current event for causality tracking

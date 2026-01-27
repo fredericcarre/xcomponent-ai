@@ -368,14 +368,14 @@ runtime.on('triggered_method', async ({ method, event, context, sender }) => {
 ```
 
 **Available sender methods:**
+- `sender.sendToSelf(event)` - Send event to current instance
 - `sender.sendTo(instanceId, event)` - Send to specific instance
-- `sender.broadcast(machine, state, event, filters?)` - Broadcast with optional filters
-- `sender.broadcastToComponent(component, machine, state, event, filters?)` - Cross-component broadcast
-- `sender.createInstance(machine, context)` - Create new instance
+- `sender.sendToComponent(componentName, instanceId, event)` - Cross-component to specific instance
+- `sender.broadcast(machineName, event, currentState?, componentName?)` - Broadcast to instances
+- `sender.createInstance(machineName, context)` - Create new instance
+- `sender.createInstanceInComponent(componentName, machineName, context)` - Cross-component instance creation
 
-**Filter operators:** `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
-
-**Multiple filters = AND logic** (all must match).
+Instance filtering is done via `matchingRules` on the target transition in YAML, not in the sender call.
 
 See: `examples/advanced-patterns-demo.yaml`
 

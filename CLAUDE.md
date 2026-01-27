@@ -95,7 +95,7 @@ runtime.on('exit_method', async ({ method, state, context, sender }) => {
 | `sender.sendToSelf(event)` | Send event to current instance |
 | `sender.sendTo(instanceId, event)` | Send to specific instance |
 | `sender.sendToComponent(componentName, instanceId, event)` | Cross-component to specific instance |
-| `sender.broadcast(machineName, event, state?, componentName?)` | Broadcast with optional filters |
+| `sender.broadcast(machineName, event, state?, componentName?)` | Broadcast to instances |
 | `sender.createInstance(machineName, context)` | Create new instance in same component |
 | `sender.createInstanceInComponent(componentName, machineName, context)` | Cross-component instance creation |
 

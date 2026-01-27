@@ -145,47 +145,39 @@ runtime.on('triggered_method', async ({ method, event, context, sender }) => {
 **Available sender methods:**
 
 ```typescript
+// Send event to current instance
+await sender.sendToSelf(event);
+
 // Send to specific instance (same component)
 await sender.sendTo(instanceId, event);
 
 // Send to specific instance (other component)
 await sender.sendToComponent(componentName, instanceId, event);
 
-// Broadcast to instances (same component)
-await sender.broadcast(machineName, currentState, event, filters?);
+// Broadcast to instances (same or cross-component)
+await sender.broadcast(machineName, event, currentState?, componentName?);
 
-// Broadcast to instances (other component)
-await sender.broadcastToComponent(componentName, machineName, currentState, event, filters?);
+// Create new instance (same component)
+sender.createInstance(machineName, initialContext);
+
+// Create new instance (other component)
+sender.createInstanceInComponent(componentName, machineName, initialContext);
 ```
 
-**Filter operators:**
+**Instance filtering** is done via `matchingRules` on the target transition in YAML, not in the sender call:
 
 ```yaml
-filters:
-  # Equality
-  - property: customerId
-    operator: "==="
-    value: "CUST-001"
-
-  # Comparison
-  - property: amount
-    operator: ">"
-    value: 1000
-
-  # String contains
-  - property: description
-    operator: "contains"
-    value: "urgent"
-
-  # Value in array
-  - property: status
-    operator: "in"
-    value: ["pending", "active"]
+# The target machine filters incoming broadcasts by matching rules
+transitions:
+  - from: Monitoring
+    to: Monitoring
+    event: ORDER_EXECUTION_UPDATE
+    matchingRules:
+      - eventProperty: customerId
+        instanceProperty: customerId
 ```
 
-Operators: `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
-
-**Multiple filters use AND logic** (all must match).
+This way, only RiskMonitor instances whose `customerId` matches the event's `customerId` will receive the broadcast.
 
 ---
 
@@ -390,7 +382,7 @@ curl -X POST http://localhost:3000/api/instances/{instanceId}/events \
 |---------|----------|-------------|
 | **Self-looping** | State updates without state change | `to: same as from` |
 | **Triggered methods** | Accumulate data, compute values | Runs during transition |
-| **Broadcast with filters** | Targeted notifications | Property-based filtering |
+| **Broadcast + matchingRules** | Targeted notifications | YAML matching rules on target |
 | **Timeout transitions** | Expiration, SLAs, deadlines | Parallel with regular events |
 
 ---
@@ -407,7 +399,7 @@ curl -X POST http://localhost:3000/api/instances/{instanceId}/events \
 
 1. **Order matters** for multiple transitions - define them in evaluation order
 2. **Triggered methods should be idempotent** when possible
-3. **Use filters for targeted broadcasts** - more efficient than broadcasting to all and filtering in triggered methods
+3. **Use matchingRules for targeted broadcasts** - declare routing rules in YAML on the target transition
 4. **Log in triggered methods** - helps debugging accumulation logic
 5. **Test timeout scenarios** - ensure cleanup logic handles partial states
 

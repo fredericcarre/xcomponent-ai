@@ -277,19 +277,24 @@ export class RuntimeBroadcaster {
     // Create instance command
     await this.broker.subscribe(DashboardChannels.CREATE_INSTANCE, async (msg: any) => {
       console.log(`[RuntimeBroadcaster] Received CREATE_INSTANCE for ${msg.componentName} (this: ${this.component.name})`);
+      console.log(`[RuntimeBroadcaster] Component match: ${msg.componentName === this.component.name}`);
       if (msg.componentName === this.component.name) {
+        console.log(`[RuntimeBroadcaster] Processing CREATE_INSTANCE...`);
         try {
           // Use specified machine or fall back to entry machine
           const machineName = msg.machineName || this.component.entryMachine;
+          console.log(`[RuntimeBroadcaster] machineName: ${machineName}`);
           if (!machineName) {
             console.error(`[RuntimeBroadcaster] No machine specified and no entry machine defined for component ${this.component.name}`);
             return;
           }
 
+          console.log(`[RuntimeBroadcaster] Calling runtime.createInstance(${machineName}, ${JSON.stringify(msg.context || {})})`);
           const instanceId = this.runtime.createInstance(
             machineName,
             msg.context || {}
           );
+          console.log(`[RuntimeBroadcaster] createInstance returned: ${instanceId}`);
 
           if (msg.sourceComponent) {
             console.log(`[RuntimeBroadcaster] Created instance ${instanceId} (cross-component from ${msg.sourceComponent})`);
@@ -297,8 +302,10 @@ export class RuntimeBroadcaster {
             console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
           }
         } catch (error: any) {
-          console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message);
+          console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message, error.stack);
         }
+      } else {
+        console.log(`[RuntimeBroadcaster] Ignoring CREATE_INSTANCE - not for this component`);
       }
     });
 

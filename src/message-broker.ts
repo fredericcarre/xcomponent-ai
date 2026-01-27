@@ -404,6 +404,8 @@ export class RabbitMQMessageBroker implements MessageBroker {
     // Use channel as routing key (e.g., 'fsm.events.state_change', 'fsm.registry.announce')
     const routingKey = channel.replace(/:/g, '.');
 
+    console.log(`[RabbitMQ] Publishing to exchange '${this.exchangeName}' with routing key '${routingKey}'`);
+
     this.publishChannel.publish(
       this.exchangeName,
       routingKey,
@@ -424,6 +426,8 @@ export class RabbitMQMessageBroker implements MessageBroker {
 
     // Create a unique queue for this subscription
     const queueName = `xcomponent.${routingKey}.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+
+    console.log(`[RabbitMQ] Subscribing to '${channelOrComponent}' with routing key '${routingKey}' on queue '${queueName}'`);
 
     await this.subscribeChannel.assertQueue(queueName, {
       exclusive: true,
@@ -447,10 +451,12 @@ export class RabbitMQMessageBroker implements MessageBroker {
       if (msg) {
         try {
           const content = JSON.parse(msg.content.toString());
+          console.log(`[RabbitMQ] Received message on '${channelOrComponent}':`, JSON.stringify(content).substring(0, 200));
 
           if (channelOrComponent.includes(':')) {
             const handlers = this.channelHandlers.get(channelOrComponent);
             if (handlers) {
+              console.log(`[RabbitMQ] Dispatching to ${handlers.size} handler(s)`);
               handlers.forEach(h => h(content));
             }
           } else {
@@ -467,6 +473,8 @@ export class RabbitMQMessageBroker implements MessageBroker {
         }
       }
     });
+
+    console.log(`[RabbitMQ] Subscription to '${channelOrComponent}' established`);
   }
 
   unsubscribe(channelOrComponent: string): void {

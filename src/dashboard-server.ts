@@ -283,14 +283,19 @@ export class DashboardServer {
       }
 
       try {
-        await this.broker.publish(DashboardChannels.TRIGGER_EVENT, {
+        console.log(`[Dashboard] Publishing TRIGGER_EVENT: ${componentName}/${instanceId} -> ${eventType}`);
+        const message = {
           componentName,
           instanceId,
           event: { type: eventType, payload: payload || {}, timestamp: Date.now() }
-        });
+        };
+        console.log(`[Dashboard] TRIGGER_EVENT message:`, JSON.stringify(message));
+        await this.broker.publish(DashboardChannels.TRIGGER_EVENT, message);
+        console.log(`[Dashboard] TRIGGER_EVENT published successfully`);
 
         res.json({ success: true, message: 'Event sent to runtime' });
       } catch (error: any) {
+        console.error(`[Dashboard] Failed to publish TRIGGER_EVENT:`, error);
         res.status(500).json({ error: error.message });
       }
     });

@@ -1,0 +1,28 @@
+# xcomponent-ai Runtime - Distributed Mode (Redis)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (ignore prepare script - we'll build manually)
+RUN npm ci --ignore-scripts
+
+# Copy source and build
+COPY tsconfig.json ./
+COPY src ./src
+COPY public ./public
+COPY examples ./examples
+
+# Build TypeScript
+RUN npm run build 2>/dev/null || npx tsc
+
+# Copy runtime script
+COPY examples/distributed-redis/runtime.js ./runtime.js
+
+# Prune dev deps but keep redis, pg, and yaml needed for distributed mode
+RUN npm prune --omit=dev && npm install --no-save redis pg yaml
+
+# Start runtime
+CMD ["node", "runtime.js"]

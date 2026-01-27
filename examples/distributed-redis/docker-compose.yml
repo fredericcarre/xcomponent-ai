@@ -1,0 +1,94 @@
+services:
+  # Redis Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: xcomponent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: xcomponent-redis-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: xcomponent
+      POSTGRES_PASSWORD: xcomponent123
+      POSTGRES_DB: xcomponent_fsm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xcomponent -d xcomponent_fsm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # xcomponent-ai Dashboard (Distributed Mode)
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: examples/distributed-redis/Dockerfile.dashboard
+    container_name: xcomponent-redis-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      BROKER_URL: redis://redis:6379
+      PORT: 3000
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Runtime 1: Order Component
+  runtime-order:
+    build:
+      context: ../..
+      dockerfile: examples/distributed-redis/Dockerfile.runtime
+    container_name: xcomponent-redis-runtime-order
+    environment:
+      BROKER_URL: redis://redis:6379
+      DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
+      COMPONENT_FILE: /app/examples/distributed-redis/order-component.yaml
+      RUNTIME_NAME: order-runtime
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Runtime 2: Payment Component
+  runtime-payment:
+    build:
+      context: ../..
+      dockerfile: examples/distributed-redis/Dockerfile.runtime
+    container_name: xcomponent-redis-runtime-payment
+    environment:
+      BROKER_URL: redis://redis:6379
+      DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
+      COMPONENT_FILE: /app/examples/distributed-redis/payment-component.yaml
+      RUNTIME_NAME: payment-runtime
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  default:
+    name: xcomponent-redis-network

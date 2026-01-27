@@ -1,0 +1,84 @@
+# Order Component - Distributed Demo
+# Manages orders and requests payment processing via cross-component messaging
+
+name: OrderComponent
+version: 1.0.0
+entryMachine: Order
+
+stateMachines:
+  - name: Order
+    initialState: Created
+
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+      amount:
+        type: number
+        label: Amount
+        required: true
+      customerId:
+        type: text
+        label: Customer ID
+
+    states:
+      - name: Created
+        type: entry
+
+      - name: PendingPayment
+        type: regular
+
+      - name: Paid
+        type: regular
+
+      - name: Shipped
+        type: regular
+
+      - name: Completed
+        type: final
+
+      - name: Cancelled
+        type: final
+
+    transitions:
+      # Submit order - triggers payment request to PaymentComponent
+      - from: Created
+        to: PendingPayment
+        event: SUBMIT
+        type: cross_component
+        targetComponent: PaymentComponent
+        targetMachine: Payment
+        description: Submit order and request payment
+
+      # Payment confirmed - received from PaymentComponent
+      - from: PendingPayment
+        to: Paid
+        event: PAYMENT_CONFIRMED
+        type: triggerable
+        description: Payment was successful
+
+      # Payment failed - received from PaymentComponent
+      - from: PendingPayment
+        to: Cancelled
+        event: PAYMENT_FAILED
+        type: triggerable
+        description: Payment failed
+
+      # Ship the order
+      - from: Paid
+        to: Shipped
+        event: SHIP
+        type: triggerable
+
+      # Complete delivery
+      - from: Shipped
+        to: Completed
+        event: DELIVER
+        type: triggerable
+
+      # Cancel from any non-final state
+      - from: Created
+        to: Cancelled
+        event: CANCEL
+        type: triggerable

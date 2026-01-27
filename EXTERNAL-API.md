@@ -714,6 +714,6 @@ public void onOrderValidated(String orderId) {
 
 - See [SCALABILITY.md](./SCALABILITY.md) for production deployment
 - See [LLM-GUIDE.md](./LLM-GUIDE.md) for YAML FSM design patterns
-- See `examples/distributed-demo/` for working examples
+- See `examples/distributed/` (RabbitMQ) or `examples/distributed-redis/` (Redis) for working examples
 
 **Built for interoperability.** Any language, any platform. 🌍

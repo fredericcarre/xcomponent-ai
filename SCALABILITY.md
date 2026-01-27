@@ -197,7 +197,7 @@ xcomponent-ai serve order.yaml --port 3001 --broker redis://localhost:6379
 xcomponent-ai serve payment.yaml --port 3002 --broker redis://localhost:6379
 ```
 
-Your YAML cascadingRules automatically work across processes! See `examples/distributed-demo/` for a complete working example.
+Your YAML cascadingRules automatically work across processes! See `examples/distributed/` (RabbitMQ) or `examples/distributed-redis/` (Redis) for complete working examples.
 
 **Manual implementation** (if you need custom logic):
 

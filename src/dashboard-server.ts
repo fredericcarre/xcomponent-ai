@@ -400,7 +400,11 @@ export class DashboardServer {
     const instances = this.instanceCache.get(componentName) || [];
     const idx = instances.findIndex((i: any) => i.instanceId === data.instanceId || i.id === data.instanceId);
     if (idx >= 0) {
+      console.log(`[Dashboard] Updating instance ${data.instanceId} to state ${data.newState}`);
       instances[idx] = { ...instances[idx], currentState: data.newState, context: data.context };
+    } else {
+      console.log(`[Dashboard] WARNING: Instance ${data.instanceId} not found in cache for ${componentName}`);
+      console.log(`[Dashboard] Cached instances: ${instances.map((i: any) => i.instanceId || i.id).join(', ') || 'none'}`);
     }
     this.instanceCache.set(componentName, instances);
   }

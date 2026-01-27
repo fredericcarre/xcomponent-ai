@@ -766,6 +766,11 @@ export class FSMRuntime extends EventEmitter {
       t => t.from === currentState && t.event === event.type
     );
 
+    // Debug logging for transition resolution
+    console.log(`[FSMRuntime] findTransition: machine=${machine.name}, state=${currentState}, event=${event.type}`);
+    console.log(`[FSMRuntime] Available transitions from ${currentState}: ${machine.transitions.filter(t => t.from === currentState).map(t => `${t.event}->${t.to}`).join(', ') || 'none'}`);
+    console.log(`[FSMRuntime] Candidates for ${event.type}: ${candidates.length}`);
+
     if (candidates.length === 0) {
       return null;
     }

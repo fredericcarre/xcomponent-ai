@@ -132,6 +132,11 @@ export class RuntimeBroadcaster {
    * Attach listeners to runtime events
    */
   private attachRuntimeListeners(): void {
+    // Event ignored (no transition found for event)
+    this.runtime.on('event_ignored', (data) => {
+      console.log(`[RuntimeBroadcaster] Event IGNORED: ${data.event.type} in state ${data.currentState} for instance ${data.instanceId}`);
+    });
+
     // State change
     this.runtime.on('state_change', async (data) => {
       const broadcast: FSMEventBroadcast = {

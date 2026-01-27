@@ -144,7 +144,8 @@ export class PersistenceManager {
     stateAfter: string,
     causedBy?: string[],
     sourceComponentName?: string,
-    targetComponentName?: string
+    targetComponentName?: string,
+    instanceContext?: Record<string, any>
   ): Promise<string> {
     if (!this.eventSourcingEnabled) {
       return '';
@@ -165,6 +166,7 @@ export class PersistenceManager {
       caused: [],
       sourceComponentName,
       targetComponentName,
+      publicMemberSnapshot: instanceContext,
     };
 
     await this.eventStore.append(persistedEvent);

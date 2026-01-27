@@ -3589,57 +3589,68 @@
     }
 
     function buildSequenceDiagram(events, correlationKey, correlationValue) {
-      // Collect unique machines in order of appearance
-      const machineOrder = [];
-      const machineSet = new Set();
+      // Build participant key: use componentName:machineName for cross-component visibility
+      function participantKey(evt) {
+        const comp = evt.componentName || '';
+        return comp ? (comp + ':' + evt.machineName) : evt.machineName;
+      }
+      function participantLabel(evt) {
+        const comp = evt.componentName || '';
+        return comp ? (comp + ' / ' + evt.machineName) : evt.machineName;
+      }
+
+      // Collect unique participants in order of appearance
+      const participantOrder = [];
+      const participantSet = new Set();
       for (const evt of events) {
-        if (!machineSet.has(evt.machineName)) {
-          machineSet.add(evt.machineName);
-          machineOrder.push(evt.machineName);
+        const key = participantKey(evt);
+        if (!participantSet.has(key)) {
+          participantSet.add(key);
+          participantOrder.push({ key, label: participantLabel(evt) });
         }
       }
 
       let lines = ['sequenceDiagram'];
 
       // Participants
-      for (const machine of machineOrder) {
-        lines.push(`    participant ${sanitizeMermaidId(machine)} as ${sanitizeMermaidText(machine)}`);
+      for (const p of participantOrder) {
+        lines.push(`    participant ${sanitizeMermaidId(p.key)} as ${sanitizeMermaidText(p.label)}`);
       }
 
       // Process events chronologically
-      let prevMachine = null;
+      let prevKey = null;
       let prevToState = null;
 
       for (let i = 0; i < events.length; i++) {
         const evt = events[i];
-        const machine = sanitizeMermaidId(evt.machineName);
+        const key = sanitizeMermaidId(participantKey(evt));
         const eventType = evt.eventType || 'Unknown';
         const from = evt.fromState || '?';
         const to = evt.toState || '?';
 
-        // Detect cross-component: machine changed between consecutive events
-        const isCrossComponent = prevMachine && prevMachine !== machine;
+        // Detect cross-component: participant changed between consecutive events
+        const isCrossComponent = prevKey && prevKey !== key;
 
         if (isCrossComponent) {
-          // Arrow from previous machine to this one (cross-component message)
-          lines.push(`    ${prevMachine}-)${machine}: ${sanitizeMermaidText(eventType)}`);
+          // Arrow from previous participant to this one (cross-component message)
+          lines.push(`    ${prevKey}-)${key}: ${sanitizeMermaidText(eventType)}`);
           // Show the resulting state transition as a note
-          lines.push(`    Note over ${machine}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
+          lines.push(`    Note over ${key}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
         } else {
-          // Same machine: self-arrow with state transition
-          lines.push(`    ${machine}->>${machine}: ${sanitizeMermaidText(eventType)}`);
-          lines.push(`    Note over ${machine}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
+          // Same participant: self-arrow with state transition
+          lines.push(`    ${key}->>${key}: ${sanitizeMermaidText(eventType)}`);
+          lines.push(`    Note over ${key}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
         }
 
         // Show context at key moments (first event, cross-component boundaries)
         if (i === 0 && evt.context) {
           const ctxPreview = buildContextPreview(evt.context, correlationKey);
           if (ctxPreview) {
-            lines.push(`    Note right of ${machine}: ${sanitizeMermaidText(ctxPreview)}`);
+            lines.push(`    Note right of ${key}: ${sanitizeMermaidText(ctxPreview)}`);
           }
         }
 
-        prevMachine = machine;
+        prevKey = key;
         prevToState = to;
       }
 

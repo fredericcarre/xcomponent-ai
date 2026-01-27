@@ -362,7 +362,9 @@ export class FSMRuntime extends EventEmitter {
           previousState,
           transition.to,
           undefined, // causedBy (handled internally by persistence)
-          sourceComponentName
+          sourceComponentName,
+          undefined, // targetComponentName
+          instance.publicMember ? { ...instance.publicMember } : undefined
         );
 
         // Set as current event for causality tracking

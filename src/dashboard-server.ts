@@ -473,6 +473,7 @@ export class DashboardServer {
         const { instanceId } = req.params;
 
         // Step 1: Get context of the target instance from fsm_events
+        // Also fetch public_member_snapshot which reliably contains instance context
         const instanceEventsResult = await this.pgPool.query(
           `SELECT event_payload, context, public_member_snapshot, machine_name FROM fsm_events
            WHERE instance_id = $1 ORDER BY persisted_at ASC LIMIT 1`,

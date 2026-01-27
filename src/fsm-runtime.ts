@@ -240,6 +240,22 @@ export class FSMRuntime extends EventEmitter {
     };
     this.eventHistory.set(instanceId, [creationEvent]);
 
+    // Persist creation event to database for audit trail correlation
+    if (this.persistence) {
+      this.persistence.persistEvent(
+        instanceId,
+        machineName,
+        this.componentDef.name,
+        creationEvent.event,
+        '',
+        machine.initialState,
+        undefined,
+        undefined
+      ).catch((err: any) => {
+        console.error(`[FSMRuntime] Failed to persist creation event for ${instanceId}:`, err.message);
+      });
+    }
+
     this.emit('instance_created', instance);
 
     // Setup timeout transitions if any from initial state

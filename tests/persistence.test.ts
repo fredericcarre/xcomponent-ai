@@ -64,13 +64,17 @@ describe('Persistence & Event Sourcing (Phase 4)', () => {
       // Get event history
       const history = await runtime.getInstanceHistory(orderId);
 
-      expect(history.length).toBe(2);
-      expect(history[0].event.type).toBe('VALIDATE');
-      expect(history[0].stateBefore).toBe('Draft');
-      expect(history[0].stateAfter).toBe('Validated');
-      expect(history[1].event.type).toBe('CONFIRM');
-      expect(history[1].stateBefore).toBe('Validated');
-      expect(history[1].stateAfter).toBe('Confirmed');
+      // 3 events: INSTANCE_CREATED + VALIDATE + CONFIRM
+      expect(history.length).toBe(3);
+      expect(history[0].event.type).toBe('INSTANCE_CREATED');
+      expect(history[0].stateBefore).toBe('');
+      expect(history[0].stateAfter).toBe('Draft');
+      expect(history[1].event.type).toBe('VALIDATE');
+      expect(history[1].stateBefore).toBe('Draft');
+      expect(history[1].stateAfter).toBe('Validated');
+      expect(history[2].event.type).toBe('CONFIRM');
+      expect(history[2].stateBefore).toBe('Validated');
+      expect(history[2].stateAfter).toBe('Confirmed');
     });
 
     it('should still provide in-memory history when event sourcing is disabled', async () => {

@@ -28,23 +28,27 @@ stateMachines:
 
       - name: Processing
         type: regular
+        onEntry: logProcessingStarted
 
       - name: Validated
         type: regular
 
       - name: Completed
         type: final
+        onEntry: notifyPaymentSuccess
 
       - name: Failed
         type: final
+        onEntry: notifyPaymentFailure
 
     transitions:
-      # Start processing payment
+      # Start processing payment - business logic checks card type
       - from: Pending
         to: Processing
         event: PROCESS
         type: triggerable
-        description: Start payment processing
+        triggeredMethod: checkPaymentMethod
+        description: Start payment processing (checks visa/mastercard)
 
       # Payment validation successful
       - from: Processing

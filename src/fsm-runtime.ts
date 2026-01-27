@@ -290,7 +290,23 @@ export class FSMRuntime extends EventEmitter {
     const previousState = instance.currentState;
 
     try {
-      // Execute transition
+      // Step 1: Execute onExit method of source state (if defined)
+      const sourceState = machine.states.find(s => s.name === previousState);
+      const exitMethod = sourceState?.onExit || sourceState?.exitMethod;
+      if (exitMethod) {
+        const sender = new SenderImpl(this, instance.id, this.registry);
+        const instanceContext = instance.publicMember || instance.context;
+        this.emit('exit_method', {
+          instanceId: instance.id,
+          method: exitMethod,
+          state: previousState,
+          event,
+          context: instanceContext,
+          sender,
+        });
+      }
+
+      // Step 2: Execute triggered method of transition (if defined)
       await this.executeTransition(instance, transition, event);
 
       // Merge event payload into instance context when:
@@ -385,6 +401,21 @@ export class FSMRuntime extends EventEmitter {
         },
       });
 
+      // Step 4: Execute onEntry method of target state (if defined)
+      const entryMethod = newStateObj?.onEntry || newStateObj?.entryMethod;
+      if (entryMethod) {
+        const sender = new SenderImpl(this, instance.id, this.registry);
+        const instanceContext = instance.publicMember || instance.context;
+        this.emit('entry_method', {
+          instanceId,
+          method: entryMethod,
+          state: transition.to,
+          event,
+          context: instanceContext,
+          sender,
+        });
+      }
+
       // Notify parent if configured (child-to-parent communication)
       await this.notifyParentIfConfigured(instance, machine, transition, previousState);
 
@@ -404,9 +435,11 @@ export class FSMRuntime extends EventEmitter {
           instanceId: instanceId,
           machineName: instance.machineName,
         };
-        // Merge parent context with event payload for child instance
-        // Event payload takes precedence (allows passing parameters to child)
-        const childContext = { ...instance.context, ...event.payload };
+        // Build child context: apply contextMapping if defined, otherwise merge all
+        const sourceContext = { ...instance.context, ...event.payload };
+        const childContext = transition.contextMapping
+          ? this.applyContextMapping(transition.contextMapping, sourceContext)
+          : sourceContext;
         const newInstanceId = this.createInstance(
           transition.targetMachine,
           childContext,
@@ -423,8 +456,11 @@ export class FSMRuntime extends EventEmitter {
       // This must happen BEFORE final state check, since cross-component transitions
       // (like Payment.COMPLETE -> Order.PAYMENT_CONFIRMED) often occur on final states
       if (transition.type === TransitionType.CROSS_COMPONENT && transition.targetComponent) {
-        // Merge parent context with event payload for child instance
-        const childContext = { ...instance.context, ...event.payload };
+        // Build context: apply contextMapping if defined, otherwise merge all
+        const sourceContext = { ...instance.context, ...event.payload };
+        const childContext = transition.contextMapping
+          ? this.applyContextMapping(transition.contextMapping, sourceContext)
+          : sourceContext;
 
         this.emit('cross_component_transition', {
           sourceInstanceId: instanceId,
@@ -1388,6 +1424,22 @@ export class FSMRuntime extends EventEmitter {
    *   context: { Id: 42, Total: 99.99 }
    *   result: { orderId: 42, total: 99.99 }
    */
+  /**
+   * Apply contextMapping: { targetProp: "sourceProp" }
+   * Only mapped properties are included in the result.
+   * Supports nested property access via dot notation.
+   */
+  private applyContextMapping(
+    mapping: Record<string, string>,
+    sourceContext: Record<string, any>
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const [targetProp, sourceProp] of Object.entries(mapping)) {
+      result[targetProp] = this.getNestedProperty(sourceContext, sourceProp);
+    }
+    return result;
+  }
+
   private applyPayloadTemplate(
     template: Record<string, any>,
     context: Record<string, any>

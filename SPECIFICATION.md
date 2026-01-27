@@ -108,12 +108,14 @@ interface FSMInstance {
 interface State {
   name: string;
   type: StateType;              // entry | regular | final | error
-  entryMethod?: string;         // Function called on state entry
-  exitMethod?: string;          // Function called on state exit
+  onEntry?: string;             // Method called when entering this state (YAML: onEntry)
+  onExit?: string;              // Method called when exiting this state (YAML: onExit)
   cascadingRules?: CascadingRule[];  // Cross-machine updates
   metadata?: Record<string, any>;
 }
 ```
+
+The runtime emits `'entry_method'` and `'exit_method'` events with `{ method, state, instanceId, event, context, sender }`.
 
 ### Transition
 ```typescript
@@ -127,7 +129,8 @@ interface Transition {
   targetMachine?: string;       // For inter_machine transitions
   targetComponent?: string;     // For cross_component transitions
   targetEvent?: string;         // Event to send to target (cross_component)
-  triggeredMethod?: string;     // Function to execute
+  contextMapping?: Record<string, string>;  // Map source→target context properties
+  triggeredMethod?: string;     // Method to execute during transition
   matchingRules?: MatchingRule[];  // Property-based instance routing (REQUIRED for cross_component with targetEvent)
   specificTriggeringRule?: string; // JS expression for disambiguation
   notifyParent?: NotifyParent;  // Parent notification config
@@ -252,15 +255,18 @@ The runtime emits these events:
 2. Evaluate guards (if any)
 3. Evaluate matchingRules (if broadcast)
 4. Evaluate specificTriggeringRule (if multiple transitions)
-5. Execute exit method (if defined)
-6. Update instance state
-7. Execute triggered method (if defined)
-8. Execute entry method (if defined)
-9. Notify parent (if configured)
-10. Handle cascading rules (if defined)
-11. Handle cross_component (if applicable, requires matchingRules for targetEvent)
-12. Handle inter_machine (if applicable)
-13. Schedule timeout (if applicable)
+5. **Execute onExit method** of source state → emits `'exit_method'` event
+6. **Execute triggeredMethod** of transition → emits `'triggered_method'` event
+7. Merge event payload into context (unless matchingRules present)
+8. **Update instance state** (from → to)
+9. Emit `'state_change'` event
+10. **Execute onEntry method** of target state → emits `'entry_method'` event
+11. Notify parent (if configured)
+12. Save snapshot (if persistence enabled)
+13. Handle inter_machine (if applicable, applies contextMapping)
+14. Handle cross_component (if applicable, applies contextMapping, requires matchingRules for targetEvent)
+15. Check final/error state (dispose or force snapshot)
+16. Schedule timeout (if applicable)
 
 ---
 
@@ -462,7 +468,70 @@ transitions:
 
 ## 7. Communication Patterns
 
-### Sender Interface (Triggered Methods)
+### User Code Execution Model
+
+The framework provides three hook points for user business logic. All are declared
+in YAML as method **names** (strings). The runtime emits events that user TypeScript code
+listens to.
+
+| Hook | Declared on | YAML key | Runtime event | When it runs |
+|------|-----------|----------|---------------|-------------|
+| **onEntry** | State | `onEntry: methodName` | `'entry_method'` | Every time the state is entered (any event) |
+| **onExit** | State | `onExit: methodName` | `'exit_method'` | Every time the state is exited (any event) |
+| **triggeredMethod** | Transition | `triggeredMethod: methodName` | `'triggered_method'` | Only for this specific transition |
+
+Execution order: `onExit(source)` → `triggeredMethod(transition)` → state change → `onEntry(target)`
+
+All handlers receive a `Sender` object for triggering further actions.
+
+### YAML Example
+```yaml
+states:
+  - name: Processing
+    type: regular
+    onEntry: logProcessingStarted       # runs every time we enter Processing
+    onExit: cleanupResources            # runs every time we leave Processing
+
+transitions:
+  - from: Pending
+    to: Processing
+    event: PROCESS
+    triggeredMethod: checkPaymentMethod  # runs only for PROCESS transition
+```
+
+### TypeScript Handlers
+```typescript
+// Triggered method: specific to one transition
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'checkPaymentMethod') {
+    const cardType = context.paymentMethod?.toLowerCase();
+    if (['visa', 'mastercard'].includes(cardType)) {
+      sender.sendToSelf({ type: 'VALIDATE', payload: {} });
+    } else {
+      sender.sendToSelf({ type: 'REJECT', payload: { reason: 'Unsupported card' } });
+    }
+  }
+});
+
+// Entry method: runs when entering a state (regardless of which event)
+runtime.on('entry_method', async ({ method, state, context, sender }) => {
+  if (method === 'logProcessingStarted') {
+    console.log(`Processing payment for order ${context.orderId}`);
+  }
+  if (method === 'notifyPaymentSuccess') {
+    await sendEmail(context.email, 'Payment confirmed!');
+  }
+});
+
+// Exit method: runs when leaving a state
+runtime.on('exit_method', async ({ method, state, context, sender }) => {
+  if (method === 'cleanupResources') {
+    await releaseHold(context.resourceId);
+  }
+});
+```
+
+### Sender Interface
 ```typescript
 interface Sender {
   sendToSelf(event: FSMEvent): Promise<void>;
@@ -474,14 +543,32 @@ interface Sender {
 }
 ```
 
-### Triggered Method Signature
-```typescript
-type TriggeredMethod = (
-  event: FSMEvent,
-  context: any,
-  sender: Sender
-) => Promise<void>;
+### Context Mapping (contextMapping)
+
+When a `cross_component` or `inter_machine` transition sends context to a target,
+`contextMapping` controls which properties are sent and how they are named.
+
+```yaml
+# Without contextMapping: full source context is sent as-is
+- from: Created
+  to: PendingPayment
+  event: SUBMIT
+  type: cross_component
+  targetComponent: PaymentComponent
+
+# With contextMapping: only mapped properties, with optional renaming
+- from: Created
+  to: PendingPayment
+  event: SUBMIT
+  type: cross_component
+  targetComponent: PaymentComponent
+  contextMapping:
+    orderId: orderId         # same name
+    paymentAmount: amount    # rename: source "amount" → target "paymentAmount"
+    # customerId is NOT listed → not sent to PaymentComponent
 ```
+
+Format: `{ targetProperty: sourceProperty }`. Supports nested property access via dot notation.
 
 ### Example: Explicit Control with sender.sendToSelf()
 ```javascript

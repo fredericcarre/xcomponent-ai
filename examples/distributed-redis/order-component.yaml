@@ -1,4 +1,4 @@
-# Order Component - Distributed Demo
+# Order Component - Distributed Demo (Redis)
 # Manages orders and requests payment processing via cross-component messaging
 
 name: OrderComponent
@@ -28,27 +28,36 @@ stateMachines:
 
       - name: PendingPayment
         type: regular
+        onEntry: notifyPaymentPending
 
       - name: Paid
         type: regular
+        onEntry: notifyPaymentReceived
 
       - name: Shipped
         type: regular
+        onEntry: notifyShipped
 
       - name: Completed
         type: final
+        onEntry: notifyDelivered
 
       - name: Cancelled
         type: final
+        onEntry: notifyCancelled
 
     transitions:
       # Submit order - triggers payment request to PaymentComponent
+      # contextMapping: only send orderId and amount (not customerId)
       - from: Created
         to: PendingPayment
         event: SUBMIT
         type: cross_component
         targetComponent: PaymentComponent
         targetMachine: Payment
+        contextMapping:
+          orderId: orderId
+          amount: amount
         description: Submit order and request payment
 
       # Payment confirmed - received from PaymentComponent

@@ -223,11 +223,12 @@ export class DashboardServer {
     // Create instance on a runtime
     this.app.post('/api/components/:name/instances', async (req, res) => {
       const componentName = req.params.name;
-      const { context, event } = req.body;
+      const { machineName, context, event } = req.body;
 
       try {
         await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
           componentName,
+          machineName, // Forward machine name to runtime
           context: context || {},
           event: event || { type: 'START', payload: {} },
           timestamp: Date.now()
@@ -316,7 +317,7 @@ export class DashboardServer {
 
   private async setupBrokerSubscriptions(): Promise<void> {
     // Subscribe to runtime announcements
-    await this.broker.subscribe(DashboardChannels.RUNTIME_ANNOUNCE, (msg: RuntimeRegistration) => {
+    await this.broker.subscribe(DashboardChannels.RUNTIME_ANNOUNCE, async (msg: RuntimeRegistration) => {
       console.log(`[Dashboard] Runtime announced: ${msg.runtimeId} (${msg.componentName})`);
       this.runtimes.set(msg.runtimeId, msg);
       this.runtimeHeartbeats.set(msg.runtimeId, Date.now());
@@ -325,6 +326,13 @@ export class DashboardServer {
       // Notify browser clients
       this.io.emit('runtime_connected', msg);
       this.io.emit('components_list', { components: Array.from(this.components.values()) });
+
+      // Query instances from this newly announced runtime
+      // This ensures we get instances even if we missed the initial QUERY_INSTANCES
+      await this.broker.publish(DashboardChannels.QUERY_INSTANCES, {
+        type: 'query_all_instances',
+        timestamp: Date.now()
+      } as any);
     });
 
     // Subscribe to heartbeats

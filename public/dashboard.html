@@ -2009,8 +2009,8 @@
           // Add local machine nodes
           machines.forEach(machine => {
             const isEntry = component.entryMachine === machine.name;
-            const icon = isEntry ? '⭐' : '📦';
-            flowchartDef += `  ${machine.name}["${icon} ${machine.name}"]\n`;
+            const label = isEntry ? `${machine.name} *` : machine.name;
+            flowchartDef += `  ${machine.name}["${label}"]\n`;
           });
 
           // Add external component nodes (deduplicated)
@@ -2019,19 +2019,33 @@
             const nodeId = `ext_${link.targetComponent.replace(/[^a-zA-Z0-9]/g, '_')}`;
             if (!externalComponents.has(nodeId)) {
               externalComponents.add(nodeId);
-              flowchartDef += `  ${nodeId}(["📡 ${link.targetComponent}"])\n`;
+              flowchartDef += `  ${nodeId}(["${link.targetComponent}"])\n`;
             }
           });
 
           // Add inter-machine connections
-          interMachineLinks.forEach((link, i) => {
-            flowchartDef += `  ${link.fromMachine} -->|"🔗 ${link.event}"| ${link.to}\n`;
+          interMachineLinks.forEach(link => {
+            flowchartDef += `  ${link.fromMachine} -->|"${link.event}"| ${link.to}\n`;
           });
 
-          // Add cross-component connections
-          crossComponentLinks.forEach((link, i) => {
+          // Add cross-component connections (deduplicate same source->target)
+          const crossEdges = new Map();
+          crossComponentLinks.forEach(link => {
             const nodeId = `ext_${link.targetComponent.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            flowchartDef += `  ${link.fromMachine} -.->|"📡 ${link.event}"| ${nodeId}\n`;
+            const edgeKey = `${link.fromMachine}::${nodeId}`;
+            if (!crossEdges.has(edgeKey)) {
+              crossEdges.set(edgeKey, { from: link.fromMachine, to: nodeId, events: [] });
+            }
+            const edge = crossEdges.get(edgeKey);
+            if (!edge.events.includes(link.event)) {
+              edge.events.push(link.event);
+            }
+          });
+          let crossLinkCount = 0;
+          crossEdges.forEach(edge => {
+            const label = edge.events.join(', ');
+            flowchartDef += `  ${edge.from} -.->|"${label}"| ${edge.to}\n`;
+            crossLinkCount++;
           });
 
           // Style nodes
@@ -2048,13 +2062,12 @@
 
           // Style links: inter-machine in green, cross-component in amber
           const totalInterLinks = interMachineLinks.length;
-          const totalCrossLinks = crossComponentLinks.length;
           if (totalInterLinks > 0) {
             const interIndices = Array.from({length: totalInterLinks}, (_, i) => i).join(',');
             flowchartDef += `  linkStyle ${interIndices} stroke:#10b981,stroke-width:3px\n`;
           }
-          if (totalCrossLinks > 0) {
-            const crossIndices = Array.from({length: totalCrossLinks}, (_, i) => i + totalInterLinks).join(',');
+          if (crossLinkCount > 0) {
+            const crossIndices = Array.from({length: crossLinkCount}, (_, i) => i + totalInterLinks).join(',');
             flowchartDef += `  linkStyle ${crossIndices} stroke:#f59e0b,stroke-width:3px\n`;
           }
 
@@ -2227,8 +2240,8 @@
         container.style.position = 'relative';
         container.style.height = 'auto';
 
-        // Render inter-machine flowchart first (if exists)
-        if (interMachineLinks.length > 0) {
+        // Render connections flowchart first (if exists)
+        if (hasConnections) {
           await mermaid.run({ querySelector: '#inter-machine-flowchart' });
         }
 

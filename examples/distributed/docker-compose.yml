@@ -47,9 +47,12 @@ services:
       - "3000:3000"
     environment:
       BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
+      DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
       PORT: 3000
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 

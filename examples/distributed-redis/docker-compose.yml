@@ -43,9 +43,12 @@ services:
       - "3000:3000"
     environment:
       BROKER_URL: redis://redis:6379
+      DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
       PORT: 3000
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 

@@ -17,8 +17,8 @@ COPY public ./public
 # Build TypeScript
 RUN npm run build 2>/dev/null || npx tsc
 
-# Prune dev deps but keep redis needed for distributed mode
-RUN npm prune --omit=dev && npm install --no-save redis
+# Prune dev deps but keep redis and pg needed for distributed mode
+RUN npm prune --omit=dev && npm install --no-save redis pg
 
 # Expose dashboard port
 EXPOSE 3000

@@ -162,10 +162,19 @@ describe('Cross-Component Traceability', () => {
       });
 
       const history = await orderRuntime.getInstanceHistory(orderId);
-      expect(history).toHaveLength(1);
+      expect(history).toHaveLength(2);
+
+      // First event is INSTANCE_CREATED (persisted on instance creation)
       expect(history[0].componentName).toBe('OrderComponent');
       expect(history[0].machineName).toBe('Order');
-      expect(history[0].event.type).toBe('CONFIRM');
+      expect(history[0].event.type).toBe('INSTANCE_CREATED');
+      expect(history[0].stateBefore).toBe('');
+      expect(history[0].stateAfter).toBe('Pending');
+
+      // Second event is the CONFIRM transition
+      expect(history[1].componentName).toBe('OrderComponent');
+      expect(history[1].machineName).toBe('Order');
+      expect(history[1].event.type).toBe('CONFIRM');
     });
 
     it('should track events from multiple components', async () => {
@@ -193,8 +202,9 @@ describe('Cross-Component Traceability', () => {
       const orderEvents = allEvents.filter(e => e.componentName === 'OrderComponent');
       const inventoryEvents = allEvents.filter(e => e.componentName === 'InventoryComponent');
 
-      expect(orderEvents).toHaveLength(1);
-      expect(inventoryEvents).toHaveLength(1);
+      // Each component has 2 events: INSTANCE_CREATED + transition event
+      expect(orderEvents).toHaveLength(2);
+      expect(inventoryEvents).toHaveLength(2);
     });
   });
 

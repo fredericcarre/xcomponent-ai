@@ -3628,6 +3628,14 @@
         const from = evt.fromState || '?';
         const to = evt.toState || '?';
 
+        // Skip INSTANCE_CREATED events as notes instead of transitions
+        if (eventType === 'INSTANCE_CREATED') {
+          lines.push(`    Note over ${key}: created → ${sanitizeMermaidText(to)}`);
+          prevKey = key;
+          prevToState = to;
+          continue;
+        }
+
         // Detect cross-component: participant changed between consecutive events
         const isCrossComponent = prevKey && prevKey !== key;
 
@@ -3640,6 +3648,7 @@
           // Same participant: self-arrow with state transition
           lines.push(`    ${key}->>${key}: ${sanitizeMermaidText(eventType)}`);
           lines.push(`    Note over ${key}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
+
         }
 
         // Show context at key moments (first event, cross-component boundaries)

@@ -457,6 +457,114 @@ export class DashboardServer {
       }
     });
 
+    // Get correlated events across all instances sharing the same context value
+    // Used for cross-component sequence diagram (e.g., all events for orderId=X)
+    this.app.get('/api/history/correlated/:instanceId', async (req, res) => {
+      if (!this.pgPool) {
+        res.json({ events: [], correlationKey: null });
+        return;
+      }
+      try {
+        const { instanceId } = req.params;
+
+        // Step 1: Get context of the target instance from fsm_events
+        const instanceEventsResult = await this.pgPool.query(
+          `SELECT event_payload, machine_name FROM fsm_events
+           WHERE instance_id = $1 ORDER BY persisted_at ASC LIMIT 1`,
+          [instanceId]
+        );
+        if (instanceEventsResult.rows.length === 0) {
+          res.json({ events: [], correlationKey: null });
+          return;
+        }
+
+        // Step 2: Also check snapshots for context
+        const snapshotResult = await this.pgPool.query(
+          `SELECT context FROM fsm_snapshots WHERE instance_id = $1 LIMIT 1`,
+          [instanceId]
+        );
+
+        // Determine correlation key: look for orderId or similar shared context field
+        const firstPayload = instanceEventsResult.rows[0].event_payload || {};
+        const snapshotContext = snapshotResult.rows[0]?.context || {};
+        const context = { ...firstPayload, ...snapshotContext };
+
+        // Try common correlation fields
+        const correlationFields = ['orderId', 'requestId', 'id', 'transactionId', 'correlationId'];
+        let correlationKey: string | null = null;
+        let correlationValue: any = null;
+
+        for (const field of correlationFields) {
+          if (context[field] !== undefined && context[field] !== null) {
+            correlationKey = field;
+            correlationValue = context[field];
+            break;
+          }
+        }
+
+        if (!correlationKey) {
+          // No correlation found, return just this instance's events
+          const result = await this.pgPool.query(
+            `SELECT id, instance_id, machine_name, event_type, event_payload,
+                    from_state, to_state, context, public_member_snapshot,
+                    persisted_at, created_at
+             FROM fsm_events WHERE instance_id = $1
+             ORDER BY persisted_at ASC`,
+            [instanceId]
+          );
+          res.json({
+            events: result.rows.map((row: any) => ({
+              id: row.id,
+              instanceId: row.instance_id,
+              machineName: row.machine_name,
+              eventType: row.event_type,
+              eventPayload: row.event_payload || {},
+              fromState: row.from_state,
+              toState: row.to_state,
+              context: row.context,
+              publicMemberSnapshot: row.public_member_snapshot,
+              persistedAt: parseInt(row.persisted_at, 10),
+            })),
+            correlationKey: null,
+          });
+          return;
+        }
+
+        // Step 3: Find ALL events across ALL instances that share this correlation value
+        // Search in event_payload (JSON) for the correlation key
+        const correlatedResult = await this.pgPool.query(
+          `SELECT id, instance_id, machine_name, event_type, event_payload,
+                  from_state, to_state, context, public_member_snapshot,
+                  persisted_at, created_at
+           FROM fsm_events
+           WHERE event_payload->>$1 = $2
+              OR context->>$1 = $2
+           ORDER BY persisted_at ASC`,
+          [correlationKey, String(correlationValue)]
+        );
+
+        res.json({
+          events: correlatedResult.rows.map((row: any) => ({
+            id: row.id,
+            instanceId: row.instance_id,
+            machineName: row.machine_name,
+            eventType: row.event_type,
+            eventPayload: row.event_payload || {},
+            fromState: row.from_state,
+            toState: row.to_state,
+            context: row.context,
+            publicMemberSnapshot: row.public_member_snapshot,
+            persistedAt: parseInt(row.persisted_at, 10),
+          })),
+          correlationKey,
+          correlationValue,
+        });
+      } catch (error: any) {
+        console.error('[Dashboard] Correlated events error:', error.message);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // Trigger event on specific component instance
     // Accepts both { event: 'NAME' } and { type: 'NAME', payload: {} } formats
     this.app.post('/api/components/:componentName/instances/:instanceId/events', async (req, res) => {

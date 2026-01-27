@@ -1038,6 +1038,67 @@
       word-break: break-all;
     }
 
+    .sequence-diagram-section {
+      margin-bottom: 24px;
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .sequence-diagram-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-tertiary);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .sequence-diagram-header:hover {
+      background: rgba(255,255,255,0.06);
+    }
+
+    .sequence-diagram-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .sequence-diagram-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(59,130,246,0.15);
+      color: #3b82f6;
+    }
+
+    .sequence-diagram-body {
+      padding: 16px;
+      background: var(--bg-secondary);
+      overflow-x: auto;
+    }
+
+    .sequence-diagram-body .mermaid svg {
+      max-width: 100%;
+    }
+
+    .sequence-diagram-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .sequence-diagram-empty {
+      padding: 16px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
     .btn-history {
       background: var(--bg-tertiary);
       border: 1px solid var(--glass-border);
@@ -3378,9 +3439,180 @@
       detailEl.innerHTML = `
         <div class="history-audit-title">Audit Trail</div>
         ${snapshotHtml}
+        <div class="sequence-diagram-section" id="sequence-diagram-section">
+          <div class="sequence-diagram-header" onclick="toggleSequenceDiagram()">
+            <span class="sequence-diagram-title">&#9654; Sequence Diagram</span>
+            <span class="sequence-diagram-badge">cross-component</span>
+          </div>
+          <div class="sequence-diagram-body" id="sequence-diagram-body" style="display:none;">
+            <div class="sequence-diagram-loading">Loading correlated events...</div>
+          </div>
+        </div>
         <div class="audit-timeline">
           ${eventsHtml}
         </div>`;
+
+      // Auto-load if we have a selected instance
+      if (selectedHistoryInstanceId) {
+        loadSequenceDiagram(selectedHistoryInstanceId);
+      }
+    }
+
+    let sequenceDiagramExpanded = false;
+    let sequenceDiagramLoaded = false;
+    let sequenceDiagramData = null;
+
+    function toggleSequenceDiagram() {
+      const body = document.getElementById('sequence-diagram-body');
+      const header = document.querySelector('.sequence-diagram-title');
+      if (!body) return;
+
+      sequenceDiagramExpanded = !sequenceDiagramExpanded;
+      body.style.display = sequenceDiagramExpanded ? 'block' : 'none';
+      if (header) {
+        header.innerHTML = (sequenceDiagramExpanded ? '&#9660;' : '&#9654;') + ' Sequence Diagram';
+      }
+
+      // Render if data loaded but not yet rendered
+      if (sequenceDiagramExpanded && sequenceDiagramData && !sequenceDiagramLoaded) {
+        renderSequenceDiagramContent(sequenceDiagramData);
+      }
+    }
+
+    async function loadSequenceDiagram(instanceId) {
+      sequenceDiagramLoaded = false;
+      sequenceDiagramData = null;
+
+      try {
+        const res = await fetch(`/api/history/correlated/${instanceId}`);
+        const data = await res.json();
+
+        if (!data.events || data.events.length === 0) {
+          sequenceDiagramData = null;
+          const body = document.getElementById('sequence-diagram-body');
+          if (body) body.innerHTML = '<div class="sequence-diagram-empty">No correlated events found (requires PostgreSQL persistence)</div>';
+          return;
+        }
+
+        sequenceDiagramData = data;
+
+        // If already expanded, render immediately
+        if (sequenceDiagramExpanded) {
+          renderSequenceDiagramContent(data);
+        } else {
+          const body = document.getElementById('sequence-diagram-body');
+          if (body) body.innerHTML = '<div class="sequence-diagram-loading">Diagram ready — click header to expand</div>';
+        }
+      } catch (err) {
+        const body = document.getElementById('sequence-diagram-body');
+        if (body) body.innerHTML = '<div class="sequence-diagram-empty">Failed to load correlated events</div>';
+      }
+    }
+
+    async function renderSequenceDiagramContent(data) {
+      const body = document.getElementById('sequence-diagram-body');
+      if (!body) return;
+
+      const diagramDef = buildSequenceDiagram(data.events, data.correlationKey, data.correlationValue);
+      const diagramId = 'seq-diagram-' + Date.now();
+      body.innerHTML = `<div class="mermaid" id="${diagramId}">${diagramDef}</div>`;
+
+      try {
+        await mermaid.run({ querySelector: '#' + diagramId });
+        sequenceDiagramLoaded = true;
+      } catch (err) {
+        body.innerHTML = `<div class="sequence-diagram-empty">Failed to render diagram: ${err.message}</div>
+          <details style="margin-top:8px;font-size:11px;color:var(--text-muted);">
+            <summary>Diagram source</summary>
+            <pre style="white-space:pre-wrap;font-size:10px;margin-top:4px;">${escapeHtml(diagramDef)}</pre>
+          </details>`;
+      }
+    }
+
+    function buildSequenceDiagram(events, correlationKey, correlationValue) {
+      // Collect unique machines in order of appearance
+      const machineOrder = [];
+      const machineSet = new Set();
+      for (const evt of events) {
+        if (!machineSet.has(evt.machineName)) {
+          machineSet.add(evt.machineName);
+          machineOrder.push(evt.machineName);
+        }
+      }
+
+      let lines = ['sequenceDiagram'];
+
+      // Participants
+      for (const machine of machineOrder) {
+        lines.push(`    participant ${sanitizeMermaidId(machine)} as ${sanitizeMermaidText(machine)}`);
+      }
+
+      // Process events chronologically
+      let prevMachine = null;
+      let prevToState = null;
+
+      for (let i = 0; i < events.length; i++) {
+        const evt = events[i];
+        const machine = sanitizeMermaidId(evt.machineName);
+        const eventType = evt.eventType || 'Unknown';
+        const from = evt.fromState || '?';
+        const to = evt.toState || '?';
+
+        // Detect cross-component: machine changed between consecutive events
+        const isCrossComponent = prevMachine && prevMachine !== machine;
+
+        if (isCrossComponent) {
+          // Arrow from previous machine to this one (cross-component message)
+          lines.push(`    ${prevMachine}-)${machine}: ${sanitizeMermaidText(eventType)}`);
+          // Show the resulting state transition as a note
+          lines.push(`    Note over ${machine}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
+        } else {
+          // Same machine: self-arrow with state transition
+          lines.push(`    ${machine}->>${machine}: ${sanitizeMermaidText(eventType)}`);
+          lines.push(`    Note over ${machine}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
+        }
+
+        // Show context at key moments (first event, cross-component boundaries)
+        if (i === 0 && evt.context) {
+          const ctxPreview = buildContextPreview(evt.context, correlationKey);
+          if (ctxPreview) {
+            lines.push(`    Note right of ${machine}: ${sanitizeMermaidText(ctxPreview)}`);
+          }
+        }
+
+        prevMachine = machine;
+        prevToState = to;
+      }
+
+      return lines.join('\n');
+    }
+
+    function buildContextPreview(context, correlationKey) {
+      if (!context || typeof context !== 'object') return '';
+      const entries = Object.entries(context);
+      if (entries.length === 0) return '';
+      // Show up to 3 key context fields
+      const preview = entries.slice(0, 3).map(([k, v]) => {
+        const val = typeof v === 'string' ? v : JSON.stringify(v);
+        const short = val.length > 20 ? val.substring(0, 17) + '...' : val;
+        return `${k}: ${short}`;
+      });
+      return preview.join('<br/>');
+    }
+
+    function sanitizeMermaidId(str) {
+      // Mermaid participant IDs: alphanumeric + underscores only
+      return str.replace(/[^a-zA-Z0-9_]/g, '_');
+    }
+
+    function sanitizeMermaidText(str) {
+      if (!str) return '';
+      // Escape characters that break Mermaid syntax
+      return str.replace(/[;:#]/g, ' ').replace(/"/g, "'").replace(/\n/g, ' ');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     // Redraw arrows on window resize

@@ -43,8 +43,9 @@ export interface MessageBroker {
   /**
    * Subscribe to messages on a channel
    * Handler receives any message type for flexibility
+   * Returns Promise for async brokers (RabbitMQ, Redis) or void for sync brokers (memory)
    */
-  subscribe(channel: string, handler: (message: any) => void): void;
+  subscribe(channel: string, handler: (message: any) => void): void | Promise<void>;
 
   /**
    * Unsubscribe from a component's messages

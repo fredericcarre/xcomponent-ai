@@ -588,10 +588,16 @@ npm run doc
 ```
 
 **Guides**:
-- **[LLM Generation Guide](docs/llm-guide.md)** - Complete guide for LLM-based YAML generation
+- **[Deployment Guide](DEPLOYMENT.md)** - All deployment modes (monolith, distributed, Redis, PostgreSQL)
+- **[Quick Start](QUICKSTART.md)** - Getting started in 5 minutes
 - **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage for LLMs (Claude/GPT)
-- **[Persistence Guide](PERSISTENCE.md)** - Database configuration and event sourcing
-- **[Quick Start](QUICKSTART.md)** - Getting started guide
+- **[Persistence Guide](PERSISTENCE.md)** - Event sourcing and snapshot configuration
+- **[Specification](SPECIFICATION.md)** - Full framework specification
+
+**Deployment Examples**:
+- **[Monolith + PostgreSQL](examples/monolith-postgres/)** - Single process with database persistence
+- **[Distributed + RabbitMQ](examples/distributed/)** - Multi-process with RabbitMQ bus
+- **[Distributed + Redis](examples/distributed-redis/)** - Multi-process with Redis bus
 
 **Business Examples**:
 - **[E-Commerce Order](examples/e-commerce-order/)** - Order processing with payment and shipping (Saga pattern)

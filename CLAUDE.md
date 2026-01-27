@@ -27,6 +27,7 @@ component.yaml          FSMRuntime              dashboard-server.ts
 | `src/dashboard-server.ts` | Express API + serves dashboard UI |
 | `src/persistence.ts` | Event sourcing + snapshot persistence layer |
 | `src/postgres-persistence.ts` | PostgreSQL implementation of persistence |
+| `src/redis-persistence.ts` | Redis implementation of persistence (sorted sets + keys) |
 | `src/cli.ts` | CLI entry point, YAML parsing |
 | `src/api.ts` | Programmatic API entry point |
 | `schemas/component.schema.json` | JSON Schema for YAML validation |
@@ -165,9 +166,26 @@ The YAML loader must map between these names.
 
 ## Persistence
 
-- **Event sourcing**: Every transition is persisted to `fsm_events` table
+Three persistence backends:
+
+| Backend | Module | Use case |
+|---------|--------|----------|
+| In-memory | `src/persistence.ts` | Development, testing |
+| PostgreSQL | `src/postgres-persistence.ts` | Production (SQL queries, full audit) |
+| Redis | `src/redis-persistence.ts` | Production (sorted sets, simpler infra) |
+
+- **Event sourcing**: Every transition is persisted (table/sorted set per instance)
 - **Snapshots**: Saved every N transitions (`snapshotInterval`) AND always on terminal states
-- **History search**: Queries `fsm_snapshots` first, falls back to `fsm_events` GROUP BY
+- **History search**: Queries snapshots first, falls back to events GROUP BY
+
+## Deployment Modes
+
+See `DEPLOYMENT.md` for the complete reference. Five modes:
+1. **Monolith** (in-memory bus + in-memory persistence)
+2. **Monolith + PostgreSQL** (in-memory bus + PostgreSQL)
+3. **Distributed + RabbitMQ** (RabbitMQ bus + optional PostgreSQL)
+4. **Distributed + Redis** (Redis bus + optional PostgreSQL)
+5. **Redis-only** (Redis bus + Redis persistence)
 
 ## Testing
 

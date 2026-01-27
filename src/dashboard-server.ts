@@ -331,13 +331,8 @@ export class DashboardServer {
       // Notify browser clients
       this.io.emit('runtime_connected', msg);
       this.io.emit('components_list', { components: Array.from(this.components.values()) });
-
-      // Query instances from this newly announced runtime
-      // This ensures we get instances even if we missed the initial QUERY_INSTANCES
-      await this.broker.publish(DashboardChannels.QUERY_INSTANCES, {
-        type: 'query_all_instances',
-        timestamp: Date.now()
-      } as any);
+      // Note: We don't query instances here to avoid infinite loop with runtime's re-announce
+      // The initial QUERY_INSTANCES on startup handles getting instances
     });
 
     // Subscribe to heartbeats

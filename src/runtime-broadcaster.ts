@@ -296,8 +296,8 @@ export class RuntimeBroadcaster {
 
     // Query instances command
     await this.broker.subscribe(DashboardChannels.QUERY_INSTANCES, async (_msg: any) => {
-      // Note: We don't re-announce here anymore to avoid infinite loop
-      // Dashboard queries on startup and when runtimes announce
+      // Re-announce ourselves so late-starting dashboards discover us
+      await this.announce();
 
       const instances = this.runtime.getAllInstances().map(inst => ({
         id: inst.id,

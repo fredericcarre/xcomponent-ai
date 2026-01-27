@@ -145,6 +145,7 @@ export class PostgresEventStore implements EventStore {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     `;
 
+    const contextSnapshot = event.publicMemberSnapshot || {};
     await this.pool.query(query, [
       event.id,
       event.instanceId,
@@ -154,8 +155,8 @@ export class PostgresEventStore implements EventStore {
       JSON.stringify(event.event.payload || {}),
       event.stateBefore,
       event.stateAfter,
-      JSON.stringify({}), // context placeholder
-      JSON.stringify(event.publicMemberSnapshot || {}),
+      JSON.stringify(contextSnapshot),
+      JSON.stringify(contextSnapshot),
       event.sourceComponentName || null,
       event.causedBy?.[0] || null, // correlation_id from first causedBy
       event.causedBy?.[0] || null, // causation_id from first causedBy

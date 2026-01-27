@@ -474,7 +474,7 @@ export class DashboardServer {
 
         // Step 1: Get context of the target instance from fsm_events
         const instanceEventsResult = await this.pgPool.query(
-          `SELECT event_payload, machine_name FROM fsm_events
+          `SELECT event_payload, context, public_member_snapshot, machine_name FROM fsm_events
            WHERE instance_id = $1 ORDER BY persisted_at ASC LIMIT 1`,
           [instanceId]
         );
@@ -489,10 +489,12 @@ export class DashboardServer {
           [instanceId]
         );
 
-        // Determine correlation key: look for orderId or similar shared context field
+        // Determine correlation key: merge all available context sources
         const firstPayload = instanceEventsResult.rows[0].event_payload || {};
+        const eventContext = instanceEventsResult.rows[0].context || {};
+        const eventSnapshot = instanceEventsResult.rows[0].public_member_snapshot || {};
         const snapshotContext = snapshotResult.rows[0]?.context || {};
-        const context = { ...firstPayload, ...snapshotContext };
+        const context = { ...firstPayload, ...eventContext, ...eventSnapshot, ...snapshotContext };
 
         // Try common correlation fields
         const correlationFields = ['orderId', 'requestId', 'id', 'transactionId', 'correlationId'];
@@ -510,9 +512,9 @@ export class DashboardServer {
         if (!correlationKey) {
           // No correlation found, return just this instance's events
           const result = await this.pgPool.query(
-            `SELECT id, instance_id, machine_name, event_type, event_payload,
+            `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
                     from_state, to_state, context, public_member_snapshot,
-                    persisted_at, created_at
+                    source_component_name, persisted_at, created_at
              FROM fsm_events WHERE instance_id = $1
              ORDER BY persisted_at ASC`,
             [instanceId]
@@ -522,12 +524,14 @@ export class DashboardServer {
               id: row.id,
               instanceId: row.instance_id,
               machineName: row.machine_name,
+              componentName: row.component_name || '',
               eventType: row.event_type,
               eventPayload: row.event_payload || {},
               fromState: row.from_state,
               toState: row.to_state,
               context: row.context,
               publicMemberSnapshot: row.public_member_snapshot,
+              sourceComponentName: row.source_component_name || undefined,
               persistedAt: parseInt(row.persisted_at, 10),
             })),
             correlationKey: null,
@@ -536,7 +540,7 @@ export class DashboardServer {
         }
 
         // Step 3: Find ALL events across ALL instances that share this correlation value
-        // Search in event_payload (JSON) for the correlation key
+        // Search in event_payload, context, and public_member_snapshot
         const correlatedResult = await this.pgPool.query(
           `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
                   from_state, to_state, context, public_member_snapshot,
@@ -544,6 +548,7 @@ export class DashboardServer {
            FROM fsm_events
            WHERE event_payload->>$1 = $2
               OR context->>$1 = $2
+              OR public_member_snapshot->>$1 = $2
            ORDER BY persisted_at ASC`,
           [correlationKey, String(correlationValue)]
         );

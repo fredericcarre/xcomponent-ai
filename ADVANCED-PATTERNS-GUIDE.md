@@ -53,33 +53,47 @@ transitions:
 
 Triggered methods can modify the instance's context/publicMember.
 
+**YAML** — declares only the method **name** on the transition:
+
 ```yaml
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // Initialize if first execution
-      if (!context.executedQuantity) {
-        context.executedQuantity = 0;
-      }
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: accumulateExecution
+```
 
-      // ACCUMULATE data from event
-      const qty = event.payload.quantity || 0;
-      context.executedQuantity += qty;
+**TypeScript** — implements the business logic in a handler:
 
-      // Track execution history
-      context.executions.push({
-        quantity: qty,
-        price: event.payload.price,
-        executionId: event.payload.executionId,
-        timestamp: event.timestamp
-      });
-
-      console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'accumulateExecution') {
+    // Initialize if first execution
+    if (!context.executedQuantity) {
+      context.executedQuantity = 0;
     }
+
+    // ACCUMULATE data from event
+    const qty = event.payload.quantity || 0;
+    context.executedQuantity += qty;
+
+    // Track execution history
+    context.executions.push({
+      quantity: qty,
+      price: event.payload.price,
+      executionId: event.payload.executionId,
+      timestamp: event.timestamp
+    });
+
+    console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+  }
+});
 ```
 
 **Key points:**
-- Triggered method runs during the transition
+- YAML contains only the method name (string), not code
+- The handler is registered in TypeScript via `runtime.on('triggered_method', ...)`
 - Context changes persist after the transition completes
 - This enables accumulation patterns
 
@@ -87,17 +101,31 @@ triggeredMethods:
 
 ### Pattern 3: Broadcast with Filters from Triggered Methods
 
-Triggered methods can send events to **specific instances** using property filters.
+Triggered methods can send events to **specific instances** using the sender API.
+
+**YAML** — declares the method name:
 
 ```yaml
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // ... update context ...
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: accumulateAndNotify
+```
 
-      // BROADCAST WITH FILTERS
-      // Notify ONLY risk monitors for this customer
-      const notificationEvent = {
+**TypeScript** — implements broadcast logic in the handler:
+
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'accumulateAndNotify') {
+    // Update context
+    context.executedQuantity += event.payload.quantity || 0;
+
+    // BROADCAST: Notify ONLY risk monitors for this customer
+    const count = await sender.broadcast(
+      'RiskMonitor',              // Target machine
+      {                           // Event to send
         type: 'ORDER_EXECUTION_UPDATE',
         payload: {
           orderId: context.orderId,
@@ -105,67 +133,51 @@ triggeredMethods:
           totalQuantity: context.totalQuantity
         },
         timestamp: Date.now()
-      };
+      },
+      'Monitoring'                // Target state (optional)
+    );
 
-      // sender.broadcast(machineName, currentState, event, filters)
-      const count = await sender.broadcast(
-        'RiskMonitor',              // Target machine
-        'Monitoring',               // Target state
-        notificationEvent,          // Event to send
-        [
-          // FILTERS: Target specific instances
-          { property: 'customerId', value: event.payload.customerId }
-        ]
-      );
-
-      console.log(`Notified ${count} risk monitor(s)`);
-    }
+    console.log(`Notified ${count} risk monitor(s)`);
+  }
+});
 ```
 
 **Available sender methods:**
 
 ```typescript
+// Send event to current instance
+await sender.sendToSelf(event);
+
 // Send to specific instance (same component)
 await sender.sendTo(instanceId, event);
 
 // Send to specific instance (other component)
 await sender.sendToComponent(componentName, instanceId, event);
 
-// Broadcast to instances (same component)
-await sender.broadcast(machineName, currentState, event, filters?);
+// Broadcast to instances (same or cross-component)
+await sender.broadcast(machineName, event, currentState?, componentName?);
 
-// Broadcast to instances (other component)
-await sender.broadcastToComponent(componentName, machineName, currentState, event, filters?);
+// Create new instance (same component)
+sender.createInstance(machineName, initialContext);
+
+// Create new instance (other component)
+sender.createInstanceInComponent(componentName, machineName, initialContext);
 ```
 
-**Filter operators:**
+**Instance filtering** is done via `matchingRules` on the target transition in YAML, not in the sender call:
 
 ```yaml
-filters:
-  # Equality
-  - property: customerId
-    operator: "==="
-    value: "CUST-001"
-
-  # Comparison
-  - property: amount
-    operator: ">"
-    value: 1000
-
-  # String contains
-  - property: description
-    operator: "contains"
-    value: "urgent"
-
-  # Value in array
-  - property: status
-    operator: "in"
-    value: ["pending", "active"]
+# The target machine filters incoming broadcasts by matching rules
+transitions:
+  - from: Monitoring
+    to: Monitoring
+    event: ORDER_EXECUTION_UPDATE
+    matchingRules:
+      - eventProperty: customerId
+        instanceProperty: customerId
 ```
 
-Operators: `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
-
-**Multiple filters use AND logic** (all must match).
+This way, only RiskMonitor instances whose `customerId` matches the event's `customerId` will receive the broadcast.
 
 ---
 
@@ -370,7 +382,7 @@ curl -X POST http://localhost:3000/api/instances/{instanceId}/events \
 |---------|----------|-------------|
 | **Self-looping** | State updates without state change | `to: same as from` |
 | **Triggered methods** | Accumulate data, compute values | Runs during transition |
-| **Broadcast with filters** | Targeted notifications | Property-based filtering |
+| **Broadcast + matchingRules** | Targeted notifications | YAML matching rules on target |
 | **Timeout transitions** | Expiration, SLAs, deadlines | Parallel with regular events |
 
 ---
@@ -387,7 +399,7 @@ curl -X POST http://localhost:3000/api/instances/{instanceId}/events \
 
 1. **Order matters** for multiple transitions - define them in evaluation order
 2. **Triggered methods should be idempotent** when possible
-3. **Use filters for targeted broadcasts** - more efficient than broadcasting to all and filtering in triggered methods
+3. **Use matchingRules for targeted broadcasts** - declare routing rules in YAML on the target transition
 4. **Log in triggered methods** - helps debugging accumulation logic
 5. **Test timeout scenarios** - ensure cleanup logic handles partial states
 

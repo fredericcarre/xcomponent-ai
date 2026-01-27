@@ -324,45 +324,58 @@ Or via the dashboard UI: Click the **"+ New"** button in the Instances sidebar.
 
 Triggered methods can send events to **specific instances** using property filters:
 
+**YAML** — declare the method name on the transition:
+
 ```yaml
-triggeredMethods:
-  notifyRiskMonitors: |
-    async function(event, context, sender) {
-      // Update local context
-      context.executedQuantity += event.payload.quantity;
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: notifyRiskMonitors
+```
 
-      // BROADCAST to risk monitors for THIS CUSTOMER ONLY
-      const count = await sender.broadcast(
-        'RiskMonitor',           // Target machine
-        'Monitoring',            // Target state
-        {
-          type: 'ORDER_UPDATE',
-          payload: {
-            orderId: context.orderId,
-            executedQuantity: context.executedQuantity
-          },
-          timestamp: Date.now()
+**TypeScript** — implement the handler:
+
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'notifyRiskMonitors') {
+    // Update local context
+    context.executedQuantity += event.payload.quantity;
+
+    // BROADCAST to risk monitors for THIS CUSTOMER ONLY
+    const count = await sender.broadcast(
+      'RiskMonitor',           // Target machine
+      {
+        type: 'ORDER_UPDATE',
+        payload: {
+          orderId: context.orderId,
+          executedQuantity: context.executedQuantity
         },
-        [
-          // FILTERS: Property-based targeting
-          { property: 'customerId', value: context.customerId },
-          { property: 'assetClass', operator: '===', value: 'EQUITY' }
-        ]
-      );
+        timestamp: Date.now()
+      },
+      [
+        // FILTERS: Property-based targeting
+        { property: 'customerId', value: context.customerId },
+        { property: 'assetClass', operator: '===', value: 'EQUITY' }
+      ],
+      'Monitoring'             // Target state (optional)
+    );
 
-      console.log(`Notified ${count} risk monitor(s)`);
-    }
+    console.log(`Notified ${count} risk monitor(s)`);
+  }
+});
 ```
 
 **Available sender methods:**
+- `sender.sendToSelf(event)` - Send event to current instance
 - `sender.sendTo(instanceId, event)` - Send to specific instance
-- `sender.broadcast(machine, state, event, filters?)` - Broadcast with optional filters
-- `sender.broadcastToComponent(component, machine, state, event, filters?)` - Cross-component broadcast
-- `sender.createInstance(machine, context)` - Create new instance
+- `sender.sendToComponent(componentName, instanceId, event)` - Cross-component to specific instance
+- `sender.broadcast(machineName, event, currentState?, componentName?)` - Broadcast to instances
+- `sender.createInstance(machineName, context)` - Create new instance
+- `sender.createInstanceInComponent(componentName, machineName, context)` - Cross-component instance creation
 
-**Filter operators:** `===`, `!==`, `>`, `<`, `>=`, `<=`, `contains`, `in`
-
-**Multiple filters = AND logic** (all must match).
+Instance filtering is done via `matchingRules` on the target transition in YAML, not in the sender call.
 
 See: `examples/advanced-patterns-demo.yaml`
 

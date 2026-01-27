@@ -1,65 +1,95 @@
-# 📡 Sender Broadcast Guide
+# Sender Broadcast Guide
 
 This guide explains how to broadcast events from triggered methods using the `sender` parameter.
 
-## 🎯 New Simplified API
+---
 
-**Before (v0.2.2):**
-```javascript
-// Had to specify currentState even when using filters
-await sender.broadcast('Order', 'Pending', event, filters);
-                              ^^^^^^^^ Why force this?
-```
+## Sender API
 
-**After (v0.2.3+):**
-```javascript
-// currentState is now optional!
-await sender.broadcast('Order', event, filters);
-// Broadcasts to ALL Orders (any state) matching filters
+The `sender` object is available in all triggered method, onEntry, and onExit handlers.
+
+### Full API
+
+```typescript
+interface Sender {
+  // Send event to current instance
+  sendToSelf(event: FSMEvent): Promise<void>;
+
+  // Send to specific instance (same component)
+  sendTo(instanceId: string, event: FSMEvent): Promise<void>;
+
+  // Send to specific instance (other component)
+  sendToComponent(componentName: string, instanceId: string, event: FSMEvent): Promise<void>;
+
+  // Broadcast to instances (same or cross-component)
+  broadcast(
+    machineName: string,
+    event: FSMEvent,
+    currentState?: string,      // Optional: target only instances in this state
+    componentName?: string       // Optional: target another component
+  ): Promise<number>;
+
+  // Create new instance (same component)
+  createInstance(machineName: string, initialContext: Record<string, any>): string;
+
+  // Create new instance (other component)
+  createInstanceInComponent(
+    componentName: string,
+    machineName: string,
+    initialContext: Record<string, any>
+  ): string;
+}
 ```
 
 ---
 
-## 📋 Sender Methods
+## `sendTo()` - Send to Specific Instance
 
-### 1. `sendTo()` - Send to Specific Instance
-
-```javascript
+```typescript
 await sender.sendTo(instanceId, event);
 ```
 
-**Example:**
+**Example YAML** -- declare the method name on the transition:
 ```yaml
-triggeredMethods:
-  notifyPayment: |
-    async function(event, context, sender) {
-      // Send to specific payment instance
-      await sender.sendTo(context.paymentInstanceId, {
-        type: 'ORDER_CONFIRMED',
-        payload: { orderId: context.orderId },
-        timestamp: Date.now()
-      });
-    }
+transitions:
+  - from: Validated
+    to: Confirmed
+    event: CONFIRM
+    type: triggerable
+    triggeredMethod: notifyPayment
+```
+
+**Example TypeScript** -- implement the handler:
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'notifyPayment') {
+    await sender.sendTo(context.paymentInstanceId, {
+      type: 'ORDER_CONFIRMED',
+      payload: { orderId: context.orderId },
+      timestamp: Date.now()
+    });
+  }
+});
 ```
 
 ---
 
-### 2. `broadcast()` - Broadcast to Multiple Instances
+## `broadcast()` - Broadcast to Multiple Instances
 
-**New signature:**
+### Signature
+
 ```typescript
 sender.broadcast(
-  machineName: string,
-  event: FSMEvent,
-  filters?: PropertyFilter[],    // Optional
-  currentState?: string           // Optional
-): Promise<number>
+  machineName: string,          // Target state machine
+  event: FSMEvent,              // Event to send
+  currentState?: string,        // Optional: only instances in this state
+  componentName?: string        // Optional: target another component
+): Promise<number>              // Returns number of instances that received the event
 ```
 
-#### Broadcast to All Instances (Any State)
+### Broadcast to All Instances (Any State)
 
-```javascript
-// No filters, no state = ALL instances of this machine
+```typescript
 await sender.broadcast('Order', {
   type: 'SYSTEM_ALERT',
   payload: { message: 'Maintenance in 5 minutes' },
@@ -67,285 +97,263 @@ await sender.broadcast('Order', {
 });
 ```
 
-#### Broadcast with Property Filters (Any State)
+### Broadcast to Specific State
 
-```javascript
-// Filters only (no state restriction)
-await sender.broadcast(
-  'Order',
-  {
-    type: 'CUSTOMER_UPDATE',
-    payload: { newTier: 'premium' },
-    timestamp: Date.now()
-  },
-  [
-    // Only orders for this customer
-    { property: 'customerId', value: 'CUST-001' }
-  ]
-);
-```
-
-**Broadcasts to:**
-- All `Order` instances
-- With `customerId === 'CUST-001'`
-- **In any state** (Pending, Processing, Completed, etc.)
-
-#### Broadcast to Specific State
-
-```javascript
-// With currentState (backward compatible)
-await sender.broadcast(
-  'Order',
-  {
-    type: 'TIMEOUT',
-    payload: {},
-    timestamp: Date.now()
-  },
-  [],  // No filters
-  'Pending'  // Only Pending orders
-);
-```
-
-#### Broadcast with Filters AND State
-
-```javascript
-// Combine filters and state
-await sender.broadcast(
-  'Order',
-  {
-    type: 'URGENT_REVIEW',
-    payload: {},
-    timestamp: Date.now()
-  },
-  [
-    { property: 'customerId', value: 'CUST-001' },
-    { property: 'amount', operator: '>', value: 10000 }
-  ],
-  'Pending'  // Only in Pending state
-);
-```
-
-**Broadcasts to:**
-- `Order` instances in `Pending` state
-- With `customerId === 'CUST-001'`
-- AND `amount > 10000`
-
----
-
-### 3. `broadcastToComponent()` - Cross-Component Broadcast
-
-**New signature:**
 ```typescript
-sender.broadcastToComponent(
-  componentName: string,
-  machineName: string,
-  event: FSMEvent,
-  filters?: PropertyFilter[],
-  currentState?: string
-): Promise<number>
+await sender.broadcast(
+  'Order',
+  {
+    type: 'TIMEOUT_CHECK',
+    payload: {},
+    timestamp: Date.now()
+  },
+  'Pending'  // Only instances in Pending state
+);
 ```
 
-#### Broadcast to All Instances (Other Component)
+### Cross-Component Broadcast
 
-```javascript
-await sender.broadcastToComponent(
-  'PaymentComponent',
+```typescript
+await sender.broadcast(
   'Payment',
   {
-    type: 'SYSTEM_SHUTDOWN',
-    payload: { gracePeriod: 300 },
+    type: 'ORDER_COMPLETED',
+    payload: { orderId: context.orderId },
     timestamp: Date.now()
-  }
+  },
+  undefined,            // Any state
+  'PaymentComponent'    // Target component
 );
 ```
 
-#### With Filters (Other Component)
+### Cross-Component Broadcast to Specific State
 
-```javascript
-await sender.broadcastToComponent(
-  'PaymentComponent',
+```typescript
+await sender.broadcast(
   'Payment',
   {
     type: 'REFUND_REQUESTED',
     payload: { orderId: context.orderId },
     timestamp: Date.now()
   },
-  [
-    { property: 'orderId', value: context.orderId }
-  ]
+  'Authorized',         // Only payments in Authorized state
+  'PaymentComponent'    // Target component
 );
 ```
 
 ---
 
-## 🔍 Property Filters
+## Instance Filtering with matchingRules
 
-Filters use **AND logic** (all must match).
+The `sender.broadcast()` method does **not** accept filters. Instance filtering is done declaratively via `matchingRules` on the **target** transition in YAML.
 
-### Filter Operators
+### How it Works
 
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `===` | Equal (default) | `{property: 'status', value: 'active'}` |
-| `!==` | Not equal | `{property: 'status', operator: '!==', value: 'cancelled'}` |
-| `>` | Greater than | `{property: 'amount', operator: '>', value: 1000}` |
-| `<` | Less than | `{property: 'quantity', operator: '<', value: 10}` |
-| `>=` | Greater or equal | `{property: 'priority', operator: '>=', value: 5}` |
-| `<=` | Less or equal | `{property: 'age', operator: '<=', value: 30}` |
-| `contains` | String contains | `{property: 'description', operator: 'contains', value: 'urgent'}` |
-| `in` | Value in array | `{property: 'status', operator: 'in', value: ['pending', 'active']}` |
+1. A triggered method broadcasts an event (with data in the payload)
+2. The target machine has a transition with `matchingRules`
+3. The runtime routes the event only to instances where matching rules pass
 
-### Nested Properties
+### Example
 
-Use dot notation for nested properties:
+**Source** -- triggered method broadcasts to all RiskMonitors:
 
-```javascript
-[
-  { property: 'customer.tier', value: 'premium' },
-  { property: 'customer.region', value: 'EMEA' }
-]
+```yaml
+# Order machine
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: notifyRiskMonitors
 ```
 
-### Multiple Filters (AND Logic)
-
-```javascript
-[
-  { property: 'customerId', value: 'CUST-001' },
-  { property: 'amount', operator: '>', value: 1000 },
-  { property: 'status', operator: 'in', value: ['pending', 'active'] }
-]
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'notifyRiskMonitors') {
+    // Broadcast to RiskMonitor — matching rules on the target filter the instances
+    await sender.broadcast('RiskMonitor', {
+      type: 'ORDER_EXECUTION_UPDATE',
+      payload: {
+        customerId: context.customerId,   // This value is matched by the target
+        orderId: context.orderId,
+        executedQuantity: context.executedQuantity
+      },
+      timestamp: Date.now()
+    });
+  }
+});
 ```
 
-All three filters must match!
+**Target** -- matchingRules filter which instances receive the event:
+
+```yaml
+# RiskMonitor machine
+transitions:
+  - from: Monitoring
+    to: Monitoring
+    event: ORDER_EXECUTION_UPDATE
+    type: regular
+    matchingRules:
+      - eventProperty: customerId        # From event.payload.customerId
+        instanceProperty: customerId     # Match against instance context.customerId
+    triggeredMethod: updateRiskMetrics
+```
+
+Only RiskMonitor instances whose `context.customerId` matches `event.payload.customerId` will receive the event.
 
 ---
 
-## 💡 Common Patterns
+## Common Patterns
 
-### Pattern 1: Notify Related Instances (Any State)
+### Pattern 1: Notify Related Instances
 
+**YAML:**
 ```yaml
-triggeredMethods:
-  onOrderUpdate: |
-    async function(event, context, sender) {
-      // Notify ALL risk monitors for this customer
-      // (regardless of their current state)
-      await sender.broadcast(
-        'RiskMonitor',
-        {
-          type: 'ORDER_EVENT',
-          payload: {
-            orderId: context.orderId,
-            eventType: event.type,
-            amount: context.amount
-          },
-          timestamp: Date.now()
-        },
-        [
-          { property: 'customerId', value: context.customerId }
-        ]
-        // No currentState = any state
-      );
-    }
+transitions:
+  - from: Active
+    to: Active
+    event: ORDER_UPDATED
+    type: triggerable
+    triggeredMethod: onOrderUpdate
+```
+
+**TypeScript:**
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onOrderUpdate') {
+    // Broadcast to all RiskMonitors
+    // matchingRules on the RiskMonitor transition will filter by customerId
+    await sender.broadcast('RiskMonitor', {
+      type: 'ORDER_EVENT',
+      payload: {
+        customerId: context.customerId,
+        orderId: context.orderId,
+        amount: context.amount
+      },
+      timestamp: Date.now()
+    });
+  }
+});
 ```
 
 ### Pattern 2: Targeted Notification (Specific State)
 
+**YAML:**
 ```yaml
-triggeredMethods:
-  onPaymentFailed: |
-    async function(event, context, sender) {
-      // Notify only ACTIVE orders for this customer
-      await sender.broadcast(
-        'Order',
-        {
-          type: 'PAYMENT_FAILED',
-          payload: {
-            paymentId: context.paymentId,
-            reason: event.payload.reason
-          },
-          timestamp: Date.now()
+transitions:
+  - from: Processing
+    to: Failed
+    event: PAYMENT_FAIL
+    type: triggerable
+    triggeredMethod: onPaymentFailed
+```
+
+**TypeScript:**
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onPaymentFailed') {
+    // Only notify Orders in Active state
+    await sender.broadcast(
+      'Order',
+      {
+        type: 'PAYMENT_FAILED',
+        payload: {
+          paymentId: context.paymentId,
+          reason: event.payload.reason
         },
-        [
-          { property: 'customerId', value: context.customerId }
-        ],
-        'Active'  // Only Active orders
-      );
-    }
+        timestamp: Date.now()
+      },
+      'Active'  // Only Active orders
+    );
+  }
+});
 ```
 
 ### Pattern 3: System-Wide Alert (No Filters)
 
+**YAML:**
 ```yaml
-triggeredMethods:
-  onSystemAlert: |
-    async function(event, context, sender) {
-      // Alert ALL orders (any state, no filters)
-      await sender.broadcast(
-        'Order',
-        {
-          type: 'SYSTEM_MAINTENANCE',
-          payload: {
-            scheduledAt: event.payload.maintenanceTime
-          },
-          timestamp: Date.now()
-        }
-        // No filters, no state = broadcast to ALL
-      );
-    }
+transitions:
+  - from: Monitoring
+    to: Alerting
+    event: SYSTEM_ALERT
+    type: triggerable
+    triggeredMethod: onSystemAlert
+```
+
+**TypeScript:**
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onSystemAlert') {
+    // Alert ALL orders (any state)
+    await sender.broadcast('Order', {
+      type: 'SYSTEM_MAINTENANCE',
+      payload: { scheduledAt: event.payload.maintenanceTime },
+      timestamp: Date.now()
+    });
+  }
+});
 ```
 
 ### Pattern 4: Cascade to Multiple Machines
 
+**YAML:**
 ```yaml
-triggeredMethods:
-  onCustomerUpgrade: |
-    async function(event, context, sender) {
-      const customerId = context.customerId;
+transitions:
+  - from: Standard
+    to: Premium
+    event: UPGRADE
+    type: triggerable
+    triggeredMethod: onCustomerUpgrade
+```
 
-      // Update all orders
-      await sender.broadcast(
-        'Order',
-        {
-          type: 'CUSTOMER_TIER_CHANGED',
-          payload: { newTier: 'premium' },
-          timestamp: Date.now()
-        },
-        [{ property: 'customerId', value: customerId }]
-      );
+**TypeScript:**
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onCustomerUpgrade') {
+    const tierEvent = {
+      type: 'CUSTOMER_TIER_CHANGED',
+      payload: { customerId: context.customerId, newTier: 'premium' },
+      timestamp: Date.now()
+    };
 
-      // Update all payments
-      await sender.broadcast(
-        'Payment',
-        {
-          type: 'CUSTOMER_TIER_CHANGED',
-          payload: { newTier: 'premium' },
-          timestamp: Date.now()
-        },
-        [{ property: 'customerId', value: customerId }]
-      );
+    // Broadcast to multiple machines — matchingRules on each target filter by customerId
+    await sender.broadcast('Order', tierEvent);
+    await sender.broadcast('Payment', tierEvent);
+    await sender.broadcast('RiskMonitor', tierEvent);
+  }
+});
+```
 
-      // Update all risk monitors
-      await sender.broadcast(
-        'RiskMonitor',
-        {
-          type: 'CUSTOMER_TIER_CHANGED',
-          payload: { newTier: 'premium' },
-          timestamp: Date.now()
-        },
-        [{ property: 'customerId', value: customerId }]
-      );
-    }
+### Pattern 5: Cross-Component Communication
+
+**TypeScript:**
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'notifyPaymentComponent') {
+    // Broadcast to Payment machine in PaymentComponent
+    await sender.broadcast(
+      'Payment',
+      {
+        type: 'ORDER_CONFIRMED',
+        payload: { orderId: context.orderId, amount: context.amount },
+        timestamp: Date.now()
+      },
+      undefined,            // Any state
+      'PaymentComponent'    // Cross-component
+    );
+  }
+});
 ```
 
 ---
 
-## ⚙️ Return Value
+## Return Value
 
 All broadcast methods return `Promise<number>` - the count of instances that received the event.
 
-```javascript
-const count = await sender.broadcast('Order', event, filters);
+```typescript
+const count = await sender.broadcast('Order', event);
 console.log(`Notified ${count} order(s)`);
 ```
 
@@ -353,136 +361,41 @@ console.log(`Notified ${count} order(s)`);
 
 ---
 
-## 🔀 Migration from v0.2.2
+## Best Practices
 
-### Before (v0.2.2)
-
-```javascript
-// Old signature: currentState was required
-await sender.broadcast(machineName, currentState, event, filters);
-```
-
-### After (v0.2.3+)
-
-```javascript
-// New signature: currentState is optional and moved to end
-await sender.broadcast(machineName, event, filters, currentState);
-```
-
-**Migration examples:**
-
-```javascript
-// Before: Broadcast to all Pending orders
-await sender.broadcast('Order', 'Pending', event, filters);
-
-// After: Same behavior
-await sender.broadcast('Order', event, filters, 'Pending');
-
-// New: Broadcast to all orders (any state)
-await sender.broadcast('Order', event, filters);
-```
-
-**⚠️ Breaking Change:** If you're using sender.broadcast() in v0.2.2, you need to reorder parameters.
-
----
-
-## 🧪 Testing
-
-```bash
-# Start server
-xcomponent-ai serve examples/advanced-patterns-demo.yaml
-
-# Create risk monitor
-curl -X POST http://localhost:3000/api/instances \
-  -H "Content-Type: application/json" \
-  -d '{
-    "machineName": "RiskMonitor",
-    "context": {
-      "customerId": "CUST-001",
-      "exposureLimit": 100000
-    }
-  }'
-
-# Create order (will broadcast to risk monitor)
-curl -X POST http://localhost:3000/api/instances \
-  -H "Content-Type: application/json" \
-  -d '{
-    "machineName": "TradingOrder",
-    "context": {
-      "orderId": "ORD-001",
-      "customerId": "CUST-001",
-      "symbol": "AAPL",
-      "totalQuantity": 1000,
-      "side": "BUY"
-    }
-  }'
-
-# Send execution (triggers broadcast)
-curl -X POST http://localhost:3000/api/instances/{orderId}/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "EXECUTION_NOTIFICATION",
-    "payload": {
-      "customerId": "CUST-001",
-      "quantity": 300,
-      "price": 150.50
-    }
-  }'
-
-# Check risk monitor received update
-curl http://localhost:3000/api/instances/{riskMonitorId}
-# Should show orderUpdates array with the execution
-```
-
----
-
-## 💡 Best Practices
-
-1. **Use filters over state when possible**: More flexible
-   ```javascript
-   // ✅ Good - works across all states
-   await sender.broadcast('Order', event, [
-     { property: 'customerId', value: 'CUST-001' }
-   ]);
-
-   // ❌ Less flexible - only one state
-   await sender.broadcast('Order', event, [], 'Pending');
+1. **Use matchingRules on the target for filtering** — don't try to filter in the sender
+   ```yaml
+   # Target transition filters automatically
+   matchingRules:
+     - eventProperty: customerId
+       instanceProperty: customerId
    ```
 
-2. **Be specific with filters**: Avoid broadcasting to too many instances
-   ```javascript
-   // ✅ Good - targeted
-   [
-     { property: 'customerId', value: 'CUST-001' },
-     { property: 'priority', operator: '>=', value: 5 }
-   ]
-
-   // ❌ Too broad
-   []  // Broadcasts to ALL instances
+2. **Include matching data in the payload** — the target's matchingRules need it
+   ```typescript
+   await sender.broadcast('RiskMonitor', {
+     type: 'UPDATE',
+     payload: { customerId: context.customerId },  // Required for matchingRules
+     timestamp: Date.now()
+   });
    ```
 
-3. **Log broadcast results**: Helps debugging
-   ```javascript
-   const count = await sender.broadcast('Order', event, filters);
+3. **Use currentState to narrow scope** — reduces unnecessary processing
+   ```typescript
+   // Only broadcast to Pending orders, not all orders
+   await sender.broadcast('Order', event, 'Pending');
+   ```
+
+4. **Log broadcast results** — helps debugging
+   ```typescript
+   const count = await sender.broadcast('Order', event);
    console.log(`[${context.orderId}] Notified ${count} order(s)`);
    ```
 
-4. **Handle errors gracefully**: Broadcasts can fail
-   ```javascript
-   try {
-     await sender.broadcast('Order', event, filters);
-   } catch (error) {
-     console.error('Broadcast failed:', error);
-     // Don't let broadcast failure block your workflow
-   }
-   ```
-
 ---
 
-## 📚 Related Guides
+## Related Guides
 
 - [ADVANCED-PATTERNS-GUIDE.md](./ADVANCED-PATTERNS-GUIDE.md) - Complete examples
-- [EVENT-ACCUMULATION-GUIDE.md](./EVENT-ACCUMULATION-GUIDE.md) - Guards and filters
+- [EVENT-ACCUMULATION-GUIDE.md](./EVENT-ACCUMULATION-GUIDE.md) - Event accumulation patterns
 - [examples/advanced-patterns-demo.yaml](./examples/advanced-patterns-demo.yaml) - Working example
-
-**Built for flexible event routing.** 📡

@@ -235,6 +235,93 @@ When Order transitions to "Validated" in Process 1, Redis automatically delivers
 
 See: `examples/distributed-demo/` for complete working example.
 
+### 6b. Entry Point Modes (Singleton vs Multiple)
+
+**Entry point machines** can operate in two modes, controlling how instances are created:
+
+#### Configuration Options
+
+```yaml
+name: OrderComponent
+entryMachine: Order           # Which machine is the entry point
+entryMachineMode: multiple    # 'singleton' or 'multiple' (default: 'singleton')
+autoCreateEntryPoint: false   # Auto-create instance on startup? (default: true for singleton, false for multiple)
+
+stateMachines:
+  - name: Order
+    initialState: Created
+    # ...
+```
+
+#### Singleton Mode (Default)
+
+Best for: Monitors, supervisors, background processors
+
+```yaml
+name: MonitoringComponent
+entryMachine: SystemMonitor
+entryMachineMode: singleton   # Only ONE instance allowed
+autoCreateEntryPoint: true    # Created automatically on startup
+
+stateMachines:
+  - name: SystemMonitor
+    initialState: Idle
+```
+
+**Behavior:**
+- ✅ Runtime auto-creates the instance on startup
+- ❌ API calls to create additional instances are rejected
+- ✅ Instance recreated automatically if component restarts
+
+#### Multiple Mode
+
+Best for: Orders, payments, user workflows - entities created by users
+
+```yaml
+name: OrderComponent
+entryMachine: Order
+entryMachineMode: multiple    # Multiple instances allowed
+autoCreateEntryPoint: false   # Don't auto-create (user creates via API)
+
+stateMachines:
+  - name: Order
+    initialState: Created
+```
+
+**Behavior:**
+- ❌ No instance created on startup (unless autoCreateEntryPoint: true)
+- ✅ Create instances via API: `POST /api/components/OrderComponent/instances`
+- ✅ Dashboard "New Instance" button available for manual creation
+
+#### Creating Instances via API
+
+For **multiple mode** components, create instances programmatically:
+
+```bash
+# Create Order instance with context
+curl -X POST http://localhost:3000/api/components/OrderComponent/instances \
+  -H "Content-Type: application/json" \
+  -d '{
+    "machineName": "Order",
+    "context": {
+      "orderId": "ORD-123",
+      "amount": 99.99,
+      "customerId": "CUST-456"
+    }
+  }'
+```
+
+Or via the dashboard UI: Click the **"+ New"** button in the Instances sidebar.
+
+#### Summary Table
+
+| Mode | autoCreateEntryPoint | Behavior |
+|------|---------------------|----------|
+| `singleton` | `true` (default) | One instance auto-created, API rejects new ones |
+| `singleton` | `false` | One instance allowed, created via API |
+| `multiple` | `true` | One instance auto-created, more via API |
+| `multiple` | `false` (default) | No auto-create, all via API or dashboard |
+
 ### 7. Broadcast with Property Filters (from Triggered Methods)
 
 Triggered methods can send events to **specific instances** using property filters:

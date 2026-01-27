@@ -38,6 +38,9 @@ stateMachines:
             targetMachine: Payment
             targetState: Pending
             event: PROCESS
+            matchingRules:
+              - eventProperty: orderId
+                instanceProperty: orderId
             payload:
               orderId: "{{orderId}}"
               amount: "{{amount}}"

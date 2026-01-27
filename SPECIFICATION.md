@@ -60,6 +60,7 @@ xcomponent-ai is a **state machine runtime framework** inspired by XComponent ar
 | `regular` | Normal event-driven transition |
 | `triggerable` | Can be triggered via API |
 | `inter_machine` | Creates new instance of another machine |
+| `cross_component` | Sends event to another component (distributed) |
 | `timeout` | Fires automatically after delay |
 | `auto` | Fires immediately on state entry |
 | `internal` | Self-loop without state change event |
@@ -124,8 +125,10 @@ interface Transition {
   timeoutMs?: number;           // For timeout transitions
   resetOnTransition?: boolean;  // Reset timeout on re-entry
   targetMachine?: string;       // For inter_machine transitions
+  targetComponent?: string;     // For cross_component transitions
+  targetEvent?: string;         // Event to send to target (cross_component)
   triggeredMethod?: string;     // Function to execute
-  matchingRules?: MatchingRule[];  // Property-based routing
+  matchingRules?: MatchingRule[];  // Property-based instance routing (REQUIRED for cross_component with targetEvent)
   specificTriggeringRule?: string; // JS expression for disambiguation
   notifyParent?: NotifyParent;  // Parent notification config
   metadata?: Record<string, any>;
@@ -255,8 +258,9 @@ The runtime emits these events:
 8. Execute entry method (if defined)
 9. Notify parent (if configured)
 10. Handle cascading rules (if defined)
-11. Handle inter_machine (if applicable)
-12. Schedule timeout (if applicable)
+11. Handle cross_component (if applicable, requires matchingRules for targetEvent)
+12. Handle inter_machine (if applicable)
+13. Schedule timeout (if applicable)
 
 ---
 
@@ -402,6 +406,34 @@ autoCreateEntryPoint: false    # Default for multiple
 - Creates new instance of `targetMachine`
 - Passes parent's context to child
 - Sets `parentInstanceId` and `parentMachineName` on child
+
+### Cross-Component Transitions
+```yaml
+# Create instance in another component (no targetEvent)
+- from: Created
+  to: PendingPayment
+  event: SUBMIT
+  type: cross_component
+  targetComponent: PaymentComponent
+  targetMachine: Payment
+
+# Send event to existing instance in another component (requires matchingRules)
+- from: Validated
+  to: Completed
+  event: COMPLETE
+  type: cross_component
+  targetComponent: OrderComponent
+  targetMachine: Order
+  targetEvent: PAYMENT_CONFIRMED
+  matchingRules:
+    - eventProperty: orderId
+      instanceProperty: orderId
+```
+- Without `targetEvent`: creates a new instance in the target component
+- With `targetEvent`: sends an event to existing instances in the target component
+- **`matchingRules` are REQUIRED when `targetEvent` is specified** — they define how to correlate the source instance to target instances. Without them, the event is rejected to prevent accidental broadcast to all instances.
+- `eventProperty`: property from the source instance context (sent as event payload)
+- `instanceProperty`: property on the target instance to match against
 
 ### Parent-Child Communication
 ```yaml

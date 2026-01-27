@@ -146,9 +146,21 @@ export class FSMRuntime extends EventEmitter {
       this.persistence = null;
     }
 
-    // Index machines by name
+    // Index machines by name and validate cross-component transitions
     component.stateMachines.forEach(machine => {
       this.machines.set(machine.name, machine);
+
+      // Validate: cross_component transitions with targetEvent MUST have matchingRules
+      (machine.transitions || []).forEach(transition => {
+        if (transition.type === TransitionType.CROSS_COMPONENT && transition.targetEvent && (!transition.matchingRules || transition.matchingRules.length === 0)) {
+          console.warn(
+            `[FSMRuntime] WARNING: ${component.name}.${machine.name} transition "${transition.event}" (${transition.from} → ${transition.to}) ` +
+            `is cross_component with targetEvent=${transition.targetEvent} but has NO matchingRules. ` +
+            `This event will NOT be dispatched. Add matchingRules to specify how to correlate target instances ` +
+            `(e.g., matchingRules: [{eventProperty: "orderId", instanceProperty: "orderId"}]).`
+          );
+        }
+      });
     });
 
     // Setup cascading rules engine (XComponent pattern)
@@ -422,6 +434,7 @@ export class FSMRuntime extends EventEmitter {
           targetMachine: transition.targetMachine || transition.targetComponent, // Default to component name
           targetEvent: transition.targetEvent,
           context: childContext,
+          matchingRules: transition.matchingRules,
         });
       }
 
@@ -1289,13 +1302,23 @@ export class FSMRuntime extends EventEmitter {
         throw new Error(`Cross-component cascading rule requires a ComponentRegistry. Target: ${rule.targetComponent}.${rule.targetMachine}`);
       }
 
+      // Convert matchingRules to PropertyFilter[] for instance routing
+      let filters: import('./message-broker').PropertyFilter[] | undefined;
+      if (rule.matchingRules && rule.matchingRules.length > 0) {
+        filters = rule.matchingRules.map(mr => ({
+          property: mr.instanceProperty,
+          operator: mr.operator || '===',
+          value: payload[mr.eventProperty] ?? sourceContext?.[mr.eventProperty],
+        }));
+      }
+
       // Use registry (ComponentRegistry) to broadcast to another component
       processedCount = await this.registry.broadcastToComponent(
         rule.targetComponent,
         rule.targetMachine,
         event,
-        this.componentDef.name, // Pass source component name
-        undefined, // No filters
+        this.componentDef.name,
+        filters,
         rule.targetState
       );
 

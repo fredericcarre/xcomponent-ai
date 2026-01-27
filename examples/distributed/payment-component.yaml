@@ -60,6 +60,9 @@ stateMachines:
         targetComponent: OrderComponent
         targetMachine: Order
         targetEvent: PAYMENT_CONFIRMED
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
         description: Payment successful, notify order
 
       # Payment failed - notify OrderComponent
@@ -70,6 +73,9 @@ stateMachines:
         targetComponent: OrderComponent
         targetMachine: Order
         targetEvent: PAYMENT_FAILED
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
         description: Payment rejected, notify order
 
       # Validation failed
@@ -80,4 +86,7 @@ stateMachines:
         targetComponent: OrderComponent
         targetMachine: Order
         targetEvent: PAYMENT_FAILED
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
         description: Payment validation failed

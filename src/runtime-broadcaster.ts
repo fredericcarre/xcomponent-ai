@@ -242,12 +242,23 @@ export class RuntimeBroadcaster {
       try {
         if (data.targetEvent) {
           // Send event to existing instances (e.g., Payment.COMPLETE -> Order.PAYMENT_CONFIRMED)
-          console.log(`[RuntimeBroadcaster] Publishing CROSS_COMPONENT_EVENT for ${data.targetEvent}`);
+          if (!data.matchingRules || data.matchingRules.length === 0) {
+            console.warn(`[RuntimeBroadcaster] WARNING: cross_component transition to ${data.targetComponent}.${data.targetMachine} with targetEvent=${data.targetEvent} has no matchingRules. Event will NOT be dispatched to avoid broadcasting to all instances. Add matchingRules to the transition.`);
+            return;
+          }
+          // Build explicit match criteria from matchingRules + source context
+          const matchCriteria = data.matchingRules.map((rule: any) => ({
+            eventProperty: rule.eventProperty,
+            instanceProperty: rule.instanceProperty,
+            operator: rule.operator || '===',
+            value: data.context?.[rule.eventProperty],
+          }));
+          console.log(`[RuntimeBroadcaster] Publishing CROSS_COMPONENT_EVENT for ${data.targetEvent} with ${matchCriteria.length} matching rule(s)`);
           await this.broker.publish(DashboardChannels.CROSS_COMPONENT_EVENT, {
             targetComponent: data.targetComponent,
             targetMachine: data.targetMachine,
             event: { type: data.targetEvent, payload: data.context, timestamp: Date.now() },
-            matchContext: data.context, // For property matching (e.g., orderId)
+            matchingRules: matchCriteria,
             sourceComponent: data.sourceComponent,
             sourceInstanceId: data.sourceInstanceId,
             timestamp: Date.now()
@@ -369,51 +380,56 @@ export class RuntimeBroadcaster {
         console.log(`[RuntimeBroadcaster] Processing cross-component event ${msg.event?.type} for ${this.component.name}`);
 
         try {
-          // Find matching instances by context properties
+          // Require explicit matchingRules — no implicit broadcast
+          if (!msg.matchingRules || msg.matchingRules.length === 0) {
+            console.warn(`[RuntimeBroadcaster] REJECTED: cross-component event ${msg.event?.type} has no matchingRules. Refusing to broadcast to all instances. Fix the source transition definition.`);
+            return;
+          }
+
+          // Find matching instances using explicit matchingRules
           const allInstances = this.runtime.getAllInstances();
-          console.log(`[RuntimeBroadcaster] Found ${allInstances.length} total instances to check`);
+          console.log(`[RuntimeBroadcaster] Found ${allInstances.length} total instances, applying ${msg.matchingRules.length} matching rule(s)`);
+
           const matchingInstances = allInstances.filter(inst => {
             // If targetMachine is specified, filter by machine
             if (msg.targetMachine && inst.machineName !== msg.targetMachine) {
               return false;
             }
-            // Match by common context properties (only compare fields that exist in both contexts)
-            if (msg.matchContext) {
-              const context = inst.context || inst.publicMember || {};
-              let hasMatch = false;
-              for (const [key, value] of Object.entries(msg.matchContext)) {
-                // Only check properties that exist in target context
-                if (key in context) {
-                  if (context[key] === value) {
-                    hasMatch = true; // At least one matching property found
-                  } else {
-                    return false; // Property exists but doesn't match
-                  }
-                }
+            // Apply ALL matchingRules (AND logic)
+            const context = inst.context || inst.publicMember || {};
+            for (const rule of msg.matchingRules) {
+              const expectedValue = rule.value;
+              const actualValue = context[rule.instanceProperty];
+              const op = rule.operator || '===';
+              let match = false;
+              switch (op) {
+                case '===': match = actualValue === expectedValue; break;
+                case '!==': match = actualValue !== expectedValue; break;
+                case '>': match = actualValue > expectedValue; break;
+                case '<': match = actualValue < expectedValue; break;
+                case '>=': match = actualValue >= expectedValue; break;
+                case '<=': match = actualValue <= expectedValue; break;
+                default: match = actualValue === expectedValue;
               }
-              // Must have at least one matching property to be considered a match
-              if (!hasMatch) {
+              if (!match) {
                 return false;
               }
             }
             return true;
           });
 
-          console.log(`[RuntimeBroadcaster] Matching instances found: ${matchingInstances.length}`);
-          allInstances.forEach(inst => {
-            console.log(`  Instance ${inst.id}: machine=${inst.machineName}, state=${inst.currentState}, context=${JSON.stringify(inst.context || inst.publicMember)}`);
-          });
+          console.log(`[RuntimeBroadcaster] Matching instances found: ${matchingInstances.length} (rules: ${JSON.stringify(msg.matchingRules)})`);
 
           if (matchingInstances.length === 0) {
-            console.log(`[RuntimeBroadcaster] No matching instances for cross-component event ${msg.event.type} (matchContext: ${JSON.stringify(msg.matchContext)})`);
+            console.log(`[RuntimeBroadcaster] No matching instances for cross-component event ${msg.event.type}`);
             return;
           }
 
-          // Send event to all matching instances
+          // Send event to matched instances only
           for (const inst of matchingInstances) {
             try {
               await this.runtime.sendEvent(inst.id, msg.event);
-              console.log(`[RuntimeBroadcaster] Sent cross-component event ${msg.event.type} to ${inst.id}`);
+              console.log(`[RuntimeBroadcaster] Sent cross-component event ${msg.event.type} to ${inst.id} (matched by ${msg.matchingRules.map((r: any) => r.instanceProperty).join(', ')})`);
             } catch (error: any) {
               console.error(`[RuntimeBroadcaster] Failed to send event to ${inst.id}:`, error.message);
             }

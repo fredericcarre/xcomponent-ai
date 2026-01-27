@@ -2163,6 +2163,13 @@
                     externalLabel = ` → ${t.targetMachine}`;
                   }
 
+                  // matchingRules indicator
+                  let matchingRulesHtml = '';
+                  if (t.matchingRules && t.matchingRules.length > 0) {
+                    const rulesText = t.matchingRules.map(r => `${r.eventProperty} = ${r.instanceProperty}`).join(', ');
+                    matchingRulesHtml = `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 6px; padding: 3px 6px; background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.2); border-radius: 4px; display: inline-block;">🔑 ${rulesText}</div>`;
+                  }
+
                   // Build inline parameter inputs if schema exists
                   let paramsHtml = '';
                   const requiredKeys = [];
@@ -2184,6 +2191,7 @@
                   const requiredKeysJson = requiredKeys.length > 0 ? JSON.stringify(requiredKeys).replace(/"/g, '&quot;') : '[]';
 
                   return `<div style="margin-bottom: 8px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 6px; border-left: 3px solid ${btnColor};">
+                    ${matchingRulesHtml}
                     ${paramsHtml}
                     <button onclick="event.stopPropagation(); sendQuickEventWithParams('${firstInstance.id}', '${t.event}', '${formId}', ${paramKeysJson}, ${requiredKeysJson})"
                       style="width: 100%; padding: 8px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;"
@@ -2716,13 +2724,24 @@
           // Determine event icon and color based on type
           let eventIcon = '⚡';
           let eventColor = '#3b82f6';
+          const isCrossComponentEvent = !!event.sourceComponentName;
           if (eventType === 'INSTANCE_CREATED') { eventIcon = '🆕'; eventColor = '#10b981'; }
+          else if (isCrossComponentEvent) { eventIcon = '📡'; eventColor = '#f59e0b'; }
           else if (eventType.includes('APPROVE')) { eventIcon = '✅'; eventColor = '#22c55e'; }
           else if (eventType.includes('REJECT')) { eventIcon = '❌'; eventColor = '#ef4444'; }
           else if (eventType.includes('SUBMIT')) { eventIcon = '📤'; eventColor = '#f59e0b'; }
           else if (eventType.includes('CANCEL')) { eventIcon = '🚫'; eventColor = '#6b7280'; }
           else if (eventType.includes('TIMEOUT')) { eventIcon = '⏰'; eventColor = '#f97316'; }
           else if (eventType.includes('REVISE') || eventType.includes('CHANGE')) { eventIcon = '✏️'; eventColor = '#8b5cf6'; }
+
+          // Cross-component source indicator
+          let crossComponentHtml = '';
+          if (isCrossComponentEvent) {
+            crossComponentHtml = `
+              <div style="margin-top: 6px; padding: 6px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 4px; font-size: 10px;">
+                <div style="color: #f59e0b; font-weight: 600;">📡 From: ${event.sourceComponentName}</div>
+              </div>`;
+          }
 
           // Special formatting for INSTANCE_CREATED event
           let creationInfoHtml = '';
@@ -2746,6 +2765,7 @@
                 <span style="font-size: 9px; color: #666;">${time}</span>
               </div>
               <div style="font-size: 11px; margin-bottom: 4px;">${stateTransition}</div>
+              ${crossComponentHtml}
               ${creationInfoHtml || payloadHtml}
               ${publicMemberHtml}
               <div style="font-size: 9px; color: #555; margin-top: 4px;">${date}</div>
@@ -2827,6 +2847,15 @@
           externalInfo = `<div style="font-size: 11px; color: #10b981; margin-bottom: 8px;">Creates: ${t.targetMachine}</div>`;
         }
 
+        // matchingRules indicator
+        let matchingRulesInfo = '';
+        if (t.matchingRules && t.matchingRules.length > 0) {
+          const rulesHtml = t.matchingRules.map(r =>
+            `<span style="color: #e9d5ff;">${r.eventProperty}</span> <span style="color: #666;">=</span> <span style="color: #c4b5fd;">${r.instanceProperty}</span>`
+          ).join(', ');
+          matchingRulesInfo = `<div style="font-size: 11px; color: #a78bfa; margin-bottom: 8px; padding: 4px 8px; background: rgba(167,139,250,0.08); border: 1px solid rgba(167,139,250,0.2); border-radius: 4px;">🔑 Correlation: ${rulesHtml}</div>`;
+        }
+
         // Build parameter form if schema exists
         let paramsForm = '';
         if (schema && Object.keys(schema).length > 0) {
@@ -2858,6 +2887,7 @@
               <span style="color: #666; font-size: 11px;">${t.from} → ${t.to}</span>
             </div>
             ${externalInfo}
+            ${matchingRulesInfo}
             ${paramsForm}
             <button onclick="sendTransitionEventWithParams('${instance.id}', '${t.event}', ${idx}, ${schema ? 'true' : 'false'})"
               style="width: 100%; margin-top: 10px; padding: 10px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;"
@@ -3324,14 +3354,22 @@
         </div>` : '';
 
       const eventsHtml = events.map(evt => {
-        const time = evt.persisted_at ? new Date(Number(evt.persisted_at)).toLocaleString() : (evt.created_at ? new Date(evt.created_at).toLocaleString() : '');
-        const payload = evt.event_payload && Object.keys(evt.event_payload).length > 0
-          ? `<div class="audit-event-payload">${JSON.stringify(evt.event_payload, null, 2)}</div>` : '';
+        const eventType = evt.event?.type || evt.event_type || 'Unknown';
+        const fromState = evt.stateBefore || evt.from_state || '?';
+        const toState = evt.stateAfter || evt.to_state || '?';
+        const ts = evt.persistedAt || evt.persisted_at;
+        const time = ts ? new Date(Number(ts)).toLocaleString() : '';
+        const evtPayload = evt.event?.payload || evt.event_payload || {};
+        const payload = evtPayload && Object.keys(evtPayload).length > 0
+          ? `<div class="audit-event-payload">${JSON.stringify(evtPayload, null, 2)}</div>` : '';
+        const sourceComp = evt.sourceComponentName;
+        const sourceHtml = sourceComp ? `<div style="font-size: 10px; color: #f59e0b; margin-top: 2px;">from ${sourceComp}</div>` : '';
 
         return `
           <div class="audit-event">
-            <div class="audit-event-type">${evt.event_type}</div>
-            <div class="audit-event-transition">${evt.from_state} → ${evt.to_state}</div>
+            <div class="audit-event-type">${eventType}</div>
+            <div class="audit-event-transition">${fromState} → ${toState}</div>
+            ${sourceHtml}
             ${time ? `<div class="audit-event-time">${time}</div>` : ''}
             ${payload}
           </div>`;

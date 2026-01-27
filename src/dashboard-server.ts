@@ -279,12 +279,32 @@ export class DashboardServer {
         const { instanceId } = req.params;
         const result = await this.pgPool.query(
           `SELECT id, instance_id, machine_name, event_type, event_payload,
-                  from_state, to_state, context, persisted_at, created_at
+                  from_state, to_state, context, public_member_snapshot,
+                  correlation_id, causation_id, caused, persisted_at, created_at
            FROM fsm_events WHERE instance_id = $1
            ORDER BY persisted_at ASC`,
           [instanceId]
         );
-        res.json({ history: result.rows });
+        // Map PostgreSQL rows to PersistedEvent format expected by the UI
+        const history = result.rows.map((row: any) => ({
+          id: row.id,
+          instanceId: row.instance_id,
+          machineName: row.machine_name,
+          componentName: row.component_name || '',
+          event: {
+            type: row.event_type,
+            payload: row.event_payload || {},
+            timestamp: parseInt(row.persisted_at, 10)
+          },
+          stateBefore: row.from_state,
+          stateAfter: row.to_state,
+          publicMemberSnapshot: row.public_member_snapshot,
+          causedBy: row.correlation_id ? [row.correlation_id] : undefined,
+          caused: row.caused || [],
+          persistedAt: parseInt(row.persisted_at, 10),
+          sourceComponentName: row.source_component_name,
+        }));
+        res.json({ history });
       } catch (error: any) {
         res.status(500).json({ error: error.message });
       }
@@ -356,15 +376,35 @@ export class DashboardServer {
         // Get all events
         const eventsResult = await this.pgPool.query(
           `SELECT id, instance_id, machine_name, event_type, event_payload,
-                  from_state, to_state, context, persisted_at, created_at
+                  from_state, to_state, context, public_member_snapshot,
+                  correlation_id, causation_id, caused, persisted_at, created_at
            FROM fsm_events WHERE instance_id = $1
            ORDER BY persisted_at ASC`,
           [instanceId]
         );
 
+        // Map to PersistedEvent format
+        const events = eventsResult.rows.map((row: any) => ({
+          id: row.id,
+          instanceId: row.instance_id,
+          machineName: row.machine_name,
+          componentName: row.component_name || '',
+          event: {
+            type: row.event_type,
+            payload: row.event_payload || {},
+            timestamp: parseInt(row.persisted_at, 10)
+          },
+          stateBefore: row.from_state,
+          stateAfter: row.to_state,
+          publicMemberSnapshot: row.public_member_snapshot,
+          causedBy: row.correlation_id ? [row.correlation_id] : undefined,
+          caused: row.caused || [],
+          persistedAt: parseInt(row.persisted_at, 10),
+        }));
+
         res.json({
           snapshot: snapshotResult.rows[0] || null,
-          events: eventsResult.rows
+          events
         });
       } catch (error: any) {
         res.status(500).json({ error: error.message });

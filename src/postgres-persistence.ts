@@ -120,6 +120,10 @@ export class PostgresEventStore implements EventStore {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
+      -- Migrate existing tables: add columns that may be missing from older schemas
+      ALTER TABLE fsm_events ADD COLUMN IF NOT EXISTS component_name VARCHAR(255);
+      ALTER TABLE fsm_events ADD COLUMN IF NOT EXISTS source_component_name VARCHAR(255);
+
       CREATE INDEX IF NOT EXISTS idx_fsm_events_instance_id ON fsm_events(instance_id);
       CREATE INDEX IF NOT EXISTS idx_fsm_events_persisted_at ON fsm_events(persisted_at);
       CREATE INDEX IF NOT EXISTS idx_fsm_events_correlation_id ON fsm_events(correlation_id);

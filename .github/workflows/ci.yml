@@ -127,8 +127,9 @@ jobs:
         timeout 30 bash -c 'until docker compose -f examples/distributed/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
         echo "Waiting for Dashboard..."
         timeout 60 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
-        echo "Waiting for runtimes to register..."
-        sleep 10
+        echo "Waiting for runtimes to register (polling)..."
+        timeout 60 bash -c 'until [ "$(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")" -ge 2 ]; do echo "  runtimes: $(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")"; sleep 3; done'
+        echo "All services ready!"
 
     - name: Verify dashboard health
       run: |
@@ -198,8 +199,9 @@ jobs:
         timeout 30 bash -c 'until docker compose -f examples/distributed-redis/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
         echo "Waiting for Dashboard..."
         timeout 60 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
-        echo "Waiting for runtimes to register..."
-        sleep 10
+        echo "Waiting for runtimes to register (polling)..."
+        timeout 60 bash -c 'until [ "$(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")" -ge 2 ]; do echo "  runtimes: $(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")"; sleep 3; done'
+        echo "All services ready!"
 
     - name: Verify dashboard health
       run: |
@@ -266,9 +268,10 @@ jobs:
         echo "Waiting for PostgreSQL..."
         timeout 30 bash -c 'until docker compose -f examples/monolith-postgres/docker-compose.yml exec -T postgres pg_isready -U xcomponent -d xcomponent_fsm; do sleep 1; done'
         echo "Waiting for Dashboard..."
-        timeout 60 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
-        echo "Waiting for runtimes to register via in-memory broker..."
-        sleep 5
+        timeout 90 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
+        echo "Waiting for runtimes to register (polling)..."
+        timeout 60 bash -c 'until [ "$(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")" -ge 2 ]; do echo "  runtimes: $(curl -sf http://localhost:3000/api/runtimes | jq ".runtimes | length")"; sleep 3; done'
+        echo "All services ready!"
 
     - name: Verify dashboard health
       run: |

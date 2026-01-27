@@ -10,16 +10,17 @@ const fs = require('fs');
 const yaml = require('yaml');
 const path = require('path');
 
-// Import from built dist
+// Import from built dist (resolve from project root)
+const distPath = path.join(__dirname, '..', '..', 'dist');
 const {
   FSMRuntime,
   createRuntimeBroadcaster,
   PostgresEventStore,
   PostgresSnapshotStore
-} = require('./dist');
+} = require(distPath);
 
 // Import DashboardServer (used to serve the UI + APIs)
-const { DashboardServer } = require('./dist/dashboard-server');
+const { DashboardServer } = require(path.join(distPath, 'dashboard-server'));
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;

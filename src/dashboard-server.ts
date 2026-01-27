@@ -43,6 +43,7 @@ export const DashboardChannels = {
   RUNTIME_ANNOUNCE: 'fsm:registry:announce',
   RUNTIME_HEARTBEAT: 'fsm:registry:heartbeat',
   RUNTIME_SHUTDOWN: 'fsm:registry:shutdown',
+  RUNTIME_DISCOVER: 'fsm:registry:discover',
 
   // FSM events from runtimes
   STATE_CHANGE: 'fsm:events:state_change',
@@ -811,6 +812,13 @@ export class DashboardServer {
 
     // Start heartbeat check
     this.startHeartbeatCheck();
+
+    // Ask already-running runtimes to re-announce themselves
+    // (handles case where runtimes started before dashboard)
+    await this.broker.publish(DashboardChannels.RUNTIME_DISCOVER, {
+      type: 'discover',
+      timestamp: Date.now()
+    } as any);
 
     // Request instances from all runtimes
     await this.broker.publish(DashboardChannels.QUERY_INSTANCES, {

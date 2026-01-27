@@ -59,6 +59,13 @@ export class RuntimeBroadcaster {
 
     // Subscribe to commands from dashboard
     await this.subscribeToCommands();
+
+    // Subscribe to discover requests (dashboard asking runtimes to re-announce)
+    await this.broker.subscribe(DashboardChannels.RUNTIME_DISCOVER, async () => {
+      console.log(`[RuntimeBroadcaster] Discover request received, re-announcing...`);
+      await this.announce();
+    });
+
     console.log(`[RuntimeBroadcaster] Command subscriptions established`);
 
     // Register event listeners on the runtime

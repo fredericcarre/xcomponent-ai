@@ -965,12 +965,11 @@
       </div>
       <form class="modal-form" onsubmit="submitCreateInstance(event)">
         <label for="modal-machine">Machine</label>
-        <select id="modal-machine" required>
+        <select id="modal-machine" required onchange="onModalMachineSelected()">
           <option value="">Select a machine...</option>
         </select>
 
-        <label for="modal-context">Context (JSON)</label>
-        <textarea id="modal-context" placeholder='{"orderId": "order-123", "amount": 99.99}'>{}</textarea>
+        <div id="modal-schema-fields"></div>
 
         <div class="modal-actions">
           <button type="button" class="modal-btn modal-btn-cancel" onclick="closeCreateInstanceModal()">Cancel</button>
@@ -2697,11 +2696,66 @@
         machineSelect.value = component.entryMachine;
       }
 
-      // Reset context textarea
-      document.getElementById('modal-context').value = '{}';
+      // Build schema fields for the pre-selected machine
+      onModalMachineSelected();
 
       // Show modal
       document.getElementById('create-instance-modal').classList.add('show');
+    }
+
+    function onModalMachineSelected() {
+      const component = getCurrentComponent();
+      const container = document.getElementById('modal-schema-fields');
+      const machineName = document.getElementById('modal-machine').value;
+
+      if (!component || !machineName) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const machine = component.stateMachines.find(m => m.name === machineName);
+      const schema = machine?.contextSchema;
+
+      if (!schema || Object.keys(schema).length === 0) {
+        // No schema: show a JSON textarea as fallback
+        container.innerHTML = `
+          <label for="modal-context-raw">Context (JSON)</label>
+          <textarea id="modal-context-raw" placeholder='{"key": "value"}'>{}</textarea>`;
+        return;
+      }
+
+      // Build form fields from contextSchema
+      container.innerHTML = Object.entries(schema).map(([key, field]) => {
+        const required = field.required ? '<span style="color: #ef4444;">*</span>' : '';
+        const fieldId = `modal-field-${key}`;
+
+        if (field.type === 'select' && field.options) {
+          // Select dropdown
+          const options = field.options.map(opt =>
+            `<option value="${opt.value}">${opt.label || opt.value}</option>`
+          ).join('');
+          return `
+            <label for="${fieldId}">${field.label || key} ${required}</label>
+            <select id="${fieldId}" ${field.required ? 'required' : ''}>
+              <option value="">Select...</option>
+              ${options}
+            </select>`;
+        }
+
+        // Text or number input
+        const inputType = field.type === 'number' ? 'number' : 'text';
+        const extras = [];
+        if (field.min !== undefined) extras.push(`min="${field.min}"`);
+        if (field.max !== undefined) extras.push(`max="${field.max}"`);
+        if (field.pattern) extras.push(`pattern="${field.pattern}"`);
+
+        return `
+          <label for="${fieldId}">${field.label || key} ${required}</label>
+          <input type="${inputType}" id="${fieldId}"
+            placeholder="${field.placeholder || ''}"
+            ${field.required ? 'required' : ''}
+            ${extras.join(' ')}>`;
+      }).join('');
     }
 
     function closeCreateInstanceModal(event) {
@@ -2725,15 +2779,50 @@
         return;
       }
 
+      // Collect context from schema fields or raw JSON textarea
       let context = {};
-      try {
-        const contextText = document.getElementById('modal-context').value.trim();
-        if (contextText) {
-          context = JSON.parse(contextText);
+      const machine = component.stateMachines.find(m => m.name === machineName);
+      const schema = machine?.contextSchema;
+
+      if (schema && Object.keys(schema).length > 0) {
+        // Collect values from schema-generated fields
+        const missingRequired = [];
+        for (const [key, field] of Object.entries(schema)) {
+          const input = document.getElementById(`modal-field-${key}`);
+          if (!input) continue;
+
+          let value = input.value?.trim();
+          if (field.type === 'number' && value) {
+            value = parseFloat(value);
+          }
+
+          if (value !== '' && value !== null && value !== undefined) {
+            context[key] = value;
+            input.style.borderColor = 'var(--glass-border)';
+            input.style.boxShadow = 'none';
+          } else if (field.required) {
+            missingRequired.push(field.label || key);
+            input.style.borderColor = '#ef4444';
+            input.style.boxShadow = '0 0 4px rgba(239, 68, 68, 0.5)';
+          }
         }
-      } catch (e) {
-        showToast('Invalid JSON in context field', 'error');
-        return;
+
+        if (missingRequired.length > 0) {
+          showToast(`Required fields: ${missingRequired.join(', ')}`, 'error');
+          return;
+        }
+      } else {
+        // Fallback: parse raw JSON textarea
+        try {
+          const rawInput = document.getElementById('modal-context-raw');
+          const contextText = rawInput ? rawInput.value.trim() : '{}';
+          if (contextText) {
+            context = JSON.parse(contextText);
+          }
+        } catch (e) {
+          showToast('Invalid JSON in context field', 'error');
+          return;
+        }
       }
 
       try {

@@ -121,7 +121,8 @@ async function main() {
   const orderContext = {
     orderId: orderId,
     amount: 99.99,
-    customerId: 'customer-123'
+    customerId: 'customer-123',
+    paymentMethod: 'visa'
   };
 
   console.log(`4. Creating Order instance (${orderId})...`);
@@ -213,7 +214,11 @@ async function main() {
   console.log('\n--- Phase 4: Process Payment ---\n');
 
   // Send PROCESS event
+  // Business logic (checkPaymentMethod) auto-validates if card type is visa/mastercard/cb.
+  // The triggered method runs during the transition, then sender.sendToSelf(VALIDATE)
+  // is queued and executes after Pending→Processing completes.
   console.log('9. Sending PROCESS event to Payment...');
+  console.log('   (Business logic will auto-validate: paymentMethod=visa)');
   await fetchJson(
     `${DASHBOARD_URL}/api/components/PaymentComponent/instances/${paymentInstanceId}/events`,
     {
@@ -222,27 +227,8 @@ async function main() {
     }
   );
 
-  await waitFor(
-    async () => {
-      const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
-      const payment = instances.instances && instances.instances.find(
-        i => getInstanceId(i) === paymentInstanceId
-      );
-      return payment && payment.currentState === 'Processing' ? payment : null;
-    },
-    'Payment in Processing state'
-  );
-
-  // Send VALIDATE event
-  console.log('\n10. Sending VALIDATE event to Payment...');
-  await fetchJson(
-    `${DASHBOARD_URL}/api/components/PaymentComponent/instances/${paymentInstanceId}/events`,
-    {
-      method: 'POST',
-      body: JSON.stringify({ event: 'VALIDATE' })
-    }
-  );
-
+  // Wait for Validated state (auto-validated by checkPaymentMethod business logic)
+  console.log('\n10. Waiting for Payment to be auto-validated by business logic...');
   await waitFor(
     async () => {
       const instances = await fetchJson(`${DASHBOARD_URL}/api/instances`);
@@ -251,7 +237,7 @@ async function main() {
       );
       return payment && payment.currentState === 'Validated' ? payment : null;
     },
-    'Payment in Validated state'
+    'Payment in Validated state (auto-validated by checkPaymentMethod)'
   );
 
   // ============================================================
@@ -259,7 +245,7 @@ async function main() {
   // ============================================================
   console.log('\n--- Phase 5: Complete Payment (notifies Order) ---\n');
 
-  console.log('11. Sending COMPLETE event to Payment...');
+  console.log('11. Sending COMPLETE event to Payment (triggers cross-component PAYMENT_CONFIRMED)...');
   await fetchJson(
     `${DASHBOARD_URL}/api/components/PaymentComponent/instances/${paymentInstanceId}/events`,
     {
@@ -457,10 +443,11 @@ async function main() {
   console.log('='.repeat(60));
   console.log('\nCross-component communication verified:');
   console.log(`  1. Order ${orderId} created in OrderComponent`);
-  console.log(`  2. SUBMIT triggered Payment creation in PaymentComponent`);
-  console.log(`  3. Payment processed: Pending -> Processing -> Validated -> Completed`);
-  console.log(`  4. COMPLETE triggered PAYMENT_CONFIRMED to OrderComponent`);
-  console.log(`  5. Order completed: Created -> PendingPayment -> Paid -> Shipped -> Completed`);
+  console.log(`  2. SUBMIT triggered Payment creation in PaymentComponent (contextMapping: orderId, amount, paymentMethod)`);
+  console.log(`  3. Payment PROCESS → checkPaymentMethod business logic auto-validated (visa accepted)`);
+  console.log(`  4. Payment: Pending -> Processing -> Validated -> Completed`);
+  console.log(`  5. COMPLETE triggered PAYMENT_CONFIRMED to OrderComponent (matchingRules: orderId)`);
+  console.log(`  6. Order completed: Created -> PendingPayment -> Paid -> Shipped -> Completed`);
   if (databaseUrl) {
     console.log(`  6. All events verified in PostgreSQL database`);
   }

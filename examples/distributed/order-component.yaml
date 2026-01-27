@@ -21,6 +21,9 @@ stateMachines:
       customerId:
         type: text
         label: Customer ID
+      paymentMethod:
+        type: text
+        label: Payment Method
 
     states:
       - name: Created
@@ -58,6 +61,7 @@ stateMachines:
         contextMapping:
           orderId: orderId
           amount: amount
+          paymentMethod: paymentMethod
         description: Submit order and request payment
 
       # Payment confirmed - received from PaymentComponent

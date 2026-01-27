@@ -187,7 +187,9 @@ interface Component {
   name: string;
   version: string;
   stateMachines: StateMachine[];
-  entryMachine?: string;        // Auto-created on startup
+  entryMachine?: string;        // Which machine is the entry point
+  entryMachineMode?: 'singleton' | 'multiple';  // Instance creation mode
+  autoCreateEntryPoint?: boolean;  // Auto-create entry point on startup?
   metadata?: Record<string, any>;
   layout?: {
     machines?: Record<string, { x: number; y: number }>;
@@ -195,6 +197,16 @@ interface Component {
   };
 }
 ```
+
+#### Entry Point Mode Configuration
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `entryMachineMode` | `'singleton'`, `'multiple'` | `'singleton'` | Controls how many instances can be created |
+| `autoCreateEntryPoint` | `boolean` | `true` for singleton, `false` for multiple | Auto-create instance on runtime startup |
+
+**Singleton mode**: Only one instance allowed (monitors, supervisors, background processors)
+**Multiple mode**: Create instances via API/dashboard (orders, payments, user workflows)
 
 ---
 
@@ -357,9 +369,27 @@ stateMachines:
 
 ### Entry Point
 - Specified via `entryMachine` in component
-- Auto-created when component loads
+- Behavior controlled by `entryMachineMode` and `autoCreateEntryPoint`:
+  - **Singleton mode** (default): One instance auto-created, API rejects additional creates
+  - **Multiple mode**: Instances created via API/dashboard, no auto-create (unless `autoCreateEntryPoint: true`)
 - **Never deallocated** (even in final state)
 - Marked with `isEntryPoint: true`
+
+#### Entry Point Configuration Examples
+
+```yaml
+# Singleton monitor (auto-created, one instance only)
+name: MonitorComponent
+entryMachine: SystemMonitor
+entryMachineMode: singleton    # Default
+autoCreateEntryPoint: true     # Default for singleton
+
+# Multiple orders (created via API, no auto-create)
+name: OrderComponent
+entryMachine: Order
+entryMachineMode: multiple
+autoCreateEntryPoint: false    # Default for multiple
+```
 
 ### Inter-Machine Transitions
 ```yaml

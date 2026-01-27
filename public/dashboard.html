@@ -651,6 +651,149 @@
       color: var(--error);
     }
 
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+
+    .modal-overlay.show {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 400px;
+      max-width: 90vw;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    .modal-close:hover {
+      color: var(--text-primary);
+    }
+
+    .modal-form label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .modal-form select,
+    .modal-form input,
+    .modal-form textarea {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+
+    .modal-form textarea {
+      min-height: 100px;
+      font-family: monospace;
+      resize: vertical;
+    }
+
+    .modal-form select:focus,
+    .modal-form input:focus,
+    .modal-form textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .modal-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+
+    .modal-btn-cancel {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+    }
+
+    .modal-btn-cancel:hover {
+      background: var(--glass-border);
+    }
+
+    .modal-btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .modal-btn-primary:hover {
+      background: #7c3aed;
+    }
+
+    .btn-new-instance {
+      background: var(--primary);
+      border: none;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      margin-left: 8px;
+      transition: background 0.2s;
+    }
+
+    .btn-new-instance:hover {
+      background: #7c3aed;
+    }
+
     /* Hidden */
     .hidden {
       display: none !important;
@@ -721,7 +864,10 @@
 
       <!-- Instances -->
       <div class="sidebar-section flex">
-        <div class="section-title">Instances <span id="instance-count" style="color: var(--text-muted); font-weight: normal;"></span></div>
+        <div class="section-title" style="display: flex; align-items: center;">
+          Instances <span id="instance-count" style="color: var(--text-muted); font-weight: normal;"></span>
+          <button class="btn-new-instance" onclick="openCreateInstanceModal()" title="Create new instance">+ New</button>
+        </div>
         <!-- Search filter for instances -->
         <input type="text" id="instance-filter" placeholder="Filter by ID, state, or data..."
           style="width: 100%; padding: 8px 10px; margin-bottom: 12px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); font-size: 12px;"
@@ -807,6 +953,30 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Create Instance Modal -->
+  <div class="modal-overlay" id="create-instance-modal" onclick="closeCreateInstanceModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">Create New Instance</div>
+        <button class="modal-close" onclick="closeCreateInstanceModal()">&times;</button>
+      </div>
+      <form class="modal-form" onsubmit="submitCreateInstance(event)">
+        <label for="modal-machine">Machine</label>
+        <select id="modal-machine" required>
+          <option value="">Select a machine...</option>
+        </select>
+
+        <label for="modal-context">Context (JSON)</label>
+        <textarea id="modal-context" placeholder='{"orderId": "order-123", "amount": 99.99}'>{}</textarea>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-btn modal-btn-cancel" onclick="closeCreateInstanceModal()">Cancel</button>
+          <button type="submit" class="modal-btn modal-btn-primary">Create Instance</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -2506,6 +2676,84 @@
       setTimeout(() => {
         toast.classList.remove('show');
       }, 3000);
+    }
+
+    // Create Instance Modal
+    function openCreateInstanceModal() {
+      const component = getCurrentComponent();
+      if (!component) {
+        showToast('Please select a component first', 'error');
+        return;
+      }
+
+      // Populate machine selector with component's machines
+      const machineSelect = document.getElementById('modal-machine');
+      const machines = component.stateMachines || [];
+      machineSelect.innerHTML = '<option value="">Select a machine...</option>' +
+        machines.map(m => `<option value="${m.name}">${m.name}</option>`).join('');
+
+      // Pre-select entry machine if available
+      if (component.entryMachine) {
+        machineSelect.value = component.entryMachine;
+      }
+
+      // Reset context textarea
+      document.getElementById('modal-context').value = '{}';
+
+      // Show modal
+      document.getElementById('create-instance-modal').classList.add('show');
+    }
+
+    function closeCreateInstanceModal(event) {
+      // If called from overlay click, only close if clicking the overlay itself
+      if (event && event.target !== event.currentTarget) return;
+      document.getElementById('create-instance-modal').classList.remove('show');
+    }
+
+    async function submitCreateInstance(event) {
+      event.preventDefault();
+
+      const component = getCurrentComponent();
+      if (!component) {
+        showToast('No component selected', 'error');
+        return;
+      }
+
+      const machineName = document.getElementById('modal-machine').value;
+      if (!machineName) {
+        showToast('Please select a machine', 'error');
+        return;
+      }
+
+      let context = {};
+      try {
+        const contextText = document.getElementById('modal-context').value.trim();
+        if (contextText) {
+          context = JSON.parse(contextText);
+        }
+      } catch (e) {
+        showToast('Invalid JSON in context field', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/components/${component.name}/instances`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machineName, context })
+        });
+
+        if (res.ok) {
+          showToast('Instance creation requested', 'success');
+          closeCreateInstanceModal();
+          // Instance will appear when the runtime broadcasts it
+        } else {
+          const error = await res.json();
+          showToast(`Error: ${error.error || 'Failed to create instance'}`, 'error');
+        }
+      } catch (error) {
+        showToast('Failed to create instance', 'error');
+      }
     }
 
     // Redraw arrows on window resize

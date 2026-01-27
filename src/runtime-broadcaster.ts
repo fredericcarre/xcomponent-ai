@@ -64,24 +64,32 @@ export class RuntimeBroadcaster {
     // Register event listeners on the runtime
     this.attachRuntimeListeners();
 
-    // Auto-create entry point instance if specified (mirrors ComponentRegistry behavior)
+    // Auto-create entry point instance based on configuration
+    // Default: auto-create for singleton mode, no auto-create for multiple mode
     if (this.component.entryMachine) {
-      const existingInstances = this.runtime.getAllInstances();
-      const hasEntryPointInstance = existingInstances.some(
-        inst => inst.machineName === this.component.entryMachine && inst.isEntryPoint
-      );
+      const isSingleton = this.component.entryMachineMode === 'singleton';
+      const shouldAutoCreate = this.component.autoCreateEntryPoint ?? isSingleton;
 
-      if (!hasEntryPointInstance) {
-        console.log(`[RuntimeBroadcaster] Creating entry point instance for ${this.component.entryMachine}`);
-        const entryInstanceId = this.runtime.createInstance(this.component.entryMachine, {});
-        // Mark as entry point (won't be auto-deallocated in final state)
-        const instance = this.runtime.getInstance(entryInstanceId);
-        if (instance) {
-          (instance as any).isEntryPoint = true;
+      if (shouldAutoCreate) {
+        const existingInstances = this.runtime.getAllInstances();
+        const hasEntryPointInstance = existingInstances.some(
+          inst => inst.machineName === this.component.entryMachine && inst.isEntryPoint
+        );
+
+        if (!hasEntryPointInstance) {
+          console.log(`[RuntimeBroadcaster] Creating entry point instance for ${this.component.entryMachine}`);
+          const entryInstanceId = this.runtime.createInstance(this.component.entryMachine, {});
+          // Mark as entry point (won't be auto-deallocated in final state)
+          const instance = this.runtime.getInstance(entryInstanceId);
+          if (instance) {
+            (instance as any).isEntryPoint = true;
+          }
+          console.log(`[RuntimeBroadcaster] Entry point instance created: ${entryInstanceId}`);
+        } else {
+          console.log(`[RuntimeBroadcaster] Entry point instance already exists`);
         }
-        console.log(`[RuntimeBroadcaster] Entry point instance created: ${entryInstanceId}`);
       } else {
-        console.log(`[RuntimeBroadcaster] Entry point instance already exists`);
+        console.log(`[RuntimeBroadcaster] Auto-create disabled for entry point (create via API)`);
       }
     }
 
@@ -298,24 +306,27 @@ export class RuntimeBroadcaster {
     // Create instance command
     await this.broker.subscribe(DashboardChannels.CREATE_INSTANCE, async (msg: any) => {
       console.log(`[RuntimeBroadcaster] Received CREATE_INSTANCE for ${msg.componentName} (this: ${this.component.name})`);
-      console.log(`[RuntimeBroadcaster] Component match: ${msg.componentName === this.component.name}`);
       if (msg.componentName === this.component.name) {
-        console.log(`[RuntimeBroadcaster] Processing CREATE_INSTANCE...`);
         try {
           // Use specified machine or fall back to entry machine
           const machineName = msg.machineName || this.component.entryMachine;
-          console.log(`[RuntimeBroadcaster] machineName: ${machineName}`);
           if (!machineName) {
-            console.error(`[RuntimeBroadcaster] No machine specified and no entry machine defined for component ${this.component.name}`);
+            console.error(`[RuntimeBroadcaster] No machine specified and no entry machine defined`);
             return;
           }
 
-          console.log(`[RuntimeBroadcaster] Calling runtime.createInstance(${machineName}, ${JSON.stringify(msg.context || {})})`);
-          const instanceId = this.runtime.createInstance(
-            machineName,
-            msg.context || {}
-          );
-          console.log(`[RuntimeBroadcaster] createInstance returned: ${instanceId}`);
+          // Check singleton mode for entry machine
+          if (machineName === this.component.entryMachine &&
+              this.component.entryMachineMode === 'singleton') {
+            const existingInstances = this.runtime.getAllInstances()
+              .filter(i => i.machineName === this.component.entryMachine);
+            if (existingInstances.length > 0) {
+              console.log(`[RuntimeBroadcaster] Singleton mode: entry point instance already exists, ignoring CREATE_INSTANCE`);
+              return;
+            }
+          }
+
+          const instanceId = this.runtime.createInstance(machineName, msg.context || {});
 
           if (msg.sourceComponent) {
             console.log(`[RuntimeBroadcaster] Created instance ${instanceId} (cross-component from ${msg.sourceComponent})`);
@@ -323,10 +334,8 @@ export class RuntimeBroadcaster {
             console.log(`[RuntimeBroadcaster] Created instance ${instanceId}`);
           }
         } catch (error: any) {
-          console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message, error.stack);
+          console.error(`[RuntimeBroadcaster] Failed to create instance:`, error.message);
         }
-      } else {
-        console.log(`[RuntimeBroadcaster] Ignoring CREATE_INSTANCE - not for this component`);
       }
     });
 

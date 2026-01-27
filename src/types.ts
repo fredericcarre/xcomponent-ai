@@ -364,8 +364,33 @@ export interface Component {
   version: string;
   /** State machines */
   stateMachines: StateMachine[];
-  /** Entry point machine - auto-created on component start */
+  /**
+   * Entry point machine name.
+   * Defines which state machine is the component's main entry point.
+   * Entry point instances are never deallocated even in final states.
+   * @example entryMachine: 'Order'
+   */
   entryMachine?: string;
+  /**
+   * Entry machine instance creation mode.
+   * - 'singleton': Only one instance allowed - good for monitors, supervisors, orchestrators
+   * - 'multiple': Multiple instances allowed - good for orders, payments, user workflows
+   * @default 'singleton'
+   * @example entryMachineMode: 'multiple'  // Allow multiple Order instances
+   */
+  entryMachineMode?: 'singleton' | 'multiple';
+  /**
+   * Auto-create entry point instance when runtime starts.
+   * - true: Instance created automatically with empty context
+   * - false: No auto-create, instances created via API/dashboard with meaningful context
+   *
+   * For 'multiple' mode, typically set to false so users create instances with specific data.
+   * For 'singleton' mode, typically set to true so the single instance always exists.
+   *
+   * @default true for singleton mode, false for multiple mode
+   * @example autoCreateEntryPoint: false  // User creates instances via API
+   */
+  autoCreateEntryPoint?: boolean;
   /** Metadata */
   metadata?: Record<string, any>;
   /** Layout configuration for dashboard visualization */

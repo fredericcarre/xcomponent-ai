@@ -280,8 +280,9 @@ export class DashboardServer {
       try {
         const { instanceId } = req.params;
         const result = await this.pgPool.query(
-          `SELECT id, instance_id, machine_name, event_type, event_payload,
+          `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
                   from_state, to_state, context, public_member_snapshot,
+                  source_component_name,
                   correlation_id, causation_id, caused, persisted_at, created_at
            FROM fsm_events WHERE instance_id = $1
            ORDER BY persisted_at ASC`,
@@ -423,8 +424,9 @@ export class DashboardServer {
 
         // Get all events
         const eventsResult = await this.pgPool.query(
-          `SELECT id, instance_id, machine_name, event_type, event_payload,
+          `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
                   from_state, to_state, context, public_member_snapshot,
+                  source_component_name,
                   correlation_id, causation_id, caused, persisted_at, created_at
            FROM fsm_events WHERE instance_id = $1
            ORDER BY persisted_at ASC`,
@@ -445,6 +447,7 @@ export class DashboardServer {
           stateBefore: row.from_state,
           stateAfter: row.to_state,
           publicMemberSnapshot: row.public_member_snapshot,
+          sourceComponentName: row.source_component_name || undefined,
           causedBy: row.correlation_id ? [row.correlation_id] : undefined,
           caused: row.caused || [],
           persistedAt: parseInt(row.persisted_at, 10),
@@ -535,9 +538,9 @@ export class DashboardServer {
         // Step 3: Find ALL events across ALL instances that share this correlation value
         // Search in event_payload (JSON) for the correlation key
         const correlatedResult = await this.pgPool.query(
-          `SELECT id, instance_id, machine_name, event_type, event_payload,
+          `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
                   from_state, to_state, context, public_member_snapshot,
-                  persisted_at, created_at
+                  source_component_name, persisted_at, created_at
            FROM fsm_events
            WHERE event_payload->>$1 = $2
               OR context->>$1 = $2
@@ -550,12 +553,14 @@ export class DashboardServer {
             id: row.id,
             instanceId: row.instance_id,
             machineName: row.machine_name,
+            componentName: row.component_name || '',
             eventType: row.event_type,
             eventPayload: row.event_payload || {},
             fromState: row.from_state,
             toState: row.to_state,
             context: row.context,
             publicMemberSnapshot: row.public_member_snapshot,
+            sourceComponentName: row.source_component_name || undefined,
             persistedAt: parseInt(row.persisted_at, 10),
           })),
           correlationKey,
@@ -739,6 +744,11 @@ export class DashboardServer {
       if (t.guard?.expression) {
         const shortExpr = t.guard.expression.replace(/context\./g, '');
         label += ` [${shortExpr}]`;
+      }
+      // Add matching rules indicator
+      if (t.matchingRules && t.matchingRules.length > 0) {
+        const rulesText = t.matchingRules.map((r: any) => `${r.eventProperty}=${r.instanceProperty}`).join(',');
+        label += ` 🔑${rulesText}`;
       }
       // Add visual prefix for cross-component and inter-machine transitions
       if (t.type === 'cross_component' || t.targetComponent) {

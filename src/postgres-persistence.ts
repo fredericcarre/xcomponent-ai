@@ -105,12 +105,14 @@ export class PostgresEventStore implements EventStore {
         id UUID PRIMARY KEY,
         instance_id UUID NOT NULL,
         machine_name VARCHAR(255) NOT NULL,
+        component_name VARCHAR(255),
         event_type VARCHAR(255) NOT NULL,
         event_payload JSONB,
         from_state VARCHAR(255),
         to_state VARCHAR(255),
         context JSONB,
         public_member_snapshot JSONB,
+        source_component_name VARCHAR(255),
         correlation_id UUID,
         causation_id UUID,
         caused JSONB DEFAULT '[]',
@@ -132,22 +134,25 @@ export class PostgresEventStore implements EventStore {
 
     const query = `
       INSERT INTO fsm_events (
-        id, instance_id, machine_name, event_type, event_payload,
+        id, instance_id, machine_name, component_name, event_type, event_payload,
         from_state, to_state, context, public_member_snapshot,
+        source_component_name,
         correlation_id, causation_id, caused, persisted_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     `;
 
     await this.pool.query(query, [
       event.id,
       event.instanceId,
       event.machineName,
+      event.componentName || null,
       event.event.type,
       JSON.stringify(event.event.payload || {}),
       event.stateBefore,
       event.stateAfter,
       JSON.stringify({}), // context placeholder
       JSON.stringify(event.publicMemberSnapshot || {}),
+      event.sourceComponentName || null,
       event.causedBy?.[0] || null, // correlation_id from first causedBy
       event.causedBy?.[0] || null, // causation_id from first causedBy
       JSON.stringify(event.caused || []),
@@ -239,6 +244,7 @@ export class PostgresEventStore implements EventStore {
       stateBefore: row.from_state,
       stateAfter: row.to_state,
       publicMemberSnapshot: row.public_member_snapshot,
+      sourceComponentName: row.source_component_name || undefined,
       causedBy: row.correlation_id ? [row.correlation_id] : undefined,
       caused: row.caused || [],
       persistedAt: parseInt(row.persisted_at, 10)

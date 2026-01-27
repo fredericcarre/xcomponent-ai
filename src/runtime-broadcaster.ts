@@ -433,9 +433,11 @@ export class RuntimeBroadcaster {
           }
 
           // Send event to matched instances only
+          // Tag with source component for audit trail traceability
+          const taggedEvent = { ...msg.event, _sourceComponent: msg.sourceComponent };
           for (const inst of matchingInstances) {
             try {
-              await this.runtime.sendEvent(inst.id, msg.event);
+              await this.runtime.sendEvent(inst.id, taggedEvent);
               console.log(`[RuntimeBroadcaster] Sent cross-component event ${msg.event.type} to ${inst.id} (matched by ${msg.matchingRules.map((r: any) => r.instanceProperty).join(', ')})`);
             } catch (error: any) {
               console.error(`[RuntimeBroadcaster] Failed to send event to ${inst.id}:`, error.message);

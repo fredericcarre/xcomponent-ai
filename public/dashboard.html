@@ -2494,6 +2494,24 @@
         filteredInstances = filteredInstances.filter(i => i.machineName === selectedMachineName);
       }
 
+      // Hide completed instances for multiple-mode entry machines
+      // (singleton entry points keep their instances visible in all states)
+      const isSingletonMode = component.entryMachineMode === 'singleton' || (!component.entryMachineMode && !component.entryMachine);
+      if (!isSingletonMode) {
+        // Build set of terminal state names (final/error) per machine
+        const terminalStates = new Set();
+        (component.stateMachines || []).forEach(m => {
+          (m.states || []).forEach(s => {
+            if (s.type === 'final' || s.type === 'error' || s.terminal) {
+              terminalStates.add(m.name + ':' + s.name);
+            }
+          });
+        });
+        filteredInstances = filteredInstances.filter(instance => {
+          return !terminalStates.has(instance.machineName + ':' + instance.currentState);
+        });
+      }
+
       // Apply text filter
       if (filterText) {
         filteredInstances = filteredInstances.filter(instance => {
@@ -3453,13 +3471,18 @@
         const evtPayload = evt.event?.payload || evt.event_payload || {};
         const payload = evtPayload && Object.keys(evtPayload).length > 0
           ? `<div class="audit-event-payload">${JSON.stringify(evtPayload, null, 2)}</div>` : '';
+        const compName = evt.componentName || evt.component_name || '';
         const sourceComp = evt.sourceComponentName;
-        const sourceHtml = sourceComp ? `<div style="font-size: 10px; color: #f59e0b; margin-top: 2px;">from ${sourceComp}</div>` : '';
+        const compHtml = compName
+          ? `<div style="font-size: 10px; color: #a78bfa; margin-top: 2px;">${compName} &middot; ${evt.machineName || evt.machine_name || ''}</div>`
+          : '';
+        const sourceHtml = sourceComp ? `<div style="font-size: 10px; color: #f59e0b; margin-top: 2px;">&#x2190; from ${sourceComp}</div>` : '';
 
         return `
           <div class="audit-event">
             <div class="audit-event-type">${eventType}</div>
             <div class="audit-event-transition">${fromState} → ${toState}</div>
+            ${compHtml}
             ${sourceHtml}
             ${time ? `<div class="audit-event-time">${time}</div>` : ''}
             ${payload}

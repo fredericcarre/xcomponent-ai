@@ -348,6 +348,9 @@ export class FSMRuntime extends EventEmitter {
       // Update indexes
       this.updateIndexOnStateChange(instance, previousState, transition.to);
 
+      // Extract cross-component source info (set by RuntimeBroadcaster)
+      const sourceComponentName = (event as any)._sourceComponent || undefined;
+
       // Persist event (event sourcing)
       let eventId = '';
       if (this.persistence) {
@@ -357,7 +360,9 @@ export class FSMRuntime extends EventEmitter {
           this.componentDef.name,
           event,
           previousState,
-          transition.to
+          transition.to,
+          undefined, // causedBy (handled internally by persistence)
+          sourceComponentName
         );
 
         // Set as current event for causality tracking
@@ -374,6 +379,7 @@ export class FSMRuntime extends EventEmitter {
         stateBefore: previousState,
         stateAfter: transition.to,
         persistedAt: Date.now(),
+        sourceComponentName,
         // Capture publicMember state for traceability
         publicMemberSnapshot: instance.publicMember ? { ...instance.publicMember } : undefined
       };

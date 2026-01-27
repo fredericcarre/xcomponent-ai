@@ -126,6 +126,7 @@ export class DashboardServer {
         status: 'ok',
         mode: 'distributed',
         broker: this.brokerUrl.replace(/:[^:@]+@/, ':***@'),
+        database: !!this.pgPool,
         connectedRuntimes: this.runtimes.size,
         components: Array.from(this.components.keys())
       });

@@ -3303,10 +3303,40 @@
     let historyInstances = [];
     let selectedHistoryInstanceId = null;
 
+    let historyDatabaseAvailable = null; // null = unknown, true/false after check
+
     function openHistory() {
       document.getElementById('history-panel').classList.add('show');
+      // Check database availability and show banner if needed
+      checkHistoryDatabase();
       // Auto-search on open
       searchHistory();
+    }
+
+    async function checkHistoryDatabase() {
+      if (historyDatabaseAvailable !== null) return; // already checked
+      try {
+        const res = await fetch('/health');
+        const health = await res.json();
+        historyDatabaseAvailable = !!health.database;
+        if (!historyDatabaseAvailable) {
+          showNoDatabaseBanner();
+        }
+      } catch { /* ignore */ }
+    }
+
+    function showNoDatabaseBanner() {
+      const panel = document.getElementById('history-panel');
+      if (!panel || document.getElementById('no-db-banner')) return;
+      const banner = document.createElement('div');
+      banner.id = 'no-db-banner';
+      banner.style.cssText = 'padding: 10px 16px; background: rgba(245,158,11,0.1); border-bottom: 1px solid rgba(245,158,11,0.3); color: #f59e0b; font-size: 12px; display: flex; align-items: center; gap: 8px;';
+      banner.innerHTML = '<span style="font-size: 16px;">&#9888;</span> <span>No database configured. Event history and audit trail require PostgreSQL (<code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;font-size:11px;">DATABASE_URL</code>). Instances are tracked in-memory only.</span>';
+      // Insert after history-search
+      const search = panel.querySelector('.history-search');
+      if (search && search.nextSibling) {
+        search.parentNode.insertBefore(banner, search.nextSibling);
+      }
     }
 
     function closeHistory() {
@@ -3452,9 +3482,15 @@
           ${eventsHtml}
         </div>`;
 
-      // Auto-load if we have a selected instance
-      if (selectedHistoryInstanceId) {
+      // Auto-load sequence diagram if database is available
+      if (selectedHistoryInstanceId && historyDatabaseAvailable !== false) {
         loadSequenceDiagram(selectedHistoryInstanceId);
+      }
+
+      // Hide sequence diagram section entirely if no database
+      if (historyDatabaseAvailable === false) {
+        const seqSection = document.getElementById('sequence-diagram-section');
+        if (seqSection) seqSection.style.display = 'none';
       }
     }
 

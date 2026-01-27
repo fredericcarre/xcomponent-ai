@@ -1,27 +1,23 @@
 services:
-  # RabbitMQ Message Broker
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: xcomponent-rabbitmq
+  # Redis Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: xcomponent-redis
     ports:
-      - "5672:5672"   # AMQP
-      - "15672:15672" # Management UI
-    environment:
-      RABBITMQ_DEFAULT_USER: xcomponent
-      RABBITMQ_DEFAULT_PASS: xcomponent123
+      - "6379:6379"
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - redis_data:/data
     healthcheck:
-      test: rabbitmq-diagnostics -q check_port_connectivity
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 10s
+      timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 5s
 
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: xcomponent-postgres
+    container_name: xcomponent-redis-postgres
     ports:
       - "5432:5432"
     environment:
@@ -41,63 +37,61 @@ services:
   dashboard:
     build:
       context: ../..
-      dockerfile: examples/distributed/Dockerfile.dashboard
-    container_name: xcomponent-dashboard
+      dockerfile: examples/distributed-redis/Dockerfile.dashboard
+    container_name: xcomponent-redis-dashboard
     ports:
       - "3000:3000"
     environment:
-      BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
+      BROKER_URL: redis://redis:6379
       DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
       PORT: 3000
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
   # Runtime 1: Order Component
-  # Manages orders and sends payment requests to PaymentComponent
   runtime-order:
     build:
       context: ../..
-      dockerfile: examples/distributed/Dockerfile.runtime
-    container_name: xcomponent-runtime-order
+      dockerfile: examples/distributed-redis/Dockerfile.runtime
+    container_name: xcomponent-redis-runtime-order
     environment:
-      BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
+      BROKER_URL: redis://redis:6379
       DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
-      COMPONENT_FILE: /app/examples/distributed/order-component.yaml
+      COMPONENT_FILE: /app/examples/distributed-redis/order-component.yaml
       RUNTIME_NAME: order-runtime
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
   # Runtime 2: Payment Component
-  # Processes payments and notifies OrderComponent of results
   runtime-payment:
     build:
       context: ../..
-      dockerfile: examples/distributed/Dockerfile.runtime
-    container_name: xcomponent-runtime-payment
+      dockerfile: examples/distributed-redis/Dockerfile.runtime
+    container_name: xcomponent-redis-runtime-payment
     environment:
-      BROKER_URL: amqp://xcomponent:xcomponent123@rabbitmq:5672
+      BROKER_URL: redis://redis:6379
       DATABASE_URL: postgresql://xcomponent:xcomponent123@postgres:5432/xcomponent_fsm
-      COMPONENT_FILE: /app/examples/distributed/payment-component.yaml
+      COMPONENT_FILE: /app/examples/distributed-redis/payment-component.yaml
       RUNTIME_NAME: payment-runtime
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  rabbitmq_data:
+  redis_data:
   postgres_data:
 
 networks:
   default:
-    name: xcomponent-network
+    name: xcomponent-redis-network

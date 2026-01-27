@@ -69,6 +69,8 @@ export class DashboardServer {
   private io: SocketIOServer;
   private broker: MessageBroker;
   private brokerUrl: string;
+  private databaseUrl?: string;
+  private pgPool: any = null; // pg.Pool - optional, for history queries
 
   // Registry of connected runtimes
   private runtimes: Map<string, RuntimeRegistration> = new Map();
@@ -80,8 +82,9 @@ export class DashboardServer {
 
   private heartbeatCheckInterval: NodeJS.Timeout | null = null;
 
-  constructor(brokerUrl: string) {
+  constructor(brokerUrl: string, databaseUrl?: string) {
     this.brokerUrl = brokerUrl;
+    this.databaseUrl = databaseUrl;
     this.broker = createMessageBroker(brokerUrl);
 
     this.app = express();
@@ -266,11 +269,106 @@ export class DashboardServer {
       res.json({ instances: allInstances });
     });
 
-    // Get instance history (placeholder - would need event store access)
-    this.app.get('/api/instances/:instanceId/history', (_req, res) => {
-      // In distributed mode, history is stored in PostgreSQL on runtimes
-      // This is a placeholder that returns empty for now
-      res.json({ history: [], message: 'History is stored on runtime event stores' });
+    // Get event history for a specific instance
+    this.app.get('/api/instances/:instanceId/history', async (req, res) => {
+      if (!this.pgPool) {
+        res.json({ history: [], message: 'No database configured (set DATABASE_URL)' });
+        return;
+      }
+      try {
+        const { instanceId } = req.params;
+        const result = await this.pgPool.query(
+          `SELECT id, instance_id, machine_name, event_type, event_payload,
+                  from_state, to_state, context, persisted_at, created_at
+           FROM fsm_events WHERE instance_id = $1
+           ORDER BY persisted_at ASC`,
+          [instanceId]
+        );
+        res.json({ history: result.rows });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Search all instances (including terminated) from database
+    this.app.get('/api/history/instances', async (req, res) => {
+      if (!this.pgPool) {
+        res.json({ instances: [], message: 'No database configured (set DATABASE_URL)' });
+        return;
+      }
+      try {
+        const { machine, state, q, limit: limitStr } = req.query;
+        const limit = Math.min(parseInt(limitStr as string) || 100, 500);
+
+        let query = `
+          SELECT s.instance_id, s.machine_name, s.current_state, s.context,
+                 s.event_count, s.created_at, s.updated_at
+          FROM fsm_snapshots s
+        `;
+        const conditions: string[] = [];
+        const params: any[] = [];
+
+        if (machine) {
+          params.push(machine);
+          conditions.push(`s.machine_name = $${params.length}`);
+        }
+        if (state) {
+          params.push(state);
+          conditions.push(`s.current_state = $${params.length}`);
+        }
+        if (q) {
+          // Search in context JSON (orderId, customerId, etc.)
+          params.push(`%${q}%`);
+          conditions.push(`s.context::text ILIKE $${params.length}`);
+        }
+
+        if (conditions.length > 0) {
+          query += ' WHERE ' + conditions.join(' AND ');
+        }
+
+        query += ` ORDER BY s.updated_at DESC LIMIT $${params.length + 1}`;
+        params.push(limit);
+
+        const result = await this.pgPool.query(query, params);
+        res.json({ instances: result.rows });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Get full event history for a specific instance (by instance ID from snapshots)
+    this.app.get('/api/history/instances/:instanceId/events', async (req, res) => {
+      if (!this.pgPool) {
+        res.json({ events: [], message: 'No database configured (set DATABASE_URL)' });
+        return;
+      }
+      try {
+        const { instanceId } = req.params;
+
+        // Get snapshot (current/final state)
+        const snapshotResult = await this.pgPool.query(
+          `SELECT instance_id, machine_name, current_state, context, event_count,
+                  created_at, updated_at
+           FROM fsm_snapshots WHERE instance_id = $1`,
+          [instanceId]
+        );
+
+        // Get all events
+        const eventsResult = await this.pgPool.query(
+          `SELECT id, instance_id, machine_name, event_type, event_payload,
+                  from_state, to_state, context, persisted_at, created_at
+           FROM fsm_events WHERE instance_id = $1
+           ORDER BY persisted_at ASC`,
+          [instanceId]
+        );
+
+        res.json({
+          snapshot: snapshotResult.rows[0] || null,
+          events: eventsResult.rows
+        });
+      } catch (error: any) {
+        res.status(500).json({ error: error.message });
+      }
     });
 
     // Trigger event on specific component instance
@@ -446,6 +544,13 @@ export class DashboardServer {
         const shortExpr = t.guard.expression.replace(/context\./g, '');
         label += ` [${shortExpr}]`;
       }
+      // Add visual prefix for cross-component and inter-machine transitions
+      if (t.type === 'cross_component' || t.targetComponent) {
+        const target = t.targetComponent || '';
+        label = `📡 ${label} → ${target}`;
+      } else if (t.type === 'inter_machine' && t.targetMachine) {
+        label = `🔗 ${label} → ${t.targetMachine}`;
+      }
       lines.push(`  ${t.from} --> ${t.to}: ${label}`);
     });
 
@@ -482,7 +587,26 @@ export class DashboardServer {
   }
 
   async start(port: number = 3000): Promise<void> {
-    console.log(`[Dashboard] Version: 2024-01-27-v2 - Starting...`);
+    console.log(`[Dashboard] Version: 2024-01-27-v3 - Starting...`);
+
+    // Connect to PostgreSQL if DATABASE_URL provided (for history queries)
+    if (this.databaseUrl) {
+      try {
+        const pgModule = await import('pg' as any);
+        const Pool = pgModule.Pool || pgModule.default?.Pool;
+        this.pgPool = new Pool({ connectionString: this.databaseUrl });
+        // Test connection
+        await this.pgPool.query('SELECT 1');
+        console.log(`[Dashboard] PostgreSQL connected (history queries enabled)`);
+      } catch (error: any) {
+        console.warn(`[Dashboard] PostgreSQL connection failed: ${error.message}`);
+        console.warn(`[Dashboard] History queries will be unavailable`);
+        this.pgPool = null;
+      }
+    } else {
+      console.log(`[Dashboard] No DATABASE_URL - history queries disabled`);
+    }
+
     // Connect to message broker
     console.log(`[Dashboard] Connecting to message broker: ${this.brokerUrl.replace(/:[^:@]+@/, ':***@')}`);
     await this.broker.connect();
@@ -519,6 +643,9 @@ export class DashboardServer {
     if (this.heartbeatCheckInterval) {
       clearInterval(this.heartbeatCheckInterval);
     }
+    if (this.pgPool) {
+      await this.pgPool.end();
+    }
     await this.broker.disconnect();
     this.httpServer.close();
   }
@@ -529,9 +656,10 @@ export class DashboardServer {
  */
 if (require.main === module) {
   const brokerUrl = process.env.BROKER_URL || process.argv[2] || 'amqp://guest:guest@localhost:5672';
+  const databaseUrl = process.env.DATABASE_URL || undefined;
   const port = parseInt(process.env.PORT || process.argv[3] || '3000', 10);
 
-  const dashboard = new DashboardServer(brokerUrl);
+  const dashboard = new DashboardServer(brokerUrl, databaseUrl);
 
   dashboard.start(port).catch((error) => {
     console.error('Failed to start dashboard:', error);

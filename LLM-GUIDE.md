@@ -233,7 +233,7 @@ states:
 
 When Order transitions to "Validated" in Process 1, Redis automatically delivers the PROCESS event to PaymentComponent in Process 2.
 
-See: `examples/distributed-demo/` for complete working example.
+See: `examples/distributed/` (RabbitMQ) or `examples/distributed-redis/` (Redis) for complete working examples.
 
 ### 6b. Entry Point Modes (Singleton vs Multiple)
 

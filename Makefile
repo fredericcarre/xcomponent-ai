@@ -1,4 +1,4 @@
-.PHONY: help build dev prod stop clean test logs shell distributed-up distributed-down distributed-logs distributed-clean distributed-build distributed-restart
+.PHONY: help build dev prod stop clean test logs shell distributed-up distributed-down distributed-logs distributed-clean distributed-build distributed-restart distributed-redis-up distributed-redis-down distributed-redis-logs distributed-redis-clean distributed-redis-build distributed-redis-restart e2e-rabbitmq e2e-redis e2e-inmemory e2e-all
 
 # Colors for output
 GREEN := \033[0;32m
@@ -91,6 +91,66 @@ distributed-build: ## Build distributed Docker images
 	cd examples/distributed && docker compose build
 
 distributed-restart: distributed-down distributed-up ## Restart distributed infrastructure
+
+# ============================================
+# Distributed Mode - Redis + PostgreSQL
+# ============================================
+
+distributed-redis-up: ## Start distributed mode with Redis (Redis + PostgreSQL + Dashboard + Runtimes)
+	@echo "$(GREEN)Starting Redis distributed infrastructure...$(NC)"
+	@echo "$(YELLOW)Dashboard:  http://localhost:3000$(NC)"
+	@echo "$(YELLOW)Redis:      localhost:6379$(NC)"
+	@echo "$(YELLOW)PostgreSQL: localhost:5432 (xcomponent/xcomponent123)$(NC)"
+	cd examples/distributed-redis && docker compose up -d
+	@echo ""
+	@echo "$(GREEN)Services started! Use 'make distributed-redis-logs' to see logs$(NC)"
+
+distributed-redis-down: ## Stop Redis distributed infrastructure
+	@echo "$(GREEN)Stopping Redis distributed infrastructure...$(NC)"
+	cd examples/distributed-redis && docker compose down
+
+distributed-redis-logs: ## Show logs from Redis distributed services
+	cd examples/distributed-redis && docker compose logs -f
+
+distributed-redis-clean: ## Remove Redis distributed containers and volumes
+	@echo "$(GREEN)Cleaning Redis distributed resources...$(NC)"
+	cd examples/distributed-redis && docker compose down -v --rmi all
+
+distributed-redis-build: ## Build Redis distributed Docker images
+	@echo "$(GREEN)Building Redis distributed images...$(NC)"
+	cd examples/distributed-redis && docker compose build
+
+distributed-redis-restart: distributed-redis-down distributed-redis-up ## Restart Redis distributed infrastructure
+
+# ============================================
+# E2E Tests (full Docker-based)
+# ============================================
+
+e2e-rabbitmq: ## Run E2E tests with RabbitMQ distributed mode
+	@echo "$(GREEN)Running RabbitMQ E2E tests...$(NC)"
+	cd examples/distributed && docker compose up -d --build
+	@echo "$(YELLOW)Waiting for services to be ready...$(NC)"
+	@sleep 15
+	@node examples/distributed/e2e-test.js; \
+	EXIT_CODE=$$?; \
+	cd examples/distributed && docker compose down; \
+	exit $$EXIT_CODE
+
+e2e-redis: ## Run E2E tests with Redis distributed mode
+	@echo "$(GREEN)Running Redis E2E tests...$(NC)"
+	cd examples/distributed-redis && docker compose up -d --build
+	@echo "$(YELLOW)Waiting for services to be ready...$(NC)"
+	@sleep 15
+	@node examples/distributed-redis/e2e-test.js; \
+	EXIT_CODE=$$?; \
+	cd examples/distributed-redis && docker compose down; \
+	exit $$EXIT_CODE
+
+e2e-inmemory: ## Run E2E tests with in-memory mode (no Docker needed)
+	@echo "$(GREEN)Running in-memory E2E tests...$(NC)"
+	npx jest tests/cross-component-e2e.test.ts --testTimeout=30000 --verbose
+
+e2e-all: e2e-inmemory e2e-rabbitmq e2e-redis ## Run all E2E tests (in-memory, RabbitMQ, Redis)
 
 # ============================================
 # Integration Tests (Docker-based)

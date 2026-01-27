@@ -1788,12 +1788,8 @@
                     const targetMachine = component.stateMachines.find(m => m.name === t.targetMachine);
                     return targetMachine?.contextSchema || null;
                   }
-                  // For regular transitions from initial state, only show contextSchema if this is the entry machine
-                  // Non-entry machines get their context from the inter_machine transition that creates them
-                  const isEntryMachine = component.entryMachine === machine.name;
-                  if (isEntryMachine && machine.contextSchema && currentState === machine.initialState) {
-                    return machine.contextSchema;
-                  }
+                  // contextSchema is for instance creation only (via "+ New" modal)
+                  // Transition event parameters must be explicitly defined
                   return null;
                 };
 
@@ -2436,16 +2432,8 @@
         return targetMachine?.contextSchema || null;
       }
 
-      // For regular transitions from initial state, only show contextSchema if this is the entry machine
-      // Non-entry machines get their context from the inter_machine transition that creates them
-      if (instance) {
-        const currentMachine = component.stateMachines.find(m => m.name === instance.machineName);
-        const isEntryMachine = component.entryMachine === instance.machineName;
-        if (isEntryMachine && currentMachine?.contextSchema && instance.currentState === currentMachine.initialState) {
-          return currentMachine.contextSchema;
-        }
-      }
-
+      // contextSchema is for instance creation only (via "+ New" modal)
+      // Transition event parameters must be explicitly defined
       return null;
     }
 

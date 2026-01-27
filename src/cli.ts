@@ -938,6 +938,10 @@ program
           runtime.on('instance_error', (data) => {
             io.emit('instance_error', { ...data, componentName });
           });
+
+          runtime.on('instance_disposed', (data) => {
+            io.emit('instance_disposed', { ...data, componentName });
+          });
         }
       }
       

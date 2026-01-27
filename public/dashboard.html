@@ -1850,14 +1850,11 @@
       const res = await fetch(`/api/instances?t=${Date.now()}`);
       const data = await res.json();
       allInstances = data.instances || [];
-      console.log('loadInstances: loaded', allInstances.length, 'instances');
+      console.log('loadInstances: loaded', allInstances.length, 'instances, selectedComponent:', selectedComponentName);
 
-      // Debug: log instances with their transition info
+      // Debug: log instances with their component and state info
       allInstances.forEach(inst => {
-        console.log(`Instance ${inst.id} (${inst.machineName}/${inst.currentState}):`, {
-          pendingTimeouts: inst.pendingTimeouts,
-          _debug: inst._debug
-        });
+        console.log(`Instance ${inst.id || inst.instanceId} (${inst.componentName}/${inst.machineName}/${inst.currentState})`);
       });
 
       renderInstanceList();
@@ -1889,8 +1886,13 @@
         return;
       }
 
-      // Filter instances: by selected machine (when in detail view) and by search text
+      // Filter instances: by selected component, machine (when in detail view), and search text
       let filteredInstances = allInstances;
+
+      // Filter by selected component
+      if (selectedComponentName) {
+        filteredInstances = filteredInstances.filter(i => i.componentName === selectedComponentName);
+      }
 
       // If in detail view (machine selected), only show instances of that machine
       if (selectedMachineName && document.getElementById('machine-detail').classList.contains('active')) {

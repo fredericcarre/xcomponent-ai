@@ -53,7 +53,7 @@ export class RuntimeBroadcaster {
    * Connect to the broker and start broadcasting events
    */
   async connect(): Promise<void> {
-    console.log(`[RuntimeBroadcaster] Version: 2024-01-27-v2 - Connecting...`);
+    console.log(`[RuntimeBroadcaster] Version: 2024-01-27-v3 - Connecting...`);
     await this.broker.connect();
     this.connected = true;
 
@@ -63,6 +63,27 @@ export class RuntimeBroadcaster {
 
     // Register event listeners on the runtime
     this.attachRuntimeListeners();
+
+    // Auto-create entry point instance if specified (mirrors ComponentRegistry behavior)
+    if (this.component.entryMachine) {
+      const existingInstances = this.runtime.getAllInstances();
+      const hasEntryPointInstance = existingInstances.some(
+        inst => inst.machineName === this.component.entryMachine && inst.isEntryPoint
+      );
+
+      if (!hasEntryPointInstance) {
+        console.log(`[RuntimeBroadcaster] Creating entry point instance for ${this.component.entryMachine}`);
+        const entryInstanceId = this.runtime.createInstance(this.component.entryMachine, {});
+        // Mark as entry point (won't be auto-deallocated in final state)
+        const instance = this.runtime.getInstance(entryInstanceId);
+        if (instance) {
+          (instance as any).isEntryPoint = true;
+        }
+        console.log(`[RuntimeBroadcaster] Entry point instance created: ${entryInstanceId}`);
+      } else {
+        console.log(`[RuntimeBroadcaster] Entry point instance already exists`);
+      }
+    }
 
     // Announce this runtime to the dashboard
     await this.announce();

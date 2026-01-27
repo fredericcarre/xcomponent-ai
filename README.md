@@ -98,11 +98,14 @@ The business model is the guardrail.
 
 The monitoring UI provides a **live view of all components and their state machines**.
 
+
 ### Component overview
 
 * Visual representation of all machines in a component
 * Inter-machine transitions clearly displayed
 * Entry points and terminal states highlighted
+
+![alt text](images/overview.png "Overview")
 
 ---
 
@@ -131,6 +134,8 @@ This is **not just visualization — it is operational control**.
 ---
 
 ### Audit trail & sequence diagrams
+
+![alt text](images/audit.png "Audit")
 
 For every instance:
 

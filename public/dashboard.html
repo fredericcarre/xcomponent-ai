@@ -1358,6 +1358,7 @@
     let selectedInstanceId = null;
     let allInstances = [];
     let currentTransitions = [];
+    const recentlyDisposedIds = new Set();
 
     // Format milliseconds as human-readable time (used by multiple functions)
     function formatTimeRemaining(ms) {
@@ -1406,8 +1407,22 @@
       loadInstances();
     });
 
-    socket.on('instance_disposed', () => {
-      loadInstances();
+    socket.on('instance_disposed', (data) => {
+      console.log('instance_disposed event received:', data);
+      const disposedId = data && (data.id || data.instanceId);
+      if (disposedId) {
+        recentlyDisposedIds.add(disposedId);
+        // Remove immediately from local array — no refetch needed
+        allInstances = allInstances.filter(i => i.id !== disposedId);
+        renderInstanceList();
+        updateStats();
+        const overviewVisible = !document.getElementById('component-overview').classList.contains('hidden');
+        if (overviewVisible) {
+          renderComponentOverview();
+        }
+        // Auto-clear after 10s (by then every pending fetch has settled)
+        setTimeout(() => recentlyDisposedIds.delete(disposedId), 10000);
+      }
     });
 
     socket.on('state_change', (data) => {
@@ -2445,7 +2460,13 @@
       // Add cache-busting timestamp
       const res = await fetch(`/api/instances?t=${Date.now()}`);
       const data = await res.json();
-      allInstances = data.instances || [];
+      // Filter out instances that were recently disposed to prevent a stale
+      // state_change fetch (which fires before the runtime deletes the instance)
+      // from re-adding an instance that has already been removed locally.
+      const fetched = data.instances || [];
+      allInstances = recentlyDisposedIds.size > 0
+        ? fetched.filter(i => !recentlyDisposedIds.has(i.id))
+        : fetched;
       console.log('loadInstances: loaded', allInstances.length, 'instances, selectedComponent:', selectedComponentName);
 
       // Debug: log instances with their component and state info

@@ -82,19 +82,6 @@ async function main() {
   });
 
   console.log(`[Runtime] Broadcasting as ${broadcaster.getRuntimeId()}`);
-
-  // Restore persisted instances from PostgreSQL
-  if (databaseUrl) {
-    console.log('[Runtime] Restoring instances from PostgreSQL...');
-    try {
-      await runtime.restore();
-      const instances = runtime.getAllInstances();
-      console.log(`[Runtime] Restored ${instances.length} instance(s)`);
-    } catch (err) {
-      console.log('[Runtime] No instances to restore or restore failed:', err.message);
-    }
-  }
-
   console.log('[Runtime] Ready and waiting for events...\n');
 
   // Create an initial instance for demo

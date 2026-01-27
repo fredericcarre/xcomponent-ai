@@ -366,6 +366,12 @@ export interface Component {
   stateMachines: StateMachine[];
   /** Entry point machine - auto-created on component start */
   entryMachine?: string;
+  /**
+   * Entry machine mode:
+   * - 'singleton': Only one instance allowed (orchestrator pattern)
+   * - 'multiple': Multiple instances allowed (workflow pattern, default)
+   */
+  entryMachineMode?: 'singleton' | 'multiple';
   /** Metadata */
   metadata?: Record<string, any>;
   /** Layout configuration for dashboard visualization */

@@ -28,18 +28,28 @@ await sender.broadcast('Order', event, filters);
 await sender.sendTo(instanceId, event);
 ```
 
-**Example:**
+**Example YAML** -- declare the method name on the transition:
 ```yaml
-triggeredMethods:
-  notifyPayment: |
-    async function(event, context, sender) {
-      // Send to specific payment instance
-      await sender.sendTo(context.paymentInstanceId, {
-        type: 'ORDER_CONFIRMED',
-        payload: { orderId: context.orderId },
-        timestamp: Date.now()
-      });
-    }
+transitions:
+  - from: Validated
+    to: Confirmed
+    event: CONFIRM
+    type: triggerable
+    triggeredMethod: notifyPayment
+```
+
+**Example TypeScript** -- implement the handler:
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'notifyPayment') {
+    // Send to specific payment instance
+    await sender.sendTo(context.paymentInstanceId, {
+      type: 'ORDER_CONFIRMED',
+      payload: { orderId: context.orderId },
+      timestamp: Date.now()
+    });
+  }
+});
 ```
 
 ---
@@ -224,118 +234,162 @@ All three filters must match!
 
 ### Pattern 1: Notify Related Instances (Any State)
 
+**YAML** -- declare the method name on the transition:
 ```yaml
-triggeredMethods:
-  onOrderUpdate: |
-    async function(event, context, sender) {
-      // Notify ALL risk monitors for this customer
-      // (regardless of their current state)
-      await sender.broadcast(
-        'RiskMonitor',
-        {
-          type: 'ORDER_EVENT',
-          payload: {
-            orderId: context.orderId,
-            eventType: event.type,
-            amount: context.amount
-          },
-          timestamp: Date.now()
+transitions:
+  - from: Active
+    to: Active
+    event: ORDER_UPDATED
+    type: triggerable
+    triggeredMethod: onOrderUpdate
+```
+
+**TypeScript** -- implement the handler:
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onOrderUpdate') {
+    // Notify ALL risk monitors for this customer
+    // (regardless of their current state)
+    await sender.broadcast(
+      'RiskMonitor',
+      {
+        type: 'ORDER_EVENT',
+        payload: {
+          orderId: context.orderId,
+          eventType: event.type,
+          amount: context.amount
         },
-        [
-          { property: 'customerId', value: context.customerId }
-        ]
-        // No currentState = any state
-      );
-    }
+        timestamp: Date.now()
+      },
+      [
+        { property: 'customerId', value: context.customerId }
+      ]
+      // No currentState = any state
+    );
+  }
+});
 ```
 
 ### Pattern 2: Targeted Notification (Specific State)
 
+**YAML** -- declare the method name on the transition:
 ```yaml
-triggeredMethods:
-  onPaymentFailed: |
-    async function(event, context, sender) {
-      // Notify only ACTIVE orders for this customer
-      await sender.broadcast(
-        'Order',
-        {
-          type: 'PAYMENT_FAILED',
-          payload: {
-            paymentId: context.paymentId,
-            reason: event.payload.reason
-          },
-          timestamp: Date.now()
+transitions:
+  - from: Processing
+    to: Failed
+    event: PAYMENT_FAIL
+    type: triggerable
+    triggeredMethod: onPaymentFailed
+```
+
+**TypeScript** -- implement the handler:
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onPaymentFailed') {
+    // Notify only ACTIVE orders for this customer
+    await sender.broadcast(
+      'Order',
+      {
+        type: 'PAYMENT_FAILED',
+        payload: {
+          paymentId: context.paymentId,
+          reason: event.payload.reason
         },
-        [
-          { property: 'customerId', value: context.customerId }
-        ],
-        'Active'  // Only Active orders
-      );
-    }
+        timestamp: Date.now()
+      },
+      [
+        { property: 'customerId', value: context.customerId }
+      ],
+      'Active'  // Only Active orders
+    );
+  }
+});
 ```
 
 ### Pattern 3: System-Wide Alert (No Filters)
 
+**YAML** -- declare the method name on the transition:
 ```yaml
-triggeredMethods:
-  onSystemAlert: |
-    async function(event, context, sender) {
-      // Alert ALL orders (any state, no filters)
-      await sender.broadcast(
-        'Order',
-        {
-          type: 'SYSTEM_MAINTENANCE',
-          payload: {
-            scheduledAt: event.payload.maintenanceTime
-          },
-          timestamp: Date.now()
-        }
-        // No filters, no state = broadcast to ALL
-      );
-    }
+transitions:
+  - from: Monitoring
+    to: Alerting
+    event: SYSTEM_ALERT
+    type: triggerable
+    triggeredMethod: onSystemAlert
+```
+
+**TypeScript** -- implement the handler:
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onSystemAlert') {
+    // Alert ALL orders (any state, no filters)
+    await sender.broadcast(
+      'Order',
+      {
+        type: 'SYSTEM_MAINTENANCE',
+        payload: {
+          scheduledAt: event.payload.maintenanceTime
+        },
+        timestamp: Date.now()
+      }
+      // No filters, no state = broadcast to ALL
+    );
+  }
+});
 ```
 
 ### Pattern 4: Cascade to Multiple Machines
 
+**YAML** -- declare the method name on the transition:
 ```yaml
-triggeredMethods:
-  onCustomerUpgrade: |
-    async function(event, context, sender) {
-      const customerId = context.customerId;
+transitions:
+  - from: Standard
+    to: Premium
+    event: UPGRADE
+    type: triggerable
+    triggeredMethod: onCustomerUpgrade
+```
 
-      // Update all orders
-      await sender.broadcast(
-        'Order',
-        {
-          type: 'CUSTOMER_TIER_CHANGED',
-          payload: { newTier: 'premium' },
-          timestamp: Date.now()
-        },
-        [{ property: 'customerId', value: customerId }]
-      );
+**TypeScript** -- implement the handler:
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'onCustomerUpgrade') {
+    const customerId = context.customerId;
 
-      // Update all payments
-      await sender.broadcast(
-        'Payment',
-        {
-          type: 'CUSTOMER_TIER_CHANGED',
-          payload: { newTier: 'premium' },
-          timestamp: Date.now()
-        },
-        [{ property: 'customerId', value: customerId }]
-      );
+    // Update all orders
+    await sender.broadcast(
+      'Order',
+      {
+        type: 'CUSTOMER_TIER_CHANGED',
+        payload: { newTier: 'premium' },
+        timestamp: Date.now()
+      },
+      [{ property: 'customerId', value: customerId }]
+    );
 
-      // Update all risk monitors
-      await sender.broadcast(
-        'RiskMonitor',
-        {
-          type: 'CUSTOMER_TIER_CHANGED',
-          payload: { newTier: 'premium' },
-          timestamp: Date.now()
-        },
-        [{ property: 'customerId', value: customerId }]
-      );
-    }
+    // Update all payments
+    await sender.broadcast(
+      'Payment',
+      {
+        type: 'CUSTOMER_TIER_CHANGED',
+        payload: { newTier: 'premium' },
+        timestamp: Date.now()
+      },
+      [{ property: 'customerId', value: customerId }]
+    );
+
+    // Update all risk monitors
+    await sender.broadcast(
+      'RiskMonitor',
+      {
+        type: 'CUSTOMER_TIER_CHANGED',
+        payload: { newTier: 'premium' },
+        timestamp: Date.now()
+      },
+      [{ property: 'customerId', value: customerId }]
+    );
+  }
+});
 ```
 
 ---

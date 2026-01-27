@@ -53,46 +53,59 @@ stateMachines:
 
 ### Step 2: Create Accumulation Method with Explicit Control
 
+**YAML** -- declare the method name on the transition:
+
 ```yaml
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // Initialize counters
-      if (!context.executedQuantity) {
-        context.executedQuantity = 0;
-      }
-      if (!context.executions) {
-        context.executions = [];
-      }
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: accumulateExecution
+```
 
-      // Accumulate quantity from event
-      const qty = event.payload.quantity || 0;
-      context.executedQuantity += qty;
+**TypeScript** -- implement the handler:
 
-      // Track individual executions
-      context.executions.push({
-        quantity: qty,
-        price: event.payload.price,
-        executionId: event.payload.executionId,
-        timestamp: event.timestamp
-      });
-
-      console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
-
-      // EXPLICIT CONTROL: Decide when to transition
-      if (context.executedQuantity >= context.totalQuantity) {
-        // Send event to self to trigger completion
-        await sender.sendToSelf({
-          type: 'FULLY_EXECUTED',
-          payload: {
-            totalExecuted: context.executedQuantity,
-            executionCount: context.executions.length,
-            averagePrice: context.executions.reduce((sum, e) => sum + e.price, 0) / context.executions.length
-          },
-          timestamp: Date.now()
-        });
-      }
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'accumulateExecution') {
+    // Initialize counters
+    if (!context.executedQuantity) {
+      context.executedQuantity = 0;
     }
+    if (!context.executions) {
+      context.executions = [];
+    }
+
+    // Accumulate quantity from event
+    const qty = event.payload.quantity || 0;
+    context.executedQuantity += qty;
+
+    // Track individual executions
+    context.executions.push({
+      quantity: qty,
+      price: event.payload.price,
+      executionId: event.payload.executionId,
+      timestamp: event.timestamp
+    });
+
+    console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+
+    // EXPLICIT CONTROL: Decide when to transition
+    if (context.executedQuantity >= context.totalQuantity) {
+      // Send event to self to trigger completion
+      await sender.sendToSelf({
+        type: 'FULLY_EXECUTED',
+        payload: {
+          totalExecuted: context.executedQuantity,
+          executionCount: context.executions.length,
+          averagePrice: context.executions.reduce((sum, e) => sum + e.price, 0) / context.executions.length
+        },
+        timestamp: Date.now()
+      });
+    }
+  }
+});
 ```
 
 **Key Points:**
@@ -146,47 +159,11 @@ transitions:
 
 ## 📝 Complete Example
 
+**YAML** (`trading.yaml`):
+
 ```yaml
 name: TradingComponent
 version: 1.0.0
-
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      if (!context.executedQuantity) context.executedQuantity = 0;
-      if (!context.executions) context.executions = [];
-
-      const qty = event.payload.quantity || 0;
-      context.executedQuantity += qty;
-      context.executions.push({
-        quantity: qty,
-        price: event.payload.price,
-        executionId: event.payload.executionId,
-        timestamp: event.timestamp
-      });
-
-      console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
-
-      // EXPLICIT CONTROL
-      if (context.executedQuantity >= context.totalQuantity) {
-        await sender.sendToSelf({
-          type: 'FULLY_EXECUTED',
-          payload: {
-            totalExecuted: context.executedQuantity,
-            executionCount: context.executions.length
-          },
-          timestamp: Date.now()
-        });
-      }
-    }
-
-  handleCompletion: |
-    async function(event, context, sender) {
-      console.log(`Order completed!`);
-      console.log(`  Total: ${event.payload.totalExecuted}`);
-      console.log(`  Executions: ${event.payload.executionCount}`);
-      context.stats = event.payload;
-    }
 
 stateMachines:
   - name: TradingOrder
@@ -240,6 +217,47 @@ stateMachines:
         to: Completed
         event: SETTLE
         type: triggerable
+```
+
+**TypeScript** -- implement the handlers:
+
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'accumulateExecution') {
+    if (!context.executedQuantity) context.executedQuantity = 0;
+    if (!context.executions) context.executions = [];
+
+    const qty = event.payload.quantity || 0;
+    context.executedQuantity += qty;
+    context.executions.push({
+      quantity: qty,
+      price: event.payload.price,
+      executionId: event.payload.executionId,
+      timestamp: event.timestamp
+    });
+
+    console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+
+    // EXPLICIT CONTROL
+    if (context.executedQuantity >= context.totalQuantity) {
+      await sender.sendToSelf({
+        type: 'FULLY_EXECUTED',
+        payload: {
+          totalExecuted: context.executedQuantity,
+          executionCount: context.executions.length
+        },
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  if (method === 'handleCompletion') {
+    console.log(`Order completed!`);
+    console.log(`  Total: ${event.payload.totalExecuted}`);
+    console.log(`  Executions: ${event.payload.executionCount}`);
+    context.stats = event.payload;
+  }
+});
 ```
 
 ---

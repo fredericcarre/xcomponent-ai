@@ -11,60 +11,8 @@ version: 1.0.0
 metadata:
   description: Trading order with partial executions and explicit control
 
-# Define triggered methods that accumulate data and EXPLICITLY control transitions
-triggeredMethods:
-  # Accumulates execution data and EXPLICITLY decides when to transition
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // Initialize if first execution
-      if (!context.executedQuantity) {
-        context.executedQuantity = 0;
-      }
-      if (!context.executions) {
-        context.executions = [];
-      }
-
-      // Add executed quantity from event
-      const executedQty = event.payload.quantity || 0;
-      context.executedQuantity += executedQty;
-
-      // Track individual executions for audit
-      context.executions.push({
-        quantity: executedQty,
-        price: event.payload.price,
-        timestamp: event.timestamp,
-        executionId: event.payload.executionId
-      });
-
-      console.log(`Accumulated: ${context.executedQuantity}/${context.totalQuantity}`);
-
-      // EXPLICIT CONTROL: Decide when to transition to FullyExecuted
-      if (context.executedQuantity >= context.totalQuantity) {
-        console.log(`Order ${context.orderId} is now fully executed!`);
-        // Send event to self to trigger transition to FullyExecuted
-        await sender.sendToSelf({
-          type: 'FULLY_EXECUTED',
-          payload: {
-            totalExecuted: context.executedQuantity,
-            executionCount: context.executions.length,
-            averagePrice: context.executions.reduce((sum, e) => sum + e.price, 0) / context.executions.length
-          },
-          timestamp: Date.now()
-        });
-      }
-    }
-
-  # Handle completion
-  handleCompletion: |
-    async function(event, context, sender) {
-      console.log(`Order ${context.orderId} completed!`);
-      console.log(`  Total executed: ${event.payload.totalExecuted}`);
-      console.log(`  Executions: ${event.payload.executionCount}`);
-      console.log(`  Average price: ${event.payload.averagePrice}`);
-
-      context.completedAt = Date.now();
-      context.stats = event.payload;
-    }
+# Triggered method handlers are implemented in TypeScript using:
+#   runtime.on('triggered_method', async ({ method, event, context, sender }) => { ... })
 
 stateMachines:
   - name: TradingOrder

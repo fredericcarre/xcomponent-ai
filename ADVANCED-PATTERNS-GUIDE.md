@@ -53,33 +53,47 @@ transitions:
 
 Triggered methods can modify the instance's context/publicMember.
 
+**YAML** — declares only the method **name** on the transition:
+
 ```yaml
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // Initialize if first execution
-      if (!context.executedQuantity) {
-        context.executedQuantity = 0;
-      }
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: accumulateExecution
+```
 
-      // ACCUMULATE data from event
-      const qty = event.payload.quantity || 0;
-      context.executedQuantity += qty;
+**TypeScript** — implements the business logic in a handler:
 
-      // Track execution history
-      context.executions.push({
-        quantity: qty,
-        price: event.payload.price,
-        executionId: event.payload.executionId,
-        timestamp: event.timestamp
-      });
-
-      console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'accumulateExecution') {
+    // Initialize if first execution
+    if (!context.executedQuantity) {
+      context.executedQuantity = 0;
     }
+
+    // ACCUMULATE data from event
+    const qty = event.payload.quantity || 0;
+    context.executedQuantity += qty;
+
+    // Track execution history
+    context.executions.push({
+      quantity: qty,
+      price: event.payload.price,
+      executionId: event.payload.executionId,
+      timestamp: event.timestamp
+    });
+
+    console.log(`Executed: ${context.executedQuantity}/${context.totalQuantity}`);
+  }
+});
 ```
 
 **Key points:**
-- Triggered method runs during the transition
+- YAML contains only the method name (string), not code
+- The handler is registered in TypeScript via `runtime.on('triggered_method', ...)`
 - Context changes persist after the transition completes
 - This enables accumulation patterns
 
@@ -87,17 +101,31 @@ triggeredMethods:
 
 ### Pattern 3: Broadcast with Filters from Triggered Methods
 
-Triggered methods can send events to **specific instances** using property filters.
+Triggered methods can send events to **specific instances** using the sender API.
+
+**YAML** — declares the method name:
 
 ```yaml
-triggeredMethods:
-  accumulateExecution: |
-    async function(event, context, sender) {
-      // ... update context ...
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: accumulateAndNotify
+```
 
-      // BROADCAST WITH FILTERS
-      // Notify ONLY risk monitors for this customer
-      const notificationEvent = {
+**TypeScript** — implements broadcast logic in the handler:
+
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'accumulateAndNotify') {
+    // Update context
+    context.executedQuantity += event.payload.quantity || 0;
+
+    // BROADCAST: Notify ONLY risk monitors for this customer
+    const count = await sender.broadcast(
+      'RiskMonitor',              // Target machine
+      {                           // Event to send
         type: 'ORDER_EXECUTION_UPDATE',
         payload: {
           orderId: context.orderId,
@@ -105,21 +133,13 @@ triggeredMethods:
           totalQuantity: context.totalQuantity
         },
         timestamp: Date.now()
-      };
+      },
+      'Monitoring'                // Target state (optional)
+    );
 
-      // sender.broadcast(machineName, currentState, event, filters)
-      const count = await sender.broadcast(
-        'RiskMonitor',              // Target machine
-        'Monitoring',               // Target state
-        notificationEvent,          // Event to send
-        [
-          // FILTERS: Target specific instances
-          { property: 'customerId', value: event.payload.customerId }
-        ]
-      );
-
-      console.log(`Notified ${count} risk monitor(s)`);
-    }
+    console.log(`Notified ${count} risk monitor(s)`);
+  }
+});
 ```
 
 **Available sender methods:**

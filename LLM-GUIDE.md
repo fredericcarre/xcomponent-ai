@@ -324,34 +324,47 @@ Or via the dashboard UI: Click the **"+ New"** button in the Instances sidebar.
 
 Triggered methods can send events to **specific instances** using property filters:
 
+**YAML** — declare the method name on the transition:
+
 ```yaml
-triggeredMethods:
-  notifyRiskMonitors: |
-    async function(event, context, sender) {
-      // Update local context
-      context.executedQuantity += event.payload.quantity;
+transitions:
+  - from: PartiallyExecuted
+    to: PartiallyExecuted
+    event: EXECUTION_NOTIFICATION
+    type: triggerable
+    triggeredMethod: notifyRiskMonitors
+```
 
-      // BROADCAST to risk monitors for THIS CUSTOMER ONLY
-      const count = await sender.broadcast(
-        'RiskMonitor',           // Target machine
-        'Monitoring',            // Target state
-        {
-          type: 'ORDER_UPDATE',
-          payload: {
-            orderId: context.orderId,
-            executedQuantity: context.executedQuantity
-          },
-          timestamp: Date.now()
+**TypeScript** — implement the handler:
+
+```typescript
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  if (method === 'notifyRiskMonitors') {
+    // Update local context
+    context.executedQuantity += event.payload.quantity;
+
+    // BROADCAST to risk monitors for THIS CUSTOMER ONLY
+    const count = await sender.broadcast(
+      'RiskMonitor',           // Target machine
+      {
+        type: 'ORDER_UPDATE',
+        payload: {
+          orderId: context.orderId,
+          executedQuantity: context.executedQuantity
         },
-        [
-          // FILTERS: Property-based targeting
-          { property: 'customerId', value: context.customerId },
-          { property: 'assetClass', operator: '===', value: 'EQUITY' }
-        ]
-      );
+        timestamp: Date.now()
+      },
+      [
+        // FILTERS: Property-based targeting
+        { property: 'customerId', value: context.customerId },
+        { property: 'assetClass', operator: '===', value: 'EQUITY' }
+      ],
+      'Monitoring'             // Target state (optional)
+    );
 
-      console.log(`Notified ${count} risk monitor(s)`);
-    }
+    console.log(`Notified ${count} risk monitor(s)`);
+  }
+});
 ```
 
 **Available sender methods:**

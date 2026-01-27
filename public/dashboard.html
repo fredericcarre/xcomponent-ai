@@ -2170,6 +2170,7 @@
         for (const machine of machines) {
           const isEntry = component.entryMachine === machine.name;
           const machineInstances = allInstances.filter(i => i.machineName === machine.name && i.componentName === selectedComponentName);
+          const activeMachineInstances = machineInstances.filter(i => !isInstanceInTerminalState(i));
 
           try {
             // Get first instance of this machine to show its current state
@@ -2179,8 +2180,10 @@
             let quickActionsHtml = '';
             let currentState = null;
 
-            if (machineInstances.length > 0) {
-              const firstInstance = machineInstances[0];
+            // Prefer an active instance for display; fall back to any instance
+            const displayInstances = activeMachineInstances.length > 0 ? activeMachineInstances : machineInstances;
+            if (displayInstances.length > 0) {
+              const firstInstance = displayInstances[0];
               currentState = firstInstance.currentState;
               url += `&instanceId=${firstInstance.id}`;
 
@@ -2304,7 +2307,7 @@
                     ${machine.name}
                     ${isEntry ? '<span class="entry-star">⭐</span>' : ''}
                   </div>
-                  <span class="instance-badge">${machineInstances.length} instances</span>
+                  <span class="instance-badge">${activeMachineInstances.length} instances</span>
                 </div>
                 <div class="diagram-card-content">
                   <div class="mermaid">${data.diagram}</div>
@@ -3148,14 +3151,29 @@
       return sendQuickEventWithParams(instanceId, eventType, null, []);
     }
 
+    // Check whether an instance sits in a terminal (final/error) state
+    function isInstanceInTerminalState(instance) {
+      const component = componentsData.find(c => c.name === instance.componentName);
+      if (!component) return false;
+      const machine = (component.stateMachines || []).find(m => m.name === instance.machineName);
+      if (!machine) return false;
+      const state = (machine.states || []).find(s => s.name === instance.currentState);
+      return state && (state.type === 'final' || state.type === 'error');
+    }
+
     // Stats
     function updateStats() {
       const totalMachines = componentsData.reduce((sum, c) =>
         sum + (c.stateMachines?.length || 0), 0);
 
+      // Only count instances that are still active (not in a terminal state).
+      // Singleton entry-point instances stay in memory even after reaching a
+      // final state, so allInstances.length alone would never decrement.
+      const activeCount = allInstances.filter(i => !isInstanceInTerminalState(i)).length;
+
       document.getElementById('stat-components').textContent = componentsData.length;
       document.getElementById('stat-machines').textContent = totalMachines;
-      document.getElementById('stat-instances').textContent = allInstances.length;
+      document.getElementById('stat-instances').textContent = activeCount;
     }
 
     // Toast notifications

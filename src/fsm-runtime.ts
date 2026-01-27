@@ -316,7 +316,7 @@ export class FSMRuntime extends EventEmitter {
       if (exitMethod) {
         const sender = new SenderImpl(this, instance.id, this.registry);
         const instanceContext = instance.publicMember || instance.context;
-        this.emit('exit_method', {
+        this._safeEmitUserCode('exit_method', {
           instanceId: instance.id,
           method: exitMethod,
           state: previousState,
@@ -426,7 +426,7 @@ export class FSMRuntime extends EventEmitter {
       if (entryMethod) {
         const sender = new SenderImpl(this, instance.id, this.registry);
         const instanceContext = instance.publicMember || instance.context;
-        this.emit('entry_method', {
+        this._safeEmitUserCode('entry_method', {
           instanceId,
           method: entryMethod,
           state: transition.to,
@@ -976,12 +976,11 @@ export class FSMRuntime extends EventEmitter {
    * enabling cross-instance communication (XComponent pattern)
    */
   private async executeTransition(instance: FSMInstance, transition: Transition, event: FSMEvent): Promise<void> {
-    // In production, execute triggered methods here
     if (transition.triggeredMethod) {
       const sender = new SenderImpl(this, instance.id, this.registry);
       const instanceContext = instance.publicMember || instance.context;
 
-      this.emit('triggered_method', {
+      this._safeEmitUserCode('triggered_method', {
         instanceId: instance.id,
         method: transition.triggeredMethod,
         event,
@@ -1464,6 +1463,26 @@ export class FSMRuntime extends EventEmitter {
    *   context: { Id: 42, Total: 99.99 }
    *   result: { orderId: 42, total: 99.99 }
    */
+  /**
+   * Safely emit a user code event (triggered_method, entry_method, exit_method).
+   * Exceptions thrown by synchronous handlers are caught and emitted as
+   * 'user_code_error' events — they do NOT abort the transition.
+   */
+  private _safeEmitUserCode(eventName: string, data: any): void {
+    try {
+      this.emit(eventName, data);
+    } catch (error: any) {
+      console.error(`[FSMRuntime] Error in user code handler '${data.method}' (${eventName}):`, error.message);
+      this.emit('user_code_error', {
+        instanceId: data.instanceId,
+        method: data.method,
+        hook: eventName,
+        error: error.message,
+        stack: error.stack,
+      });
+    }
+  }
+
   /**
    * Apply contextMapping: { targetProp: "sourceProp" }
    * Only mapped properties are included in the result.

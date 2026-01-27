@@ -407,4 +407,119 @@ describe('User Code Hooks (onEntry, onExit, triggeredMethod, contextMapping)', (
       expect(instance?.currentState).toBe('Processing');
     });
   });
+
+  describe('Error isolation (user code exceptions do not abort transitions)', () => {
+    const component: Component = {
+      name: 'TestComponent',
+      version: '1.0.0',
+      stateMachines: [
+        {
+          name: 'Machine',
+          initialState: 'A',
+          states: [
+            { name: 'A', type: StateType.ENTRY, onExit: 'exitA' },
+            { name: 'B', type: StateType.REGULAR, onEntry: 'enterB' },
+            { name: 'C', type: StateType.REGULAR },
+          ],
+          transitions: [
+            { from: 'A', to: 'B', event: 'GO', type: TransitionType.REGULAR, triggeredMethod: 'failingMethod' },
+            { from: 'B', to: 'C', event: 'NEXT', type: TransitionType.REGULAR },
+          ],
+        },
+      ],
+    };
+
+    it('should complete transition even if triggeredMethod throws', async () => {
+      const runtime = new FSMRuntime(component);
+      const errors: any[] = [];
+
+      runtime.on('triggered_method', () => {
+        throw new Error('Business logic exploded!');
+      });
+
+      runtime.on('user_code_error', (data: any) => {
+        errors.push(data);
+      });
+
+      const id = runtime.createInstance('Machine', {});
+      await runtime.sendEvent(id, { type: 'GO', payload: {}, timestamp: Date.now() });
+
+      // Transition should have completed despite the error
+      const instance = runtime.getInstance(id);
+      expect(instance?.currentState).toBe('B');
+
+      // Error should have been captured
+      expect(errors.length).toBe(1);
+      expect(errors[0].method).toBe('failingMethod');
+      expect(errors[0].hook).toBe('triggered_method');
+      expect(errors[0].error).toBe('Business logic exploded!');
+    });
+
+    it('should complete transition even if onEntry throws', async () => {
+      const runtime = new FSMRuntime(component);
+      const errors: any[] = [];
+
+      runtime.on('entry_method', () => {
+        throw new Error('Entry hook crashed!');
+      });
+
+      runtime.on('user_code_error', (data: any) => {
+        errors.push(data);
+      });
+
+      const id = runtime.createInstance('Machine', {});
+      await runtime.sendEvent(id, { type: 'GO', payload: {}, timestamp: Date.now() });
+
+      // Transition completed
+      const instance = runtime.getInstance(id);
+      expect(instance?.currentState).toBe('B');
+
+      // Error captured
+      expect(errors.length).toBe(1);
+      expect(errors[0].method).toBe('enterB');
+      expect(errors[0].hook).toBe('entry_method');
+    });
+
+    it('should complete transition even if onExit throws', async () => {
+      const runtime = new FSMRuntime(component);
+      const errors: any[] = [];
+
+      runtime.on('exit_method', () => {
+        throw new Error('Exit hook crashed!');
+      });
+
+      runtime.on('user_code_error', (data: any) => {
+        errors.push(data);
+      });
+
+      const id = runtime.createInstance('Machine', {});
+      await runtime.sendEvent(id, { type: 'GO', payload: {}, timestamp: Date.now() });
+
+      // Transition completed despite onExit error
+      const instance = runtime.getInstance(id);
+      expect(instance?.currentState).toBe('B');
+
+      // Error captured
+      expect(errors.length).toBe(1);
+      expect(errors[0].method).toBe('exitA');
+      expect(errors[0].hook).toBe('exit_method');
+    });
+
+    it('should still allow further transitions after user code error', async () => {
+      const runtime = new FSMRuntime(component);
+
+      runtime.on('triggered_method', () => {
+        throw new Error('Boom!');
+      });
+
+      const id = runtime.createInstance('Machine', {});
+      await runtime.sendEvent(id, { type: 'GO', payload: {}, timestamp: Date.now() });
+
+      // Instance survived and can still transition
+      expect(runtime.getInstance(id)?.currentState).toBe('B');
+
+      await runtime.sendEvent(id, { type: 'NEXT', payload: {}, timestamp: Date.now() });
+      expect(runtime.getInstance(id)?.currentState).toBe('C');
+    });
+  });
 });

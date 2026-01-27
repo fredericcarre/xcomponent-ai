@@ -644,7 +644,6 @@ export class ComponentRegistry extends EventEmitter {
       'instance_created',
       'instance_disposed',
       'instance_error',
-      'guard_failed',
       'cascade_completed',
       'cascade_error',
     ];

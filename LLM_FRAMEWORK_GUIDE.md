@@ -60,7 +60,7 @@ my-fintech-app/
 ```
 Business logic to extract:
 1. Loan application states: Submitted → CreditCheck → Underwriting → Approved/Rejected
-2. Compliance guards: Credit score > 650, debt-to-income < 40%
+2. Compliance rules: Credit score > 650, debt-to-income < 40%
 3. Timeouts: Credit check must complete in 2 hours
 4. Inter-machine: Approved → Disbursement workflow
 ```
@@ -100,20 +100,13 @@ stateMachines:
         to: CreditCheck
         event: START_CREDIT_CHECK
         type: triggerable
-        guards:
-          - keys: [applicantId, requestedAmount]
-          - customFunction: "event.payload.requestedAmount >= 1000"
       - from: CreditCheck
         to: Underwriting
         event: CREDIT_REPORT_RECEIVED
-        guards:
-          - customFunction: "event.payload.creditScore >= 650"
         triggeredMethod: logCreditCheckSuccess
       - from: CreditCheck
         to: Rejected
         event: CREDIT_REPORT_RECEIVED
-        guards:
-          - customFunction: "event.payload.creditScore < 650"
       - from: CreditCheck
         to: Rejected
         event: TIMEOUT
@@ -150,10 +143,6 @@ export const loanRuntime = new FSMRuntime(loanFSM);
 // Setup monitoring
 loanRuntime.on('state_change', (data) => {
   console.log(`Loan ${data.instanceId}: ${data.previousState} → ${data.newState}`);
-});
-
-loanRuntime.on('guard_failed', (data) => {
-  console.log(`Guard failed for loan ${data.instanceId}: ${data.transition}`);
 });
 ```
 
@@ -305,7 +294,7 @@ When generating code, enforce these rules:
 ### ✅ DO
 - Put ALL business logic in FSM YAML files
 - Generate thin API/UI wrappers that translate to FSM events
-- Use guards for business rules (credit score, amounts, timeouts)
+- Use triggered methods for business rules (credit score, amounts, timeouts)
 - Use property matching for multi-instance scenarios (100+ concurrent instances)
 - Use publicMemberType to separate business objects from internal state
 - Version FSM changes through Git
@@ -316,7 +305,6 @@ When generating code, enforce these rules:
 - Put business logic in API routes or UI components
 - Modify FSM definitions at runtime
 - Hardcode state transitions in code
-- Skip guard definitions for critical rules
 - Mix technical concerns (DB, API) with business logic
 
 ## 📊 Common Patterns
@@ -332,11 +320,6 @@ metadata:
     - AML
     - KYC
   dataRetention: 7 years
-
-# Guards for regulatory limits
-guards:
-  - customFunction: "event.payload.amount <= 10000"  # AML threshold
-  - keys: [customerKYCStatus]  # Require KYC
 ```
 
 ### Pattern 2: Timeout for External Operations
@@ -376,8 +359,6 @@ transitions:
   - from: AutomatedCheck
     to: ManualReview
     event: FRAUD_RISK_HIGH
-    guards:
-      - customFunction: "event.payload.riskScore > 0.7"
 ```
 
 ### Pattern 5: Property Matching for Multi-Instance Routing
@@ -407,7 +388,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        specificTriggeringRule: "event.payload.Quantity === context.RemainingQuantity"
 
       # Partial execution
       - from: Pending
@@ -416,7 +396,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-        specificTriggeringRule: "event.payload.Quantity < context.RemainingQuantity"
 ```
 
 **Usage in code**:
@@ -480,11 +459,10 @@ When the user says "Build X with FSMs":
 
 1. **Identify business entities**: Payment, User, Order, Loan, etc.
 2. **Extract state flows**: Draft → Validated → Processed → Complete
-3. **Identify guards**: Amount limits, status checks, time windows
-4. **Map external systems**: Payment gateways, identity providers, etc.
-5. **Consider multi-instance scenarios**: Will there be 100+ concurrent instances? → Use property matching
-6. **Generate FSM YAML first** ← MOST IMPORTANT
-7. **Then generate API/UI code** that references FSM events
+3. **Map external systems**: Payment gateways, identity providers, etc.
+4. **Consider multi-instance scenarios**: Will there be 100+ concurrent instances? → Use property matching
+5. **Generate FSM YAML first** ← MOST IMPORTANT
+6. **Then generate API/UI code** that references FSM events
 
 ### Example Prompt Flow
 
@@ -497,7 +475,7 @@ I'll structure this using xcomponent-ai to sanctuarize the KYC business logic.
 First, let me define the FSM for the KYC workflow in `fsm/kyc-onboarding.yaml`:
 
 [Generate YAML with states: DocumentPending → Uploaded → AIValidation →
- ManualReview → Approved/Rejected, with appropriate guards and timeouts]
+ ManualReview → Approved/Rejected, with appropriate timeouts]
 
 Now I'll create the API layer in `src/api/kyc-routes.ts`:
 
@@ -523,7 +501,7 @@ This is a perfect use case for property matching! I'll structure it with xcompon
 First, let me define the FSM in `fsm/order-execution.yaml` with property-based routing:
 
 [Generate YAML with publicMemberType: Order, matchingRules for OrderId,
- specificTriggeringRule for full vs partial execution]
+ transitions for full vs partial execution]
 
 The key feature here is property matching:
 - When execution confirmations arrive from exchanges, they include OrderId
@@ -658,18 +636,17 @@ You've successfully used xcomponent-ai when:
 ## 🚨 Red Flags
 
 Warn the user if:
-- Business logic appears in API routes (move to FSM guards)
+- Business logic appears in API routes (move to FSM definitions)
 - State transitions are hardcoded in UI (use FSM events)
-- Compliance rules are in if/else statements (use guards)
+- Compliance rules are in if/else statements (use FSM transitions and triggered methods)
 - FSM files are modified at runtime (immutable!)
 
 ## 💡 Pro Tips
 
 1. **Start with FSM diagram**: Draw states on whiteboard/mermaid before coding
-2. **Use AI agent for compliance**: Let FSMAgent detect missing guards
-3. **Monitor in production**: FSM events = perfect audit logs
-4. **Version FSMs semantically**: v1.0.0 → v1.1.0 when adding states
-5. **Generate docs from FSM**: Mermaid diagrams from YAML
+2. **Monitor in production**: FSM events = perfect audit logs
+3. **Version FSMs semantically**: v1.0.0 → v1.1.0 when adding states
+4. **Generate docs from FSM**: Mermaid diagrams from YAML
 
 ---
 

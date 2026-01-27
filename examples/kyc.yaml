@@ -55,25 +55,15 @@ stateMachines:
         to: IDValidating
         event: DOCUMENTS_RECEIVED
         type: triggerable
-        guards:
-          - keys:
-              - documentType
-              - documentNumber
-              - country
-          - customFunction: "context.rgpdConsent === true"
         triggeredMethod: storeEncryptedDocuments
       - from: IDValidating
         to: AMLCheck
         event: DOCUMENTS_VALID
         type: regular
-        guards:
-          - customFunction: "event.payload.documentScore > 0.8"
       - from: IDValidating
         to: ManualReview
         event: DOCUMENTS_UNCLEAR
         type: regular
-        guards:
-          - customFunction: "event.payload.documentScore <= 0.8 && event.payload.documentScore > 0.5"
       - from: IDValidating
         to: Rejected
         event: DOCUMENTS_INVALID
@@ -82,20 +72,14 @@ stateMachines:
         to: Validated
         event: AML_CLEAR
         type: regular
-        guards:
-          - customFunction: "event.payload.riskScore === 'low'"
       - from: AMLCheck
         to: ManualReview
         event: AML_FLAGGED
         type: regular
-        guards:
-          - customFunction: "event.payload.riskScore === 'medium'"
       - from: AMLCheck
         to: Rejected
         event: AML_BLOCKED
         type: regular
-        guards:
-          - customFunction: "event.payload.riskScore === 'high'"
       - from: ManualReview
         to: Validated
         event: MANUAL_APPROVE

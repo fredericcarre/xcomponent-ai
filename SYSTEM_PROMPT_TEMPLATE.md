@@ -17,7 +17,7 @@ CORE PRINCIPLES:
    - ALL business logic must be defined in FSM YAML files
    - FSM files are immutable (changes = new Git commits)
    - FSM definitions include compliance metadata (AML, KYC, GDPR, etc.)
-   - Guards enforce business rules (amount limits, status checks, etc.)
+   - Triggered methods enforce business rules in TypeScript handlers
 
 2. PROJECT STRUCTURE
    Always structure projects like this:
@@ -42,7 +42,7 @@ CORE PRINCIPLES:
 4. RULES
    ✅ DO:
    - Put ALL business logic in FSM YAML
-   - Use guards for business rules
+   - Use triggered methods for business rules
    - Add compliance metadata
    - Test FSM paths with simulatePath()
    - Keep API/UI as thin wrappers
@@ -64,7 +64,7 @@ CORE PRINCIPLES:
 6. COMPLIANCE-FIRST
    For fintech/regulated domains:
    - Include compliance metadata in FSM
-   - Add guards for regulatory limits
+   - Use triggered methods for regulatory rule enforcement
    - Use timeouts for critical operations
    - Log all state transitions
    - Enable audit trails
@@ -92,7 +92,7 @@ When you receive a request to build an application, respond with:
 >
 > Let me start by defining the FSM for payment processing in `fsm/payment-flow.yaml`:
 >
-> [Generates YAML with states, guards, compliance metadata]
+> [Generates YAML with states, transitions, compliance metadata]
 >
 > Now I'll create the runtime initialization in `src/runtime/index.ts`:
 >
@@ -112,20 +112,31 @@ When you receive a request to build an application, respond with:
 > "Add a new business rule: orders over $10,000 require manual approval"
 
 **LLM should respond:**
-> This is a business logic change, so it belongs in the FSM definition.
+> This is a business logic change, so it belongs in the FSM definition and its triggered method.
 >
-> I'll update `fsm/order-management.yaml`:
+> I'll update `fsm/order-management.yaml` to add a new transition and triggered method:
 >
 > ```yaml
 > transitions:
 >   - from: OrderSubmitted
 >     to: ManualReview
 >     event: VALIDATE_ORDER
->     guards:
->       - customFunction: "event.payload.amount > 10000"
+>     triggeredMethod: checkOrderAmount
 > ```
 >
-> No API or UI code changes needed - the business rule is sanctuarized in the FSM.
+> Then implement the business rule in the triggered method handler:
+>
+> ```typescript
+> runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+>   if (method === 'checkOrderAmount') {
+>     if (event.payload.amount > 10000) {
+>       sender.sendToSelf({ type: 'REQUIRES_APPROVAL' });
+>     }
+>   }
+> });
+> ```
+>
+> The FSM structure is sanctuarized in YAML, while business rule logic lives in TypeScript handlers.
 > This change should be committed to Git with a clear message documenting the new policy.
 
 ### Example 3: Compliance Emphasis
@@ -138,7 +149,7 @@ When you receive a request to build an application, respond with:
 >
 > Creating `fsm/kyc-onboarding.yaml` with:
 > - Compliance metadata (GDPR, AML requirements)
-> - Guards for document validation
+> - Triggered methods for document validation logic
 > - Manual review escalation for high-risk cases
 > - Timeout transitions for expired documents
 >
@@ -179,7 +190,7 @@ Remind the LLM:
 ### 3. Request Compliance Focus
 
 For regulated domains:
-> "Build this with compliance-first approach using xcomponent-ai guards and metadata"
+> "Build this with compliance-first approach using xcomponent-ai triggered methods and metadata"
 
 ### 4. Ask for Structure First
 
@@ -191,7 +202,7 @@ For regulated domains:
 
 ✅ **Consistent structure**: LLM always generates projects with clear separation
 ✅ **Business logic first**: FSM definitions before implementation
-✅ **Compliance-ready**: Metadata and guards included by default
+✅ **Compliance-ready**: Metadata and triggered methods included by default
 ✅ **Maintainable**: Changes to business rules = FSM updates, not code refactoring
 ✅ **Auditable**: Non-technical stakeholders can review YAML files
 
@@ -206,7 +217,7 @@ You can extend the system prompt for specific domains:
 ```
 Additionally:
 - All FSM definitions must include compliance metadata (PSD2, AML, KYC)
-- Add guards for transaction limits per regulatory requirements
+- Use triggered methods for transaction limit enforcement per regulatory requirements
 - Include timeout transitions for all external API calls
 - Log all state changes for audit trails
 ```
@@ -216,7 +227,7 @@ Additionally:
 ```
 Additionally:
 - FSM definitions must include HIPAA compliance metadata
-- Add guards for patient consent checks
+- Use triggered methods for patient consent verification
 - Include privacy-preserving context handling
 - Log all PHI access for audit trails
 ```

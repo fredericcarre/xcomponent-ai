@@ -33,7 +33,7 @@ Create a complete FSM component in YAML format based on this description: "${des
 
 Requirements:
 - Follow XComponent conventions: entry state (initial), regular states, final state, error state
-- Include appropriate guards for compliance (e.g., amount limits, KYC checks, RGPD)
+- Include triggered methods for compliance logic (e.g., amount limits, KYC checks, RGPD)
 - Add timeout transitions where appropriate
 - Include metadata for compliance tracking
 - Use inter-machine transitions if multiple workflows are involved
@@ -147,14 +147,14 @@ Return a JSON array of events with type and payload fields.`;
     if ((descLower.includes('payment') || descLower.includes('trading') || descLower.includes('kyc')) &&
         !JSON.stringify(component).toLowerCase().includes('aml') &&
         !JSON.stringify(component).toLowerCase().includes('kyc')) {
-      suggestions.push('Consider adding AML/KYC compliance checks as guards');
+      suggestions.push('Consider adding AML/KYC compliance checks as triggered methods');
     }
 
     // Check for RGPD/GDPR
     if (descLower.includes('user') || descLower.includes('customer')) {
       if (!JSON.stringify(component).toLowerCase().includes('rgpd') &&
           !JSON.stringify(component).toLowerCase().includes('gdpr')) {
-        suggestions.push('Consider adding RGPD/GDPR compliance guards for user data');
+        suggestions.push('Consider adding RGPD/GDPR compliance checks as triggered methods for user data');
       }
     }
 

@@ -144,7 +144,7 @@ export class MonitoringService {
     // Error analysis
     if (insights.errorCount > insights.totalTransitions * 0.1) {
       insights.suggestions.push(
-        `High error rate: ${((insights.errorCount / insights.totalTransitions) * 100).toFixed(1)}%. Review error states and guards.`
+        `High error rate: ${((insights.errorCount / insights.totalTransitions) * 100).toFixed(1)}%. Review error states and transition logic.`
       );
     }
 

@@ -26,7 +26,7 @@
 xcomponent-ai is a **state machine runtime framework** inspired by XComponent architecture. It separates **business logic** (defined in YAML) from **implementation code**.
 
 ### Key Principles
-- **YAML = Business Logic**: States, transitions, guards, compliance rules
+- **YAML = Business Logic**: States, transitions, compliance rules
 - **Code = Thin Integration**: API routes, UI, external integrations
 - **Event-Driven**: All state changes are driven by events
 - **Multi-Instance**: Supports thousands of concurrent FSM instances
@@ -132,7 +132,6 @@ interface Transition {
   contextMapping?: Record<string, string>;  // Map source→target context properties
   triggeredMethod?: string;     // Method to execute during transition
   matchingRules?: MatchingRule[];  // Property-based instance routing (REQUIRED for cross_component with targetEvent)
-  specificTriggeringRule?: string; // JS expression for disambiguation
   notifyParent?: NotifyParent;  // Parent notification config
   metadata?: Record<string, any>;
 }
@@ -252,21 +251,19 @@ The runtime emits these events:
 
 ### Transition Execution Order
 1. Check transition exists from current state
-2. Evaluate guards (if any)
-3. Evaluate matchingRules (if broadcast)
-4. Evaluate specificTriggeringRule (if multiple transitions)
-5. **Execute onExit method** of source state → emits `'exit_method'` event
-6. **Execute triggeredMethod** of transition → emits `'triggered_method'` event
-7. Merge event payload into context (unless matchingRules present)
-8. **Update instance state** (from → to)
-9. Emit `'state_change'` event
-10. **Execute onEntry method** of target state → emits `'entry_method'` event
-11. Notify parent (if configured)
-12. Save snapshot (if persistence enabled)
-13. Handle inter_machine (if applicable, applies contextMapping)
-14. Handle cross_component (if applicable, applies contextMapping, requires matchingRules for targetEvent)
-15. Check final/error state (dispose or force snapshot)
-16. Schedule timeout (if applicable)
+2. Evaluate matchingRules (if broadcast)
+3. **Execute onExit method** of source state → emits `'exit_method'` event
+4. **Execute triggeredMethod** of transition → emits `'triggered_method'` event
+5. Merge event payload into context (unless matchingRules present)
+6. **Update instance state** (from → to)
+7. Emit `'state_change'` event
+8. **Execute onEntry method** of target state → emits `'entry_method'` event
+9. Notify parent (if configured)
+10. Save snapshot (if persistence enabled)
+11. Handle inter_machine (if applicable, applies contextMapping)
+12. Handle cross_component (if applicable, applies contextMapping, requires matchingRules for targetEvent)
+13. Check final/error state (dispose or force snapshot)
+14. Schedule timeout (if applicable)
 
 ---
 
@@ -339,9 +336,6 @@ stateMachines:
         to: Processing
         event: START
         type: triggerable
-        guards:
-          - keys: [orderId, amount]
-          - customFunction: "event.payload.amount <= 100000"
 
       - from: Processing
         to: Processing
@@ -703,7 +697,7 @@ function getAvailableTransitions(machine: StateMachine, currentState: string): S
 - Lines: 71%
 
 ### Key Test Areas
-1. **FSM Runtime**: Instance lifecycle, transitions, guards
+1. **FSM Runtime**: Instance lifecycle, transitions
 2. **Property Matching**: MatchingRules evaluation
 3. **Timeouts**: Timer scheduling, reset behavior
 4. **Inter-Machine**: Child creation, context passing

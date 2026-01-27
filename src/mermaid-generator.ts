@@ -88,13 +88,7 @@ export function generateMermaidDiagram(machine: StateMachine): string {
   // Add all transitions
   machine.transitions.forEach(transition => {
     let transitionLabel = transition.event;
-    // Add guard condition to label if present
-    if (transition.guard?.expression) {
-      // Shorten the expression for display
-      const shortExpr = transition.guard.expression.replace(/context\./g, '');
-      transitionLabel += ` [${shortExpr}]`;
-    }
-    // For all transitions, just show the event name (and guard if present)
+    // For all transitions, show the event name
     // Inter-machine connections are visualized with green SVG arrows externally
     lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
   });
@@ -186,12 +180,6 @@ export function generateStyledMermaidDiagram(
       return;
     }
     let transitionLabel = transition.event;
-    // Add guard condition to label if present
-    if (transition.guard?.expression) {
-      // Shorten the expression for display
-      const shortExpr = transition.guard.expression.replace(/context\./g, '');
-      transitionLabel += ` [${shortExpr}]`;
-    }
     lines.push(`    ${transition.from} --> ${transition.to}: ${transitionLabel}`);
   });
 

@@ -5,12 +5,11 @@
 
 ## Executive Summary
 
-The current xcomponent-ai implementation captures the core FSM runtime concepts (states, transitions, guards, timeouts, inter-machine transitions) but **lacks critical advanced features** that enable XComponent's power for complex multi-instance scenarios. The most significant gaps are:
+The current xcomponent-ai implementation captures the core FSM runtime concepts (states, transitions, timeouts, inter-machine transitions) but **lacks critical advanced features** that enable XComponent's power for complex multi-instance scenarios. The most significant gaps are:
 
 1. **Property-based instance matching** - Events cannot be routed to existing instances based on property equality
-2. **Specific triggering rules** - Cannot differentiate between multiple transitions with same event
-3. **Public member pattern** - No separation between instance context and business object
-4. **Event-driven instance updates** - All events operate on pre-specified instances, not discovered via matching
+2. **Public member pattern** - No separation between instance context and business object
+3. **Event-driven instance updates** - All events operate on pre-specified instances, not discovered via matching
 
 ## Detailed Gap Analysis
 
@@ -120,126 +119,7 @@ async broadcastEvent(
 
 ---
 
-### 2. CRITICAL: Specific Triggering Rules
-
-#### XComponent Behavior
-
-When multiple transitions from the same state use:
-- Same triggering event
-- Same matching rules (or no matching rules)
-
-XComponent requires **specific triggering rules** - custom boolean functions to differentiate them.
-
-**Example from Documentation**:
-```csharp
-// Transition: Pending -> Executed (Execute)
-// Specific rule:
-return executionInput.Quantity == order.RemainingQuantity;
-
-// Transition: Pending -> PartiallyExecuted (PartiallyExecute)
-// Specific rule:
-return executionInput.Quantity != order.RemainingQuantity;
-```
-
-**Validation**: XComponent BUILD ERRORS if specific rules are missing when needed:
-```
-ERROR: All transitions from state Pending using the same event are using one or
-several matching property in common, but none can be used to differentiate them
-```
-
-#### xcomponent-ai Current Implementation
-
-**File**: `/home/user/xcomponent-ai/src/fsm-runtime.ts` (Line 153)
-
-```typescript
-private findTransition(machine: StateMachine, currentState: string, event: FSMEvent): Transition | null {
-  return machine.transitions.find(t =>
-    t.from === currentState && t.event === event.type
-  ) || null;
-}
-```
-
-**Limitation**:
-- Returns FIRST matching transition
-- Cannot handle multiple transitions with same event from same state
-- Guards are evaluated AFTER selection, not during
-
-#### What's Missing
-
-1. **Specific Triggering Rule Definition**:
-```typescript
-interface Transition {
-  // ... existing fields
-  specificTriggeringRule?: string;  // NEW: Custom boolean function
-}
-```
-
-2. **Multi-Transition Selection Logic**:
-```typescript
-private findTransition(
-  machine: StateMachine,
-  currentState: string,
-  event: FSMEvent,
-  instanceContext: Record<string, any>
-): Transition | null {
-  const candidates = machine.transitions.filter(t =>
-    t.from === currentState && t.event === event.type
-  );
-
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0];
-
-  // Multiple candidates - need specific triggering rules
-  for (const transition of candidates) {
-    // First check matching rules (property equality)
-    if (transition.matchingRules && !this.evaluateMatchingRules(...)) {
-      continue;
-    }
-
-    // Then check specific triggering rule
-    if (transition.specificTriggeringRule) {
-      const func = new Function('event', 'context',
-        `return ${transition.specificTriggeringRule}`
-      );
-      if (func(event, instanceContext)) {
-        return transition;
-      }
-    }
-  }
-
-  return null;  // No rule matched
-}
-```
-
-3. **Build-Time Validation** (for YAML loader):
-```typescript
-function validateTransitions(machine: StateMachine): void {
-  const groupedByState = groupBy(machine.transitions, t => t.from);
-
-  for (const [state, transitions] of Object.entries(groupedByState)) {
-    const groupedByEvent = groupBy(transitions, t => t.event);
-
-    for (const [event, eventTransitions] of Object.entries(groupedByEvent)) {
-      if (eventTransitions.length > 1) {
-        const allHaveRules = eventTransitions.every(t =>
-          t.matchingRules || t.specificTriggeringRule
-        );
-
-        if (!allHaveRules) {
-          throw new Error(
-            `State ${state} has multiple transitions for event ${event} ` +
-            `but not all have specific triggering rules or matching rules`
-          );
-        }
-      }
-    }
-  }
-}
-```
-
----
-
-### 3. IMPORTANT: Public Member Pattern
+### 2. IMPORTANT: Public Member Pattern
 
 #### XComponent Behavior
 
@@ -386,7 +266,7 @@ export interface SenderInterface {
 
 ---
 
-### 4. IMPORTANT: Facade State Machines
+### 3. IMPORTANT: Facade State Machines
 
 #### XComponent Behavior
 
@@ -483,7 +363,7 @@ private async executeTransition(
 
 ---
 
-### 5. IMPORTANT: Cross-Component Communication
+### 4. IMPORTANT: Cross-Component Communication
 
 #### XComponent Behavior
 
@@ -583,7 +463,7 @@ export class FSMRuntimeComposer extends EventEmitter {
 
 ---
 
-### 6. NICE-TO-HAVE: Enhanced Instance Querying
+### 5. NICE-TO-HAVE: Enhanced Instance Querying
 
 #### XComponent Behavior
 
@@ -679,19 +559,18 @@ onStateEnter(
 
 ### Phase 1: CRITICAL (Enables Multi-Instance Scenarios)
 1. **Property Matching Rules** - Without this, cannot model real-world scenarios where events find their targets
-2. **Specific Triggering Rules** - Required for conditional branching on same event
-3. **Public Member Pattern** - Clean separation of concerns, enables facade pattern
+2. **Public Member Pattern** - Clean separation of concerns, enables facade pattern
 
 **Impact**: Unlocks 80% of XComponent's power. Enables Order Processing example from docs.
 
 ### Phase 2: IMPORTANT (Enables Complex Workflows)
-4. **Facade State Machines** - Output/event publishing pattern
-5. **Cross-Component Communication** - Microservice decomposition
+3. **Facade State Machines** - Output/event publishing pattern
+4. **Cross-Component Communication** - Microservice decomposition
 
 **Impact**: Enables multi-component architectures, better modularity.
 
 ### Phase 3: NICE-TO-HAVE (Developer Experience)
-6. **Enhanced Instance Querying** - Better monitoring and debugging
+5. **Enhanced Instance Querying** - Better monitoring and debugging
 
 **Impact**: Improves DX, easier troubleshooting.
 
@@ -726,9 +605,6 @@ stateMachines:
         matchingRules:
           - eventProperty: OrderId
             instanceProperty: Id
-
-        # NEW: Specific triggering rule (boolean function)
-        specificTriggeringRule: "event.payload.Quantity == context.RemainingQuantity"
 
         triggeredMethod: executeOrder
 
@@ -768,7 +644,7 @@ await runtime.broadcastEvent('Order', 'Pending', executionEvent);
 
 // System automatically:
 // 1. Finds Order instance with Id=42 (via matching rule)
-// 2. Evaluates specific triggering rule (Quantity != RemainingQuantity -> PartiallyExecute)
+// 2. Executes triggered method which handles business logic
 // 3. Updates that instance only
 // 4. Other 99 instances unaffected
 ```
@@ -827,16 +703,12 @@ async function executeOn_Created_Through_PublishOrderCreation(
    - Event ignored if no instance matches
    - Multiple instances can match (broadcast scenario)
 
-2. **Specific Triggering Rules**:
-   - Multiple transitions with same event differentiated correctly
-   - Validation fails if rules missing when needed
-
-3. **Public Member Pattern**:
+2. **Public Member Pattern**:
    - Public member updated independently of internal member
    - Clone utility works correctly
    - Facade state machines receive and expose correct data
 
-4. **Cross-Component Communication**:
+3. **Cross-Component Communication**:
    - Composition links route events correctly
    - Event mapping works (source props → target props)
 
@@ -862,7 +734,7 @@ async function executeOn_Created_Through_PublishOrderCreation(
 ## Backward Compatibility
 
 All proposed changes are ADDITIVE:
-- New optional fields in types (`matchingRules`, `specificTriggeringRule`, `publicMemberType`)
+- New optional fields in types (`matchingRules`, `publicMemberType`)
 - New optional methods (`broadcastEvent`)
 - Existing `sendEvent(instanceId, event)` still works
 
@@ -872,13 +744,12 @@ All proposed changes are ADDITIVE:
 
 ## Conclusion
 
-The current xcomponent-ai implementation is a solid FSM runtime but **lacks the multi-instance orchestration capabilities** that make XComponent powerful. The three CRITICAL features to implement are:
+The current xcomponent-ai implementation is a solid FSM runtime but **lacks the multi-instance orchestration capabilities** that make XComponent powerful. The two CRITICAL features to implement are:
 
 1. **Property Matching Rules** - Event routing based on business properties
-2. **Specific Triggering Rules** - Conditional transition selection
-3. **Public Member Pattern** - Clean separation of state vs business object
+2. **Public Member Pattern** - Clean separation of state vs business object
 
-These three features together enable modeling complex real-world scenarios like:
+These features together enable modeling complex real-world scenarios like:
 - Order management systems (multiple orders, executions route to correct order)
 - Trade execution (multiple trades, settlements route correctly)
 - KYC workflows (multiple customer applications, documents route to correct application)

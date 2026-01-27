@@ -7,16 +7,13 @@
 
 const fs = require('fs');
 const yaml = require('yaml');
-const path = require('path');
 
 // Import from built dist
 const {
   FSMRuntime,
-  loadComponent,
   createRuntimeBroadcaster,
   PostgresEventStore,
-  PostgresSnapshotStore,
-  PersistenceManager
+  PostgresSnapshotStore
 } = require('./dist');
 
 async function main() {
@@ -39,8 +36,9 @@ async function main() {
   const component = yaml.parse(componentYaml);
   console.log(`[Runtime] Loaded component: ${component.name}`);
 
-  // Setup persistence (PostgreSQL if configured, otherwise in-memory)
-  let persistenceManager = null;
+  // Create FSM runtime with optional PostgreSQL persistence
+  console.log('[Runtime] Creating FSM runtime...');
+  let runtime;
 
   if (databaseUrl) {
     console.log('[Runtime] Connecting to PostgreSQL...');
@@ -61,20 +59,20 @@ async function main() {
     await eventStore.initialize();
     await snapshotStore.initialize();
 
-    persistenceManager = new PersistenceManager(eventStore, snapshotStore, {
-      eventSourcingEnabled: true,
-      snapshotsEnabled: true,
-      snapshotInterval: 10
-    });
-
     console.log('[Runtime] PostgreSQL persistence ready');
-  }
 
-  // Create FSM runtime
-  console.log('[Runtime] Creating FSM runtime...');
-  const runtime = new FSMRuntime(component, {
-    persistence: persistenceManager
-  });
+    // Create FSM runtime with PostgreSQL persistence
+    runtime = new FSMRuntime(component, {
+      eventSourcing: true,
+      snapshots: true,
+      snapshotInterval: 10,
+      eventStore: eventStore,
+      snapshotStore: snapshotStore
+    });
+  } else {
+    // Create FSM runtime without persistence (in-memory)
+    runtime = new FSMRuntime(component);
+  }
 
   // Connect to message broker and start broadcasting
   console.log('[Runtime] Connecting to message broker...');
@@ -89,21 +87,18 @@ async function main() {
   // Create an initial instance for demo
   if (process.env.CREATE_DEMO_INSTANCE === 'true') {
     console.log('[Runtime] Creating demo instance...');
-    const instance = await runtime.createInstance(component.entryMachine, {
+    const instanceId = runtime.createInstance(component.entryMachine, {
       requestId: `REQ-${Date.now()}`,
       amount: 5000,
       requestedBy: 'demo-user'
     });
-    console.log(`[Runtime] Created demo instance: ${instance.id}`);
+    console.log(`[Runtime] Created demo instance: ${instanceId}`);
   }
 
   // Graceful shutdown
   const shutdown = async () => {
     console.log('\n[Runtime] Shutting down...');
     await broadcaster.disconnect();
-    if (persistenceManager) {
-      // Close database connections if needed
-    }
     process.exit(0);
   };
 

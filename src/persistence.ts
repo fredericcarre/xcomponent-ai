@@ -4,6 +4,7 @@
  */
 
 import { EventStore, SnapshotStore, PersistedEvent, InstanceSnapshot } from './types';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * In-memory event store implementation
@@ -149,7 +150,7 @@ export class PersistenceManager {
       return '';
     }
 
-    const eventId = `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const eventId = uuidv4();
 
     const persistedEvent: PersistedEvent = {
       id: eventId,

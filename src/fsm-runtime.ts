@@ -240,10 +240,14 @@ export class FSMRuntime extends EventEmitter {
    * When multiple transitions exist with guards, uses "first matching guard wins" semantics.
    */
   async sendEvent(instanceId: string, event: FSMEvent): Promise<void> {
+    console.log(`[FSMRuntime] sendEvent called: instanceId=${instanceId}, event=${JSON.stringify(event)}`);
+
     const instance = this.instances.get(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+
+    console.log(`[FSMRuntime] Instance found: machineName=${instance.machineName}, currentState=${instance.currentState}, status=${instance.status}`);
 
     if (instance.status !== 'active') {
       throw new Error(`Instance ${instanceId} is not active`);
@@ -254,6 +258,8 @@ export class FSMRuntime extends EventEmitter {
       throw new Error(`Machine ${instance.machineName} not found`);
     }
 
+    console.log(`[FSMRuntime] Machine found: name=${machine.name}, transitions count=${machine.transitions?.length || 0}`);
+
     // Use publicMember if available (XComponent pattern), otherwise fallback to context
     const instanceContext = instance.publicMember || instance.context;
 
@@ -261,9 +267,13 @@ export class FSMRuntime extends EventEmitter {
     const transition = this.findTransition(machine, instance.currentState, event, instanceContext);
 
     if (!transition) {
+      console.log(`[FSMRuntime] No transition found - emitting event_ignored`);
       this.emit('event_ignored', { instanceId, event, currentState: instance.currentState });
       return;
     }
+
+    console.log(`[FSMRuntime] Transition found: ${transition.from} -> ${transition.to} (type: ${transition.type})`);
+    console.log(`[FSMRuntime] targetComponent: ${transition.targetComponent}, targetMachine: ${transition.targetMachine}, targetEvent: ${transition.targetEvent}`);
 
     const previousState = instance.currentState;
 
@@ -337,6 +347,8 @@ export class FSMRuntime extends EventEmitter {
       // Find new state to get its type
       const newStateObj = machine.states.find(s => s.name === transition.to);
       const stateType = newStateObj?.type || 'regular';
+
+      console.log(`[FSMRuntime] About to emit state_change: ${previousState} -> ${transition.to}`);
 
       // Emit state change
       this.emit('state_change', {
@@ -443,6 +455,7 @@ export class FSMRuntime extends EventEmitter {
       // Setup auto-transitions (only for non-final states)
       this.setupAutoTransitions(instanceId, transition.to);
     } catch (error: any) {
+      console.error(`[FSMRuntime] Error in sendEvent:`, error.message, error.stack);
       instance.status = 'error';
 
       // Remove from indexes before deleting
@@ -765,6 +778,11 @@ export class FSMRuntime extends EventEmitter {
     const candidates = machine.transitions.filter(
       t => t.from === currentState && t.event === event.type
     );
+
+    // Debug logging for transition resolution
+    console.log(`[FSMRuntime] findTransition: machine=${machine.name}, state=${currentState}, event=${event.type}`);
+    console.log(`[FSMRuntime] Available transitions from ${currentState}: ${machine.transitions.filter(t => t.from === currentState).map(t => `${t.event}->${t.to}`).join(', ') || 'none'}`);
+    console.log(`[FSMRuntime] Candidates for ${event.type}: ${candidates.length}`);
 
     if (candidates.length === 0) {
       return null;

@@ -223,11 +223,12 @@ export class DashboardServer {
     // Create instance on a runtime
     this.app.post('/api/components/:name/instances', async (req, res) => {
       const componentName = req.params.name;
-      const { context, event } = req.body;
+      const { machineName, context, event } = req.body;
 
       try {
         await this.broker.publish(DashboardChannels.CREATE_INSTANCE, {
           componentName,
+          machineName, // Forward machine name to runtime
           context: context || {},
           event: event || { type: 'START', payload: {} },
           timestamp: Date.now()
@@ -282,14 +283,19 @@ export class DashboardServer {
       }
 
       try {
-        await this.broker.publish(DashboardChannels.TRIGGER_EVENT, {
+        console.log(`[Dashboard] Publishing TRIGGER_EVENT: ${componentName}/${instanceId} -> ${eventType}`);
+        const message = {
           componentName,
           instanceId,
           event: { type: eventType, payload: payload || {}, timestamp: Date.now() }
-        });
+        };
+        console.log(`[Dashboard] TRIGGER_EVENT message:`, JSON.stringify(message));
+        await this.broker.publish(DashboardChannels.TRIGGER_EVENT, message);
+        console.log(`[Dashboard] TRIGGER_EVENT published successfully`);
 
         res.json({ success: true, message: 'Event sent to runtime' });
       } catch (error: any) {
+        console.error(`[Dashboard] Failed to publish TRIGGER_EVENT:`, error);
         res.status(500).json({ error: error.message });
       }
     });
@@ -316,7 +322,7 @@ export class DashboardServer {
 
   private async setupBrokerSubscriptions(): Promise<void> {
     // Subscribe to runtime announcements
-    await this.broker.subscribe(DashboardChannels.RUNTIME_ANNOUNCE, (msg: RuntimeRegistration) => {
+    await this.broker.subscribe(DashboardChannels.RUNTIME_ANNOUNCE, async (msg: RuntimeRegistration) => {
       console.log(`[Dashboard] Runtime announced: ${msg.runtimeId} (${msg.componentName})`);
       this.runtimes.set(msg.runtimeId, msg);
       this.runtimeHeartbeats.set(msg.runtimeId, Date.now());
@@ -325,6 +331,8 @@ export class DashboardServer {
       // Notify browser clients
       this.io.emit('runtime_connected', msg);
       this.io.emit('components_list', { components: Array.from(this.components.values()) });
+      // Note: We don't query instances here to avoid infinite loop with runtime's re-announce
+      // The initial QUERY_INSTANCES on startup handles getting instances
     });
 
     // Subscribe to heartbeats
@@ -387,7 +395,11 @@ export class DashboardServer {
     const instances = this.instanceCache.get(componentName) || [];
     const idx = instances.findIndex((i: any) => i.instanceId === data.instanceId || i.id === data.instanceId);
     if (idx >= 0) {
+      console.log(`[Dashboard] Updating instance ${data.instanceId} to state ${data.newState}`);
       instances[idx] = { ...instances[idx], currentState: data.newState, context: data.context };
+    } else {
+      console.log(`[Dashboard] WARNING: Instance ${data.instanceId} not found in cache for ${componentName}`);
+      console.log(`[Dashboard] Cached instances: ${instances.map((i: any) => i.instanceId || i.id).join(', ') || 'none'}`);
     }
     this.instanceCache.set(componentName, instances);
   }
@@ -453,6 +465,7 @@ export class DashboardServer {
   }
 
   async start(port: number = 3000): Promise<void> {
+    console.log(`[Dashboard] Version: 2024-01-27-v2 - Starting...`);
     // Connect to message broker
     console.log(`[Dashboard] Connecting to message broker: ${this.brokerUrl.replace(/:[^:@]+@/, ':***@')}`);
     await this.broker.connect();

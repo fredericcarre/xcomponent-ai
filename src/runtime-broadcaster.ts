@@ -53,11 +53,13 @@ export class RuntimeBroadcaster {
    * Connect to the broker and start broadcasting events
    */
   async connect(): Promise<void> {
+    console.log(`[RuntimeBroadcaster] Version: 2024-01-27-v2 - Connecting...`);
     await this.broker.connect();
     this.connected = true;
 
     // Subscribe to commands from dashboard
     await this.subscribeToCommands();
+    console.log(`[RuntimeBroadcaster] Command subscriptions established`);
 
     // Register event listeners on the runtime
     this.attachRuntimeListeners();
@@ -130,6 +132,11 @@ export class RuntimeBroadcaster {
    * Attach listeners to runtime events
    */
   private attachRuntimeListeners(): void {
+    // Event ignored (no transition found for event)
+    this.runtime.on('event_ignored', (data) => {
+      console.log(`[RuntimeBroadcaster] Event IGNORED: ${data.event.type} in state ${data.currentState} for instance ${data.instanceId}`);
+    });
+
     // State change
     this.runtime.on('state_change', async (data) => {
       const broadcast: FSMEventBroadcast = {
@@ -240,17 +247,25 @@ export class RuntimeBroadcaster {
   private async subscribeToCommands(): Promise<void> {
     // Trigger event command
     await this.broker.subscribe(DashboardChannels.TRIGGER_EVENT, async (msg: any) => {
+      console.log(`[RuntimeBroadcaster] Received TRIGGER_EVENT for ${msg.componentName || 'any'}:${msg.instanceId}`);
+
       // Only process if componentName matches or not specified
       if (msg.componentName && msg.componentName !== this.component.name) {
+        console.log(`[RuntimeBroadcaster] Ignoring - not for ${this.component.name}`);
         return; // Not for this component
       }
 
       try {
         const instance = this.runtime.getInstance(msg.instanceId);
         if (instance) {
-          console.log(`[RuntimeBroadcaster] Processing event ${msg.event.type} for instance ${msg.instanceId}`);
+          console.log(`[RuntimeBroadcaster] Processing event ${msg.event.type} for instance ${msg.instanceId} (state: ${instance.currentState})`);
           await this.runtime.sendEvent(msg.instanceId, msg.event);
           console.log(`[RuntimeBroadcaster] Triggered event ${msg.event.type} on ${msg.instanceId}`);
+        } else {
+          console.log(`[RuntimeBroadcaster] Instance ${msg.instanceId} not found in ${this.component.name}`);
+          // Log all known instances for debugging
+          const allInstances = this.runtime.getAllInstances();
+          console.log(`[RuntimeBroadcaster] Known instances: ${allInstances.map(i => i.id).join(', ') || 'none'}`);
         }
       } catch (error: any) {
         console.error(`[RuntimeBroadcaster] Failed to trigger event:`, error.message);

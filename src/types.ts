@@ -364,7 +364,7 @@ export interface Component {
   version: string;
   /** State machines */
   stateMachines: StateMachine[];
-  /** Entry point machine - auto-created on component start */
+  /** Entry point machine - defines which machine is the main entry point */
   entryMachine?: string;
   /**
    * Entry machine mode:
@@ -372,6 +372,13 @@ export interface Component {
    * - 'multiple': Multiple instances allowed (workflow pattern, default)
    */
   entryMachineMode?: 'singleton' | 'multiple';
+  /**
+   * Auto-create entry point instance on startup:
+   * - true: Create instance automatically (useful for singleton orchestrators)
+   * - false: Don't auto-create (instances created via API with meaningful context)
+   * Default: true for singleton, false for multiple
+   */
+  autoCreateEntryPoint?: boolean;
   /** Metadata */
   metadata?: Record<string, any>;
   /** Layout configuration for dashboard visualization */

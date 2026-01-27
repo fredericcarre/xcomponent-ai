@@ -2154,7 +2154,7 @@
 
         for (const machine of machines) {
           const isEntry = component.entryMachine === machine.name;
-          const machineInstances = allInstances.filter(i => i.machineName === machine.name);
+          const machineInstances = allInstances.filter(i => i.machineName === machine.name && i.componentName === selectedComponentName);
 
           try {
             // Get first instance of this machine to show its current state
@@ -2361,6 +2361,7 @@
       renderInstanceContext(null);
       loadInstanceHistory(null);
       renderInstanceList();  // Refresh to show all instances
+      renderComponentOverview();  // Refresh overview cards with updated instance counts
     }
 
     // Render machine diagram
@@ -2386,8 +2387,8 @@
         instanceToDisplay = allInstances.find(i => i.id === selectedInstanceId);
       }
       if (!instanceToDisplay) {
-        // Auto-select first instance of this machine
-        instanceToDisplay = allInstances.find(i => i.machineName === selectedMachineName);
+        // Auto-select first instance of this machine in the selected component
+        instanceToDisplay = allInstances.find(i => i.machineName === selectedMachineName && i.componentName === selectedComponentName);
       }
 
       try {

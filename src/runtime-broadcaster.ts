@@ -240,17 +240,25 @@ export class RuntimeBroadcaster {
   private async subscribeToCommands(): Promise<void> {
     // Trigger event command
     await this.broker.subscribe(DashboardChannels.TRIGGER_EVENT, async (msg: any) => {
+      console.log(`[RuntimeBroadcaster] Received TRIGGER_EVENT for ${msg.componentName || 'any'}:${msg.instanceId}`);
+
       // Only process if componentName matches or not specified
       if (msg.componentName && msg.componentName !== this.component.name) {
+        console.log(`[RuntimeBroadcaster] Ignoring - not for ${this.component.name}`);
         return; // Not for this component
       }
 
       try {
         const instance = this.runtime.getInstance(msg.instanceId);
         if (instance) {
-          console.log(`[RuntimeBroadcaster] Processing event ${msg.event.type} for instance ${msg.instanceId}`);
+          console.log(`[RuntimeBroadcaster] Processing event ${msg.event.type} for instance ${msg.instanceId} (state: ${instance.currentState})`);
           await this.runtime.sendEvent(msg.instanceId, msg.event);
           console.log(`[RuntimeBroadcaster] Triggered event ${msg.event.type} on ${msg.instanceId}`);
+        } else {
+          console.log(`[RuntimeBroadcaster] Instance ${msg.instanceId} not found in ${this.component.name}`);
+          // Log all known instances for debugging
+          const allInstances = this.runtime.getAllInstances();
+          console.log(`[RuntimeBroadcaster] Known instances: ${allInstances.map(i => i.id).join(', ') || 'none'}`);
         }
       } catch (error: any) {
         console.error(`[RuntimeBroadcaster] Failed to trigger event:`, error.message);
@@ -286,8 +294,8 @@ export class RuntimeBroadcaster {
 
     // Query instances command
     await this.broker.subscribe(DashboardChannels.QUERY_INSTANCES, async (_msg: any) => {
-      // Re-announce ourselves so late-starting dashboards discover us
-      await this.announce();
+      // Note: We don't re-announce here anymore to avoid infinite loop
+      // Dashboard queries on startup and when runtimes announce
 
       const instances = this.runtime.getAllInstances().map(inst => ({
         id: inst.id,

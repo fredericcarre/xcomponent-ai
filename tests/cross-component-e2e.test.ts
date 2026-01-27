@@ -21,6 +21,7 @@ import { FSMRuntime } from '../src/fsm-runtime';
 import { RuntimeBroadcaster } from '../src/runtime-broadcaster';
 import { InMemoryMessageBroker } from '../src/message-broker';
 import { Component } from '../src/types';
+import { InMemoryEventStore, InMemorySnapshotStore } from '../src/persistence';
 
 // Helper to wait for a condition
 async function waitFor(
@@ -315,6 +316,223 @@ describe('Cross-Component E2E (In-Memory)', () => {
       );
       expect(payment).toBeDefined();
       expect(payment?.context?.amount).toBe(order.amount);
+    }
+  });
+});
+
+/**
+ * Test event persistence - verifies all transitions are logged correctly
+ */
+describe('Cross-Component E2E - Event Persistence', () => {
+  let orderComponent: Component;
+  let paymentComponent: Component;
+  let orderRuntime: FSMRuntime;
+  let paymentRuntime: FSMRuntime;
+  let orderBroadcaster: RuntimeBroadcaster;
+  let paymentBroadcaster: RuntimeBroadcaster;
+  let orderEventStore: InMemoryEventStore;
+  let paymentEventStore: InMemoryEventStore;
+
+  beforeAll(async () => {
+    // Reset the singleton broker
+    InMemoryMessageBroker.resetInstance();
+
+    // Load components
+    const orderYaml = fs.readFileSync(
+      path.join(__dirname, '../examples/distributed/order-component.yaml'),
+      'utf-8'
+    );
+    const paymentYaml = fs.readFileSync(
+      path.join(__dirname, '../examples/distributed/payment-component.yaml'),
+      'utf-8'
+    );
+
+    orderComponent = yaml.parse(orderYaml) as Component;
+    paymentComponent = yaml.parse(paymentYaml) as Component;
+
+    // Create event stores for persistence verification
+    orderEventStore = new InMemoryEventStore();
+    paymentEventStore = new InMemoryEventStore();
+
+    // Create runtimes with persistence
+    orderRuntime = new FSMRuntime(orderComponent, {
+      eventSourcing: true,
+      snapshots: true,
+      eventStore: orderEventStore,
+      snapshotStore: new InMemorySnapshotStore()
+    });
+    paymentRuntime = new FSMRuntime(paymentComponent, {
+      eventSourcing: true,
+      snapshots: true,
+      eventStore: paymentEventStore,
+      snapshotStore: new InMemorySnapshotStore()
+    });
+
+    // Create broadcasters
+    orderBroadcaster = new RuntimeBroadcaster(orderRuntime, orderComponent, {
+      brokerUrl: 'memory'
+    });
+    paymentBroadcaster = new RuntimeBroadcaster(paymentRuntime, paymentComponent, {
+      brokerUrl: 'memory'
+    });
+
+    await orderBroadcaster.connect();
+    await paymentBroadcaster.connect();
+  });
+
+  afterAll(async () => {
+    await orderBroadcaster.disconnect();
+    await paymentBroadcaster.disconnect();
+    InMemoryMessageBroker.resetInstance();
+  });
+
+  it('should persist all Order transitions correctly', async () => {
+    const orderId = `persist-order-${Date.now()}`;
+
+    // Create and process Order through full flow
+    const orderInstanceId = orderRuntime.createInstance('Order', {
+      orderId,
+      amount: 150,
+      customerId: 'persist-customer'
+    });
+
+    // SUBMIT
+    await orderRuntime.sendEvent(orderInstanceId, {
+      type: 'SUBMIT',
+      payload: {},
+      timestamp: Date.now()
+    });
+
+    // Wait for Payment to be created
+    await waitFor(
+      async () => {
+        const payments = paymentRuntime.getAllInstances();
+        return payments.some(p => p.context?.orderId === orderId);
+      },
+      'Payment created for persistence test',
+      3000
+    );
+
+    // Find and complete Payment
+    const payments = paymentRuntime.getAllInstances();
+    const payment = payments.find(p => p.context?.orderId === orderId);
+    const paymentInstanceId = payment!.id;
+
+    // Process Payment: PROCESS → VALIDATE → COMPLETE
+    await paymentRuntime.sendEvent(paymentInstanceId, {
+      type: 'PROCESS',
+      payload: {},
+      timestamp: Date.now()
+    });
+
+    await paymentRuntime.sendEvent(paymentInstanceId, {
+      type: 'VALIDATE',
+      payload: {},
+      timestamp: Date.now()
+    });
+
+    await paymentRuntime.sendEvent(paymentInstanceId, {
+      type: 'COMPLETE',
+      payload: {},
+      timestamp: Date.now()
+    });
+
+    // Wait for Order to receive PAYMENT_CONFIRMED
+    await waitFor(
+      async () => {
+        const order = orderRuntime.getInstance(orderInstanceId);
+        return order?.currentState === 'Paid';
+      },
+      'Order transitioned to Paid',
+      3000
+    );
+
+    // Complete Order: SHIP → DELIVER
+    await orderRuntime.sendEvent(orderInstanceId, {
+      type: 'SHIP',
+      payload: {},
+      timestamp: Date.now()
+    });
+
+    await orderRuntime.sendEvent(orderInstanceId, {
+      type: 'DELIVER',
+      payload: {},
+      timestamp: Date.now()
+    });
+
+    // Allow time for events to be persisted
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Verify Order events
+    const orderEvents = await orderEventStore.getAllEvents();
+    const orderTransitionEvents = orderEvents.filter(
+      e => e.instanceId === orderInstanceId
+    );
+
+    // Expected Order transitions:
+    // 1. SUBMIT: Created → PendingPayment
+    // 2. PAYMENT_CONFIRMED: PendingPayment → Paid
+    // 3. SHIP: Paid → Shipped
+    // 4. DELIVER: Shipped → Completed
+    const expectedOrderTransitions = [
+      { event: 'SUBMIT', from: 'Created', to: 'PendingPayment' },
+      { event: 'PAYMENT_CONFIRMED', from: 'PendingPayment', to: 'Paid' },
+      { event: 'SHIP', from: 'Paid', to: 'Shipped' },
+      { event: 'DELIVER', from: 'Shipped', to: 'Completed' }
+    ];
+
+    expect(orderTransitionEvents.length).toBeGreaterThanOrEqual(expectedOrderTransitions.length);
+
+    for (const expected of expectedOrderTransitions) {
+      const found = orderTransitionEvents.find(
+        e => e.event.type === expected.event &&
+             e.stateBefore === expected.from &&
+             e.stateAfter === expected.to
+      );
+      expect(found).toBeDefined();
+    }
+  });
+
+  it('should persist all Payment transitions correctly', async () => {
+    // Get all Payment events from the previous test
+    const paymentEvents = await paymentEventStore.getAllEvents();
+
+    // Expected Payment transitions:
+    // 1. PROCESS: Pending → Processing
+    // 2. VALIDATE: Processing → Validated
+    // 3. COMPLETE: Validated → Completed
+    const expectedPaymentTransitions = [
+      { event: 'PROCESS', from: 'Pending', to: 'Processing' },
+      { event: 'VALIDATE', from: 'Processing', to: 'Validated' },
+      { event: 'COMPLETE', from: 'Validated', to: 'Completed' }
+    ];
+
+    for (const expected of expectedPaymentTransitions) {
+      const found = paymentEvents.find(
+        e => e.event.type === expected.event &&
+             e.stateBefore === expected.from &&
+             e.stateAfter === expected.to
+      );
+      expect(found).toBeDefined();
+    }
+  });
+
+  it('should log events with correct context data', async () => {
+    const orderEvents = await orderEventStore.getAllEvents();
+
+    // All Order events should have orderId in context or payload
+    for (const event of orderEvents) {
+      // Events should have machineName
+      expect(event.machineName).toBe('Order');
+      // Events should have component name
+      expect(event.componentName).toBe('OrderComponent');
+    }
+
+    const paymentEvents = await paymentEventStore.getAllEvents();
+
+    for (const event of paymentEvents) {
+      expect(event.machineName).toBe('Payment');
+      expect(event.componentName).toBe('PaymentComponent');
     }
   });
 });

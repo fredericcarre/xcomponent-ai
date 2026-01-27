@@ -1973,8 +1973,9 @@
 
       // Show full Mermaid diagrams with current state
 
-      // Collect inter-machine transitions for overview flowchart
+      // Collect inter-machine and cross-component transitions for overview flowchart
         const interMachineLinks = [];
+        const crossComponentLinks = [];
         const machineInitialStates = {};
         machines.forEach(machine => {
           machineInitialStates[machine.name] = machine.initialState;
@@ -1987,45 +1988,92 @@
                 event: transition.event
               });
             }
+            if ((transition.type === 'cross_component' || transition.targetComponent) && transition.targetComponent) {
+              crossComponentLinks.push({
+                fromMachine: machine.name,
+                fromState: transition.from,
+                targetComponent: transition.targetComponent,
+                targetMachine: transition.targetMachine,
+                event: transition.event
+              });
+            }
           });
         });
 
-        // Build inter-machine flowchart if there are connections
-        let interMachineFlowchartHtml = '';
-        if (interMachineLinks.length > 0) {
+        // Build connections flowchart if there are inter-machine or cross-component links
+        const hasConnections = interMachineLinks.length > 0 || crossComponentLinks.length > 0;
+        let connectionsFlowchartHtml = '';
+        if (hasConnections) {
           let flowchartDef = 'flowchart LR\n';
 
-          // Add nodes
+          // Add local machine nodes
           machines.forEach(machine => {
             const isEntry = component.entryMachine === machine.name;
             const icon = isEntry ? '⭐' : '📦';
             flowchartDef += `  ${machine.name}["${icon} ${machine.name}"]\n`;
           });
 
+          // Add external component nodes (deduplicated)
+          const externalComponents = new Set();
+          crossComponentLinks.forEach(link => {
+            const nodeId = `ext_${link.targetComponent.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            if (!externalComponents.has(nodeId)) {
+              externalComponents.add(nodeId);
+              flowchartDef += `  ${nodeId}(["📡 ${link.targetComponent}"])\n`;
+            }
+          });
+
           // Add inter-machine connections
-          interMachineLinks.forEach(link => {
+          interMachineLinks.forEach((link, i) => {
             flowchartDef += `  ${link.fromMachine} -->|"🔗 ${link.event}"| ${link.to}\n`;
+          });
+
+          // Add cross-component connections
+          crossComponentLinks.forEach((link, i) => {
+            const nodeId = `ext_${link.targetComponent.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            flowchartDef += `  ${link.fromMachine} -.->|"📡 ${link.event}"| ${nodeId}\n`;
           });
 
           // Style nodes
           flowchartDef += '  classDef entryNode fill:#fbbf24,stroke:#f59e0b,color:#000,stroke-width:2px\n';
           flowchartDef += '  classDef normalNode fill:#1f2937,stroke:#4b5563,color:#f0f0f0,stroke-width:1px\n';
+          flowchartDef += '  classDef externalNode fill:#78350f,stroke:#f59e0b,color:#fbbf24,stroke-width:2px,stroke-dasharray:5 5\n';
           machines.forEach(machine => {
             const isEntry = component.entryMachine === machine.name;
             flowchartDef += `  class ${machine.name} ${isEntry ? 'entryNode' : 'normalNode'}\n`;
           });
-          flowchartDef += '  linkStyle default stroke:#10b981,stroke-width:3px\n';
+          externalComponents.forEach(nodeId => {
+            flowchartDef += `  class ${nodeId} externalNode\n`;
+          });
 
-          interMachineFlowchartHtml = `
-            <div style="margin-bottom: 20px; padding: 16px; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px;">
-              <div style="font-size: 12px; color: #10b981; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                <span>🔗</span> Inter-Machine Connections
+          // Style links: inter-machine in green, cross-component in amber
+          const totalInterLinks = interMachineLinks.length;
+          const totalCrossLinks = crossComponentLinks.length;
+          if (totalInterLinks > 0) {
+            const interIndices = Array.from({length: totalInterLinks}, (_, i) => i).join(',');
+            flowchartDef += `  linkStyle ${interIndices} stroke:#10b981,stroke-width:3px\n`;
+          }
+          if (totalCrossLinks > 0) {
+            const crossIndices = Array.from({length: totalCrossLinks}, (_, i) => i + totalInterLinks).join(',');
+            flowchartDef += `  linkStyle ${crossIndices} stroke:#f59e0b,stroke-width:3px\n`;
+          }
+
+          const borderColor = crossComponentLinks.length > 0 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)';
+          const bgColor = crossComponentLinks.length > 0 ? 'rgba(245, 158, 11, 0.05)' : 'rgba(16, 185, 129, 0.05)';
+          const titleColor = crossComponentLinks.length > 0 ? '#f59e0b' : '#10b981';
+          const titleIcon = crossComponentLinks.length > 0 ? '📡' : '🔗';
+          const titleText = crossComponentLinks.length > 0 ? 'Machine & Cross-Component Connections' : 'Inter-Machine Connections';
+
+          connectionsFlowchartHtml = `
+            <div style="margin-bottom: 20px; padding: 16px; background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 12px;">
+              <div style="font-size: 12px; color: ${titleColor}; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <span>${titleIcon}</span> ${titleText}
               </div>
               <div class="mermaid" id="inter-machine-flowchart">${flowchartDef}</div>
             </div>`;
         }
 
-        let diagramsHtml = interMachineFlowchartHtml + '<div class="diagram-grid" id="diagram-grid-container">';
+        let diagramsHtml = connectionsFlowchartHtml + '<div class="diagram-grid" id="diagram-grid-container">';
 
         // Store machine state info for post-render styling
         const machineStateInfo = [];
@@ -2086,11 +2134,21 @@
                 // Build Quick Actions with inline parameter forms
                 const transitionsHtml = availableTransitions.map(t => {
                   const isInterMachine = t.type === 'inter_machine';
-                  const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
-                  const icon = isInterMachine ? '🔗' : '→';
+                  const isCrossComponent = t.type === 'cross_component' || !!t.targetComponent;
+                  const isExternal = isInterMachine || isCrossComponent;
+                  const btnColor = isCrossComponent ? '#f59e0b' : isInterMachine ? '#10b981' : '#3b82f6';
+                  const icon = isCrossComponent ? '📡' : isInterMachine ? '🔗' : '→';
                   const schema = getTransitionSchema(t);
                   const hasParams = schema && Object.keys(schema).length > 0;
                   const formId = `overview-form-${machine.name}-${t.event}`.replace(/[^a-zA-Z0-9-]/g, '-');
+
+                  // Label for external transitions
+                  let externalLabel = '';
+                  if (isCrossComponent && t.targetComponent) {
+                    externalLabel = ` → ${t.targetComponent}`;
+                  } else if (isInterMachine && t.targetMachine) {
+                    externalLabel = ` → ${t.targetMachine}`;
+                  }
 
                   // Build inline parameter inputs if schema exists
                   let paramsHtml = '';
@@ -2118,8 +2176,8 @@
                       style="width: 100%; padding: 8px 12px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;"
                       onmouseover="this.style.opacity='0.85'"
                       onmouseout="this.style.opacity='1'"
-                      title="${t.from} → ${t.to}${isInterMachine ? ' (creates ' + t.targetMachine + ')' : ''}">
-                      ${icon} ${t.event}${isInterMachine ? ' → ' + t.targetMachine : ''}
+                      title="${t.from} → ${t.to}${externalLabel}">
+                      ${icon} ${t.event}${externalLabel}
                     </button>
                   </div>`;
                 }).join('');
@@ -2741,9 +2799,20 @@
       // Render transitions with parameter forms
       container.innerHTML = transitions.map((t, idx) => {
         const isInterMachine = t.type === 'inter_machine';
-        const btnColor = isInterMachine ? '#10b981' : '#3b82f6';
-        const icon = isInterMachine ? '🔗' : '→';
+        const isCrossComponent = t.type === 'cross_component' || !!t.targetComponent;
+        const isExternal = isInterMachine || isCrossComponent;
+        const btnColor = isCrossComponent ? '#f59e0b' : isInterMachine ? '#10b981' : '#3b82f6';
+        const borderColor = isCrossComponent ? 'rgba(245, 158, 11, 0.3)' : isInterMachine ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)';
+        const icon = isCrossComponent ? '📡' : isInterMachine ? '🔗' : '→';
         const schema = getTransitionSchema(t, instance);
+
+        // External target label
+        let externalInfo = '';
+        if (isCrossComponent && t.targetComponent) {
+          externalInfo = `<div style="font-size: 11px; color: #f59e0b; margin-bottom: 8px; padding: 4px 8px; background: rgba(245,158,11,0.1); border-radius: 4px; display: inline-block;">📡 → ${t.targetComponent}${t.targetMachine ? ' / ' + t.targetMachine : ''}</div>`;
+        } else if (isInterMachine && t.targetMachine) {
+          externalInfo = `<div style="font-size: 11px; color: #10b981; margin-bottom: 8px;">Creates: ${t.targetMachine}</div>`;
+        }
 
         // Build parameter form if schema exists
         let paramsForm = '';
@@ -2770,12 +2839,12 @@
         }
 
         return `
-          <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid ${isInterMachine ? 'rgba(16, 185, 129, 0.3)' : 'rgba(59, 130, 246, 0.3)'};">
+          <div style="margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid ${borderColor};">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
               <span style="color: ${btnColor}; font-weight: 600; font-size: 14px;">${icon} ${t.event}</span>
               <span style="color: #666; font-size: 11px;">${t.from} → ${t.to}</span>
             </div>
-            ${isInterMachine ? `<div style="font-size: 11px; color: #10b981; margin-bottom: 8px;">Creates: ${t.targetMachine}</div>` : ''}
+            ${externalInfo}
             ${paramsForm}
             <button onclick="sendTransitionEventWithParams('${instance.id}', '${t.event}', ${idx}, ${schema ? 'true' : 'false'})"
               style="width: 100%; margin-top: 10px; padding: 10px; background: ${btnColor}; border: none; border-radius: 6px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s;"

@@ -544,6 +544,13 @@ export class DashboardServer {
         const shortExpr = t.guard.expression.replace(/context\./g, '');
         label += ` [${shortExpr}]`;
       }
+      // Add visual prefix for cross-component and inter-machine transitions
+      if (t.type === 'cross_component' || t.targetComponent) {
+        const target = t.targetComponent || '';
+        label = `📡 ${label} → ${target}`;
+      } else if (t.type === 'inter_machine' && t.targetMachine) {
+        label = `🔗 ${label} → ${t.targetMachine}`;
+      }
       lines.push(`  ${t.from} --> ${t.to}: ${label}`);
     });
 

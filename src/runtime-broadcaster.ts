@@ -160,6 +160,7 @@ export class RuntimeBroadcaster {
 
     // Instance created
     this.runtime.on('instance_created', async (data) => {
+      console.log(`[RuntimeBroadcaster] Instance created: ${data.id || data.instanceId} (${data.machineName}) - broadcasting`);
       const broadcast: FSMEventBroadcast = {
         runtimeId: this.runtimeId,
         componentName: this.component.name,
@@ -174,6 +175,7 @@ export class RuntimeBroadcaster {
       };
 
       await this.broker.publish(DashboardChannels.INSTANCE_CREATED, broadcast as any);
+      console.log(`[RuntimeBroadcaster] INSTANCE_CREATED published for ${data.id || data.instanceId}`);
     });
 
     // Instance completed (terminal state reached)
@@ -274,6 +276,7 @@ export class RuntimeBroadcaster {
 
     // Create instance command
     await this.broker.subscribe(DashboardChannels.CREATE_INSTANCE, async (msg: any) => {
+      console.log(`[RuntimeBroadcaster] Received CREATE_INSTANCE for ${msg.componentName} (this: ${this.component.name})`);
       if (msg.componentName === this.component.name) {
         try {
           // Use specified machine or fall back to entry machine

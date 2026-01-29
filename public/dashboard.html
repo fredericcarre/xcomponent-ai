@@ -3389,7 +3389,7 @@
       const banner = document.createElement('div');
       banner.id = 'no-db-banner';
       banner.style.cssText = 'padding: 10px 16px; background: rgba(245,158,11,0.1); border-bottom: 1px solid rgba(245,158,11,0.3); color: #f59e0b; font-size: 12px; display: flex; align-items: center; gap: 8px;';
-      banner.innerHTML = '<span style="font-size: 16px;">&#9888;</span> <span>No database configured. Event history and audit trail require PostgreSQL (<code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;font-size:11px;">DATABASE_URL</code>). Instances are tracked in-memory only.</span>';
+      banner.innerHTML = '<span style="font-size: 16px;">&#9888;</span> <span>No database configured. Event history requires PostgreSQL (<code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;font-size:11px;">DATABASE_URL</code>) or Redis broker. Instances are tracked in-memory only.</span>';
       // Insert after history-search
       const search = panel.querySelector('.history-search');
       if (search && search.nextSibling) {
@@ -3589,7 +3589,7 @@
         if (!data.events || data.events.length === 0) {
           sequenceDiagramData = null;
           const body = document.getElementById('sequence-diagram-body');
-          if (body) body.innerHTML = '<div class="sequence-diagram-empty">No correlated events found (requires PostgreSQL persistence)</div>';
+          if (body) body.innerHTML = '<div class="sequence-diagram-empty">No correlated events found (requires PostgreSQL or Redis persistence)</div>';
           return;
         }
 
@@ -3639,6 +3639,17 @@
         return comp ? (comp + ' / ' + evt.machineName) : evt.machineName;
       }
 
+      // Format timestamp for display (HH:MM:SS.mmm)
+      function formatTimestamp(ts) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        const ms = String(d.getMilliseconds()).padStart(3, '0');
+        return `${hh}:${mm}:${ss}.${ms}`;
+      }
+
       // Collect unique participants in order of appearance
       const participantOrder = [];
       const participantSet = new Set();
@@ -3667,10 +3678,12 @@
         const eventType = evt.eventType || 'Unknown';
         const from = evt.fromState || '?';
         const to = evt.toState || '?';
+        const timestamp = formatTimestamp(evt.persistedAt);
 
         // Skip INSTANCE_CREATED events as notes instead of transitions
         if (eventType === 'INSTANCE_CREATED') {
-          lines.push(`    Note over ${key}: created → ${sanitizeMermaidText(to)}`);
+          const noteText = timestamp ? `[${timestamp}] created → ${sanitizeMermaidText(to)}` : `created → ${sanitizeMermaidText(to)}`;
+          lines.push(`    Note over ${key}: ${noteText}`);
           prevKey = key;
           prevToState = to;
           continue;
@@ -3682,13 +3695,19 @@
         if (isCrossComponent) {
           // Arrow from previous participant to this one (cross-component message)
           lines.push(`    ${prevKey}-)${key}: ${sanitizeMermaidText(eventType)}`);
-          // Show the resulting state transition as a note
-          lines.push(`    Note over ${key}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
+          // Show the resulting state transition as a note with timestamp
+          const noteText = timestamp
+            ? `[${timestamp}]<br/>${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`
+            : `${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`;
+          lines.push(`    Note over ${key}: ${noteText}`);
         } else {
           // Same participant: self-arrow with state transition
           lines.push(`    ${key}->>${key}: ${sanitizeMermaidText(eventType)}`);
-          lines.push(`    Note over ${key}: ${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`);
-
+          // Show the resulting state transition as a note with timestamp
+          const noteText = timestamp
+            ? `[${timestamp}]<br/>${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`
+            : `${sanitizeMermaidText(from)} → ${sanitizeMermaidText(to)}`;
+          lines.push(`    Note over ${key}: ${noteText}`);
         }
 
         // Show context at key moments (first event, cross-component boundaries)

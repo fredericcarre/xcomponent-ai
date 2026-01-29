@@ -1,0 +1,441 @@
+# xcomponent-ai Component Definition
+# SportShop E-commerce - Business Logic avec Triggered Methods
+
+name: SportShopComponent
+version: 1.0.0
+
+# Entry point configuration for multiple instances (e-commerce pattern)
+entryMachine: Cart
+entryMachineMode: multiple      # Allow multiple cart/order instances
+autoCreateEntryPoint: false     # Create instances manually via API
+
+metadata:
+  description: "E-commerce state machines for cart, order, payment and inventory with xcomponent-ai features"
+
+stateMachines:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CART STATE MACHINE
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: Cart
+    initialState: Empty
+
+    contextSchema:
+      cartId:
+        type: text
+        required: true
+      sessionId:
+        type: text
+        required: true
+      itemCount:
+        type: number
+        default: 0
+      total:
+        type: number
+        default: 0
+
+    states:
+      - name: Empty
+        type: entry
+        description: "Cart is empty"
+
+      - name: Active
+        type: regular
+        description: "Cart has items"
+
+      - name: CheckingOut
+        type: regular
+        description: "Checkout in progress"
+
+      - name: Converted
+        type: final
+        description: "Cart converted to order"
+
+    transitions:
+      - from: Empty
+        to: Active
+        event: ADD_ITEM
+        type: triggerable
+        triggeredMethod: onItemAdded
+
+      - from: Active
+        to: Active
+        event: ADD_ITEM
+        type: triggerable
+        triggeredMethod: onItemAdded
+
+      - from: Active
+        to: Active
+        event: REMOVE_ITEM
+        type: triggerable
+        triggeredMethod: onItemRemoved
+
+      - from: Active
+        to: Empty
+        event: CLEAR
+        type: triggerable
+        triggeredMethod: onCartCleared
+
+      - from: Active
+        to: Active
+        event: UPDATE_QUANTITY
+        type: triggerable
+        triggeredMethod: onQuantityUpdated
+
+      - from: Active
+        to: CheckingOut
+        event: CHECKOUT
+        type: triggerable
+        triggeredMethod: onCheckoutStarted
+
+      - from: CheckingOut
+        to: Converted
+        event: COMPLETE
+        type: triggerable
+        triggeredMethod: onCartConverted
+
+      - from: CheckingOut
+        to: Active
+        event: CANCEL_CHECKOUT
+        type: triggerable
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ORDER STATE MACHINE with Inter-Machine Communication
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: Order
+    initialState: Created
+
+    contextSchema:
+      orderId:
+        type: text
+        required: true
+      orderNumber:
+        type: text
+        required: true
+      customerId:
+        type: text
+        required: true
+      customerName:
+        type: text
+        required: true
+      customerEmail:
+        type: text
+        required: true
+      total:
+        type: number
+        required: true
+      trackingNumber:
+        type: text
+        default: ""
+
+    states:
+      - name: Created
+        type: entry
+        description: "Order created, awaiting validation"
+
+      - name: Validated
+        type: regular
+        description: "Order validated, awaiting payment"
+
+      - name: Paid
+        type: regular
+        description: "Payment received, awaiting processing"
+
+      - name: Processing
+        type: regular
+        description: "Order being prepared"
+
+      - name: Shipped
+        type: regular
+        description: "Order shipped"
+
+      - name: Delivered
+        type: final
+        description: "Order delivered"
+
+      - name: Cancelled
+        type: error
+        description: "Order cancelled"
+
+      - name: Refunded
+        type: final
+        description: "Order refunded"
+
+    transitions:
+      - from: Created
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+        triggeredMethod: onOrderValidated
+
+      - from: Created
+        to: Cancelled
+        event: CANCEL
+        type: triggerable
+        triggeredMethod: onOrderCancelled
+
+      - from: Validated
+        to: Paid
+        event: PAY
+        type: triggerable
+        triggeredMethod: onPaymentReceived
+        # Create Payment instance when order is paid
+        createInstance:
+          machine: Payment
+          context:
+            paymentId: "uuid()"
+            orderId: "context.orderId"
+            amount: "context.total"
+
+      - from: Validated
+        to: Cancelled
+        event: CANCEL
+        type: triggerable
+        triggeredMethod: onOrderCancelled
+
+      - from: Paid
+        to: Processing
+        event: PROCESS
+        type: triggerable
+        triggeredMethod: onOrderProcessing
+
+      - from: Paid
+        to: Refunded
+        event: REFUND
+        type: triggerable
+        triggeredMethod: onOrderRefunded
+
+      - from: Processing
+        to: Shipped
+        event: SHIP
+        type: triggerable
+        triggeredMethod: onOrderShipped
+
+      - from: Processing
+        to: Refunded
+        event: CANCEL
+        type: triggerable
+        triggeredMethod: onOrderRefunded
+
+      - from: Shipped
+        to: Delivered
+        event: DELIVER
+        type: triggerable
+        triggeredMethod: onOrderDelivered
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PAYMENT STATE MACHINE with Matching Rules
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: Payment
+    initialState: Pending
+
+    contextSchema:
+      paymentId:
+        type: text
+        required: true
+      orderId:
+        type: text
+        required: true
+      amount:
+        type: number
+        required: true
+      transactionId:
+        type: text
+        default: ""
+      retryCount:
+        type: number
+        default: 0
+      errorMessage:
+        type: text
+        default: ""
+
+    # Matching rules to find existing payment instances
+    matchingRules:
+      - name: byOrderId
+        fields: [orderId]
+        description: "Match payment by order ID"
+
+    states:
+      - name: Pending
+        type: entry
+        description: "Payment pending"
+
+      - name: Processing
+        type: regular
+        description: "Processing payment"
+
+      - name: Authorized
+        type: regular
+        description: "Payment authorized"
+
+      - name: Captured
+        type: final
+        description: "Payment captured"
+
+      - name: Failed
+        type: error
+        description: "Payment failed"
+
+      - name: Refunded
+        type: final
+        description: "Payment refunded"
+
+    transitions:
+      - from: Pending
+        to: Processing
+        event: INITIATE
+        type: triggerable
+        triggeredMethod: initiatePayment
+
+      - from: Processing
+        to: Authorized
+        event: AUTHORIZE
+        type: triggerable
+        triggeredMethod: authorizePayment
+
+      - from: Processing
+        to: Failed
+        event: FAIL
+        type: triggerable
+        triggeredMethod: logPaymentFailure
+
+      - from: Authorized
+        to: Captured
+        event: CAPTURE
+        type: triggerable
+        triggeredMethod: capturePayment
+
+      - from: Authorized
+        to: Failed
+        event: EXPIRE
+        type: triggerable
+        triggeredMethod: handleExpiration
+
+      - from: Captured
+        to: Refunded
+        event: REFUND
+        type: triggerable
+        triggeredMethod: processRefund
+
+      - from: Failed
+        to: Pending
+        event: RETRY
+        type: triggerable
+        triggeredMethod: retryPayment
+        guard: "context.retryCount < 3"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # INVENTORY STATE MACHINE with Stock Tracking
+  # ═══════════════════════════════════════════════════════════════════════════
+  - name: Inventory
+    initialState: Available
+
+    contextSchema:
+      productId:
+        type: text
+        required: true
+      productName:
+        type: text
+        required: true
+      availableStock:
+        type: number
+        required: true
+      reservedStock:
+        type: number
+        default: 0
+      threshold:
+        type: number
+        default: 5
+
+    # Matching rules for inventory lookup
+    matchingRules:
+      - name: byProductId
+        fields: [productId]
+        description: "Match inventory by product ID"
+
+    states:
+      - name: Available
+        type: entry
+        description: "Stock available"
+
+      - name: LowStock
+        type: regular
+        description: "Stock below threshold"
+
+      - name: OutOfStock
+        type: error
+        description: "No stock available"
+
+      - name: Reserved
+        type: regular
+        description: "Stock reserved for order"
+
+    transitions:
+      - from: Available
+        to: Reserved
+        event: RESERVE
+        type: triggerable
+        triggeredMethod: reserveStock
+        guard: "context.availableStock > 0"
+
+      - from: Available
+        to: LowStock
+        event: LOW_STOCK_ALERT
+        type: triggerable
+        triggeredMethod: sendLowStockAlert
+        guard: "context.availableStock <= context.threshold && context.availableStock > 0"
+
+      - from: Available
+        to: OutOfStock
+        event: DEPLETE
+        type: triggerable
+        triggeredMethod: handleStockDepletion
+        guard: "context.availableStock === 0"
+
+      - from: LowStock
+        to: Available
+        event: RESTOCK
+        type: triggerable
+        triggeredMethod: processRestock
+        guard: "context.availableStock > context.threshold"
+
+      - from: LowStock
+        to: OutOfStock
+        event: DEPLETE
+        type: triggerable
+        triggeredMethod: handleStockDepletion
+        guard: "context.availableStock === 0"
+
+      - from: LowStock
+        to: Reserved
+        event: RESERVE
+        type: triggerable
+        triggeredMethod: reserveStock
+        guard: "context.availableStock > 0"
+
+      - from: OutOfStock
+        to: Available
+        event: RESTOCK
+        type: triggerable
+        triggeredMethod: processRestock
+
+      - from: Reserved
+        to: Available
+        event: RELEASE
+        type: triggerable
+        triggeredMethod: releaseReservation
+
+      - from: Reserved
+        to: Available
+        event: CONFIRM
+        type: triggerable
+        triggeredMethod: confirmReservation
+
+# Triggered Methods are implemented in TypeScript using:
+# runtime.on('triggered_method', async ({ method, event, context, sender }) => { ... })
+#
+# Example:
+# runtime.on('onOrderShipped', async ({ context, sender }) => {
+#   const trackingNumber = generateTrackingNumber();
+#   await sendShippingNotification(context.customerEmail, trackingNumber);
+#   sender.updateContext({ trackingNumber });
+# });

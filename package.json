@@ -103,6 +103,7 @@
     "zod": "^3.24.1"
   },
   "optionalDependencies": {
+    "kafkajs": "^2.2.4",
     "redis": "^4.7.0"
   },
   "devDependencies": {

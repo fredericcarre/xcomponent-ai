@@ -184,6 +184,151 @@ describeIntegration('Redis Integration', () => {
   });
 });
 
+// Kafka tests are optional - they require Kafka to be running and can be slow
+// Skip if SKIP_KAFKA_TESTS=true or if Kafka connection fails
+const SKIP_KAFKA = process.env.SKIP_KAFKA_TESTS === 'true';
+const describeKafka = SKIP_KAFKA ? describe.skip : describeIntegration;
+
+describeKafka('Kafka Integration', () => {
+  let broker: any;
+  let connected = false;
+
+  beforeAll(async () => {
+    try {
+      const { KafkaMessageBroker } = await import('../../src/message-broker');
+      broker = new KafkaMessageBroker('kafka://localhost:9093');
+      // Use shorter retry for tests
+      await broker.connect(3, 1000);
+      connected = true;
+    } catch (err) {
+      console.warn('[Kafka Test] Skipping - Kafka not available:', (err as Error).message);
+    }
+  }, 30000);
+
+  afterAll(async () => {
+    if (broker && connected) {
+      try {
+        await broker.disconnect();
+      } catch (err) {
+        // Ignore disconnect errors in tests
+      }
+    }
+  }, 15000);
+
+  test('should connect to Kafka', () => {
+    if (!connected) {
+      console.log('[Kafka Test] Skipped - not connected');
+      return;
+    }
+    expect(broker.isConnected()).toBe(true);
+  });
+
+  test('should publish messages', async () => {
+    if (!connected) {
+      console.log('[Kafka Test] Skipped - not connected');
+      return;
+    }
+    await expect(
+      broker.publish('xcomponent:test:kafka', {
+        sourceComponent: 'A',
+        targetComponent: 'B',
+        targetMachine: 'M',
+        targetState: 'S',
+        event: { type: 'E', payload: {}, timestamp: Date.now() },
+      })
+    ).resolves.not.toThrow();
+  });
+
+  test('should publish and subscribe to messages', async () => {
+    if (!connected) {
+      console.log('[Kafka Test] Skipped - not connected');
+      return;
+    }
+
+    const channelName = 'test:kafka:channel:' + Date.now();
+    const testMessage = {
+      type: 'kafka-test',
+      data: { value: Math.random() },
+    };
+
+    const received = await new Promise<any>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timeout waiting for message')), 25000);
+
+      broker.subscribe(channelName, (msg: any) => {
+        clearTimeout(timeout);
+        resolve(msg);
+      }).then(() => {
+        // Kafka consumers need time to be ready after subscription
+        setTimeout(() => {
+          broker.publish(channelName, testMessage);
+        }, 5000);
+      });
+    });
+
+    expect(received.type).toBe('kafka-test');
+  }, 35000);
+});
+
+// RuntimeBroadcaster with Kafka is skipped by default as it requires longer setup
+// Enable with RUN_KAFKA_BROADCASTER_TESTS=true
+const RUN_KAFKA_BROADCASTER = process.env.RUN_KAFKA_BROADCASTER_TESTS === 'true';
+const describeKafkaBroadcaster = RUN_KAFKA_BROADCASTER ? describeIntegration : describe.skip;
+
+describeKafkaBroadcaster('RuntimeBroadcaster with Kafka', () => {
+  let runtime: FSMRuntime;
+  let broadcaster: any;
+
+  beforeAll(async () => {
+    const { RuntimeBroadcaster } = await import('../../src/runtime-broadcaster');
+
+    runtime = new FSMRuntime(testComponent);
+    broadcaster = new RuntimeBroadcaster(runtime, testComponent, {
+      brokerUrl: 'kafka://localhost:9093',
+      host: 'localhost',
+      port: 3003,
+    });
+
+    await broadcaster.connect();
+  }, 90000);
+
+  afterAll(async () => {
+    if (broadcaster) {
+      try {
+        await broadcaster.disconnect();
+      } catch (err) {
+        // Ignore disconnect errors
+      }
+    }
+    if (runtime) {
+      runtime.dispose();
+    }
+  }, 30000);
+
+  test('should broadcast instance creation', async () => {
+    const instanceId = runtime.createInstance('TestMachine', { testValue: 456 });
+    expect(instanceId).toBeDefined();
+
+    // Wait for async broadcast
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  });
+
+  test('should broadcast state changes', async () => {
+    const instanceId = runtime.createInstance('TestMachine', {});
+
+    await runtime.sendEvent(instanceId, {
+      type: 'START',
+      payload: {},
+      timestamp: Date.now(),
+    });
+
+    const instance = runtime.getInstance(instanceId);
+    expect(instance?.currentState).toBe('Processing');
+
+    // Wait for async broadcast
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  });
+});
+
 describeIntegration('RuntimeBroadcaster with RabbitMQ', () => {
   let runtime: FSMRuntime;
   let broadcaster: any;

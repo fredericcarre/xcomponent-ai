@@ -1,0 +1,96 @@
+# Payment Component - Distributed Demo (Kafka)
+# Processes payments and notifies OrderComponent of result
+
+name: PaymentComponent
+version: 1.0.0
+entryMachine: Payment
+
+stateMachines:
+  - name: Payment
+    initialState: Pending
+
+    contextSchema:
+      orderId:
+        type: text
+        label: Order ID
+        required: true
+      amount:
+        type: number
+        label: Amount
+        required: true
+      paymentMethod:
+        type: text
+        label: Payment Method
+
+    states:
+      - name: Pending
+        type: entry
+
+      - name: Processing
+        type: regular
+        onEntry: logProcessingStarted
+
+      - name: Validated
+        type: regular
+
+      - name: Completed
+        type: final
+        onEntry: notifyPaymentSuccess
+
+      - name: Failed
+        type: final
+        onEntry: notifyPaymentFailure
+
+    transitions:
+      # Start processing payment - business logic checks card type
+      - from: Pending
+        to: Processing
+        event: PROCESS
+        type: triggerable
+        triggeredMethod: checkPaymentMethod
+        description: Start payment processing (checks visa/mastercard)
+
+      # Payment validation successful
+      - from: Processing
+        to: Validated
+        event: VALIDATE
+        type: triggerable
+
+      # Complete payment - notify OrderComponent of success
+      - from: Validated
+        to: Completed
+        event: COMPLETE
+        type: cross_component
+        targetComponent: OrderComponent
+        targetMachine: Order
+        targetEvent: PAYMENT_CONFIRMED
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
+        description: Payment successful, notify order
+
+      # Payment failed - notify OrderComponent
+      - from: Processing
+        to: Failed
+        event: REJECT
+        type: cross_component
+        targetComponent: OrderComponent
+        targetMachine: Order
+        targetEvent: PAYMENT_FAILED
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
+        description: Payment rejected, notify order
+
+      # Validation failed
+      - from: Validated
+        to: Failed
+        event: REJECT
+        type: cross_component
+        targetComponent: OrderComponent
+        targetMachine: Order
+        targetEvent: PAYMENT_FAILED
+        matchingRules:
+          - eventProperty: orderId
+            instanceProperty: orderId
+        description: Payment validation failed

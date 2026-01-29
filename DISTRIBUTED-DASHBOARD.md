@@ -400,6 +400,207 @@ process.on('SIGTERM', async () => {
 
 **Rule of thumb**: Use `DashboardServer` directly when your app creates instances outside the CLI.
 
+## Integration Best Practices
+
+### Entity ID Mapping
+
+When integrating with a database (Prisma, TypeORM, etc.), you need to map your database entity IDs to xcomponent-ai instance IDs. Create a wrapper module:
+
+```typescript
+// lib/xcomponent-runtime.ts
+import { FSMRuntime, createRuntimeBroadcaster } from 'xcomponent-ai';
+
+// Map: "entityType:entityId" -> xcomponent instanceId
+const instanceMap = new Map<string, string>();
+
+let runtime: FSMRuntime | null = null;
+
+export async function getRuntime(): Promise<FSMRuntime> {
+  if (!runtime) {
+    const component = /* load your component YAML */;
+    runtime = new FSMRuntime(component);
+
+    // Connect to broker for dashboard
+    await createRuntimeBroadcaster(runtime, component, process.env.BROKER_URL!, {
+      host: 'my-app',
+      port: 3000
+    });
+
+    // Register business logic handlers
+    registerTriggeredMethods(runtime);
+  }
+  return runtime;
+}
+
+// Create instance and map to entity
+export async function createInstance(
+  machineName: string,
+  entityType: string,
+  entityId: string,
+  context: Record<string, unknown>
+): Promise<string> {
+  const rt = await getRuntime();
+  const instanceId = rt.createInstance(machineName, context);
+  instanceMap.set(`${entityType}:${entityId}`, instanceId);
+  return instanceId;
+}
+
+// Get instance ID for an entity
+export function getInstanceId(entityType: string, entityId: string): string | null {
+  return instanceMap.get(`${entityType}:${entityId}`) || null;
+}
+
+// Send event to entity
+export async function sendEventToEntity(
+  entityType: string,
+  entityId: string,
+  eventType: string,
+  payload?: unknown
+): Promise<{ success: boolean; newState?: string; error?: string }> {
+  const rt = await getRuntime();
+  const instanceId = getInstanceId(entityType, entityId);
+
+  if (!instanceId) {
+    return { success: false, error: `No instance for ${entityType}:${entityId}` };
+  }
+
+  try {
+    await rt.sendEvent(instanceId, { type: eventType, payload });
+    const instance = rt.getInstance(instanceId);
+    return { success: true, newState: instance?.currentState };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+```
+
+### Updating Context in Triggered Methods
+
+The dashboard displays the **context** of each instance. To update it (e.g., itemCount, total), use `sender.updateContext()` in your triggered methods:
+
+```typescript
+function registerTriggeredMethods(runtime: FSMRuntime) {
+  runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+    // Extract payload from event
+    const payload = (event as { payload?: Record<string, unknown> })?.payload || {};
+
+    switch (method) {
+      case 'onItemAdded':
+        // Update context with new values passed in payload
+        if (payload.newItemCount !== undefined) {
+          sender.updateContext({
+            itemCount: payload.newItemCount,
+            total: payload.newTotal
+          });
+        }
+        break;
+
+      case 'onOrderShipped':
+        // Generate tracking number and update context
+        const trackingNumber = `TRK-${Date.now().toString(36)}`;
+        sender.updateContext({ trackingNumber });
+        break;
+    }
+  });
+}
+```
+
+### Passing Data in Event Payloads
+
+When sending events, include the data needed by triggered methods:
+
+```typescript
+// In your service layer
+async function addItemToCart(cartId: string, productId: string, quantity: number) {
+  // Calculate new totals BEFORE sending event
+  const cart = await getCart(cartId);
+  const product = await getProduct(productId);
+  const newItemCount = cart.itemCount + quantity;
+  const newTotal = cart.total + (product.price * quantity);
+
+  // Send event with payload containing new values
+  await sendEventToEntity('cart', cartId, 'ADD_ITEM', {
+    productId,
+    quantity,
+    productName: product.name,
+    newItemCount,  // Will be used in triggered method
+    newTotal       // Will be used in triggered method
+  });
+
+  // Update database
+  await updateCartInDb(cartId, productId, quantity);
+}
+```
+
+### Ensuring Instance Exists for Existing Entities
+
+When your app restarts, the `instanceMap` is empty but entities exist in the database. Always check and create the instance if needed:
+
+```typescript
+async function getOrCreateCart(sessionId: string): Promise<Cart> {
+  let cart = await db.cart.findUnique({ where: { sessionId } });
+
+  if (!cart) {
+    cart = await db.cart.create({ data: { sessionId, state: 'Empty' } });
+  }
+
+  // IMPORTANT: Ensure xcomponent instance exists
+  const existingInstanceId = getInstanceId('cart', cart.id);
+  if (!existingInstanceId) {
+    await createInstance('Cart', 'cart', cart.id, {
+      cartId: cart.id,
+      sessionId,
+      itemCount: cart.items.length,
+      total: calculateTotal(cart)
+    });
+  }
+
+  return cart;
+}
+```
+
+### Summary: Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. Service Layer                                                    │
+│     - Calculate new values (itemCount, total)                       │
+│     - Call sendEventToEntity with payload containing new values     │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  2. FSMRuntime                                                       │
+│     - Receives event with payload                                    │
+│     - Executes transition                                            │
+│     - Calls triggered method with { method, event, context, sender } │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  3. Triggered Method                                                 │
+│     - Extracts payload from event                                    │
+│     - Calls sender.updateContext({ itemCount, total })               │
+│     - Context is updated in the instance                             │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  4. RuntimeBroadcaster                                               │
+│     - Detects context change                                         │
+│     - Publishes STATE_CHANGE event to Redis/RabbitMQ                │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  5. DashboardServer                                                  │
+│     - Receives STATE_CHANGE                                          │
+│     - Updates cached instance                                        │
+│     - Broadcasts to WebSocket clients                                │
+│     - Dashboard UI updates in real-time                              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 ## Complete Example
 
 See `examples/distributed-redis/` for a complete working example with:

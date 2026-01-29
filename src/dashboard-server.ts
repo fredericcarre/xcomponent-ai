@@ -3,6 +3,8 @@
  *
  * Connects to a message broker (RabbitMQ/Redis) to receive events from
  * multiple FSM runtimes and provides a unified dashboard view.
+ *
+ * Supports audit trail queries from either PostgreSQL or Redis.
  */
 
 import express from 'express';
@@ -10,7 +12,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import * as path from 'path';
 import { createMessageBroker, MessageBroker } from './message-broker';
-import { Component } from './types';
+import { Component, PersistedEvent, InstanceSnapshot } from './types';
 
 /**
  * Runtime registration message
@@ -71,7 +73,10 @@ export class DashboardServer {
   private broker: MessageBroker;
   private brokerUrl: string;
   private databaseUrl?: string;
+  private redisUrl?: string;
   private pgPool: any = null; // pg.Pool - optional, for history queries
+  private redisClient: any = null; // Redis client - optional, for history queries when no PostgreSQL
+  private redisKeyPrefix: string = 'fsm';
 
   // Registry of connected runtimes
   private runtimes: Map<string, RuntimeRegistration> = new Map();
@@ -83,9 +88,11 @@ export class DashboardServer {
 
   private heartbeatCheckInterval: NodeJS.Timeout | null = null;
 
-  constructor(brokerUrl: string, databaseUrl?: string) {
+  constructor(brokerUrl: string, databaseUrl?: string, redisUrl?: string) {
     this.brokerUrl = brokerUrl;
     this.databaseUrl = databaseUrl;
+    // Use broker URL as Redis URL if broker is Redis and no explicit redisUrl provided
+    this.redisUrl = redisUrl || (brokerUrl.startsWith('redis://') ? brokerUrl : undefined);
     this.broker = createMessageBroker(brokerUrl);
 
     this.app = express();
@@ -127,7 +134,8 @@ export class DashboardServer {
         status: 'ok',
         mode: 'distributed',
         broker: this.brokerUrl.replace(/:[^:@]+@/, ':***@'),
-        database: !!this.pgPool,
+        database: !!(this.pgPool || this.redisClient), // true if any persistence backend available
+        databaseType: this.pgPool ? 'postgresql' : (this.redisClient ? 'redis' : null),
         connectedRuntimes: this.runtimes.size,
         components: Array.from(this.components.keys())
       });
@@ -273,255 +281,334 @@ export class DashboardServer {
 
     // Get event history for a specific instance
     this.app.get('/api/instances/:instanceId/history', async (req, res) => {
-      if (!this.pgPool) {
-        res.json({ history: [], message: 'No database configured (set DATABASE_URL)' });
-        return;
+      const { instanceId } = req.params;
+
+      // Try PostgreSQL first
+      if (this.pgPool) {
+        try {
+          const result = await this.pgPool.query(
+            `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
+                    from_state, to_state, context, public_member_snapshot,
+                    source_component_name,
+                    correlation_id, causation_id, caused, persisted_at, created_at
+             FROM fsm_events WHERE instance_id = $1
+             ORDER BY persisted_at ASC`,
+            [instanceId]
+          );
+          // Map PostgreSQL rows to PersistedEvent format expected by the UI
+          const history = result.rows.map((row: any) => ({
+            id: row.id,
+            instanceId: row.instance_id,
+            machineName: row.machine_name,
+            componentName: row.component_name || '',
+            event: {
+              type: row.event_type,
+              payload: row.event_payload || {},
+              timestamp: parseInt(row.persisted_at, 10)
+            },
+            stateBefore: row.from_state,
+            stateAfter: row.to_state,
+            publicMemberSnapshot: row.public_member_snapshot,
+            causedBy: row.correlation_id ? [row.correlation_id] : undefined,
+            caused: row.caused || [],
+            persistedAt: parseInt(row.persisted_at, 10),
+            sourceComponentName: row.source_component_name,
+          }));
+          res.json({ history });
+          return;
+        } catch (error: any) {
+          res.status(500).json({ error: error.message });
+          return;
+        }
       }
-      try {
-        const { instanceId } = req.params;
-        const result = await this.pgPool.query(
-          `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
-                  from_state, to_state, context, public_member_snapshot,
-                  source_component_name,
-                  correlation_id, causation_id, caused, persisted_at, created_at
-           FROM fsm_events WHERE instance_id = $1
-           ORDER BY persisted_at ASC`,
-          [instanceId]
-        );
-        // Map PostgreSQL rows to PersistedEvent format expected by the UI
-        const history = result.rows.map((row: any) => ({
-          id: row.id,
-          instanceId: row.instance_id,
-          machineName: row.machine_name,
-          componentName: row.component_name || '',
-          event: {
-            type: row.event_type,
-            payload: row.event_payload || {},
-            timestamp: parseInt(row.persisted_at, 10)
-          },
-          stateBefore: row.from_state,
-          stateAfter: row.to_state,
-          publicMemberSnapshot: row.public_member_snapshot,
-          causedBy: row.correlation_id ? [row.correlation_id] : undefined,
-          caused: row.caused || [],
-          persistedAt: parseInt(row.persisted_at, 10),
-          sourceComponentName: row.source_component_name,
-        }));
-        res.json({ history });
-      } catch (error: any) {
-        res.status(500).json({ error: error.message });
+
+      // Fallback to Redis
+      if (this.redisClient) {
+        try {
+          const history = await this.getRedisInstanceHistory(instanceId);
+          res.json({ history });
+          return;
+        } catch (error: any) {
+          res.status(500).json({ error: error.message });
+          return;
+        }
       }
+
+      res.json({ history: [], message: 'No database configured (set DATABASE_URL or use Redis broker)' });
     });
 
     // Search all instances (including terminated) from database
     this.app.get('/api/history/instances', async (req, res) => {
-      if (!this.pgPool) {
-        res.json({ instances: [], message: 'No database configured (set DATABASE_URL)' });
-        return;
-      }
-      try {
-        const { machine, state, q, limit: limitStr } = req.query;
-        const limit = Math.min(parseInt(limitStr as string) || 100, 500);
+      const { machine, state, q, limit: limitStr } = req.query;
+      const limit = Math.min(parseInt(limitStr as string) || 100, 500);
 
-        // Try snapshots first, fall back to events if no snapshots exist
-        let query = `
-          SELECT s.instance_id, s.machine_name, s.current_state, s.context,
-                 s.event_count, s.created_at, s.updated_at
-          FROM fsm_snapshots s
-        `;
-        const conditions: string[] = [];
-        const params: any[] = [];
+      // Try PostgreSQL first
+      if (this.pgPool) {
+        try {
+          // Try snapshots first, fall back to events if no snapshots exist
+          let query = `
+            SELECT s.instance_id, s.machine_name, s.current_state, s.context,
+                   s.event_count, s.created_at, s.updated_at
+            FROM fsm_snapshots s
+          `;
+          const conditions: string[] = [];
+          const params: any[] = [];
 
-        if (machine) {
-          params.push(machine);
-          conditions.push(`s.machine_name = $${params.length}`);
-        }
-        if (state) {
-          params.push(state);
-          conditions.push(`s.current_state = $${params.length}`);
-        }
-        if (q) {
-          params.push(`%${q}%`);
-          conditions.push(`(s.context::text ILIKE $${params.length} OR s.instance_id::text ILIKE $${params.length})`);
-        }
+          if (machine) {
+            params.push(machine);
+            conditions.push(`s.machine_name = $${params.length}`);
+          }
+          if (state) {
+            params.push(state);
+            conditions.push(`s.current_state = $${params.length}`);
+          }
+          if (q) {
+            params.push(`%${q}%`);
+            conditions.push(`(s.context::text ILIKE $${params.length} OR s.instance_id::text ILIKE $${params.length})`);
+          }
 
-        if (conditions.length > 0) {
-          query += ' WHERE ' + conditions.join(' AND ');
-        }
+          if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+          }
 
-        query += ` ORDER BY s.updated_at DESC LIMIT $${params.length + 1}`;
-        params.push(limit);
+          query += ` ORDER BY s.updated_at DESC LIMIT $${params.length + 1}`;
+          params.push(limit);
 
-        const result = await this.pgPool.query(query, params);
+          const result = await this.pgPool.query(query, params);
 
-        // If snapshots found, return them
-        if (result.rows.length > 0) {
-          res.json({ instances: result.rows });
+          // If snapshots found, return them
+          if (result.rows.length > 0) {
+            res.json({ instances: result.rows });
+            return;
+          }
+
+          // Fallback: build instance list from fsm_events (snapshots may not exist
+          // if snapshotInterval is higher than the number of transitions)
+          let eventsQuery = `
+            SELECT e.instance_id, e.machine_name,
+                   (array_agg(e.to_state ORDER BY e.persisted_at DESC))[1] as current_state,
+                   (array_agg(e.event_payload ORDER BY e.persisted_at ASC))[1] as context,
+                   COUNT(*) as event_count,
+                   MIN(e.created_at) as created_at,
+                   MAX(e.created_at) as updated_at
+            FROM fsm_events e
+          `;
+          const evtConditions: string[] = [];
+          const evtParams: any[] = [];
+
+          if (machine) {
+            evtParams.push(machine);
+            evtConditions.push(`e.machine_name = $${evtParams.length}`);
+          }
+          if (q) {
+            evtParams.push(`%${q}%`);
+            evtConditions.push(`(e.event_payload::text ILIKE $${evtParams.length} OR e.instance_id::text ILIKE $${evtParams.length})`);
+          }
+
+          if (evtConditions.length > 0) {
+            eventsQuery += ' WHERE ' + evtConditions.join(' AND ');
+          }
+
+          eventsQuery += ` GROUP BY e.instance_id, e.machine_name`;
+
+          if (state) {
+            eventsQuery = `SELECT * FROM (${eventsQuery}) sub WHERE sub.current_state = $${evtParams.length + 1}`;
+            evtParams.push(state);
+          }
+
+          eventsQuery += ` ORDER BY updated_at DESC LIMIT $${evtParams.length + 1}`;
+          evtParams.push(limit);
+
+          const eventsResult = await this.pgPool.query(eventsQuery, evtParams);
+          res.json({ instances: eventsResult.rows });
+          return;
+        } catch (error: any) {
+          console.error('[Dashboard] History search error:', error.message);
+          res.status(500).json({ error: error.message });
           return;
         }
-
-        // Fallback: build instance list from fsm_events (snapshots may not exist
-        // if snapshotInterval is higher than the number of transitions)
-        let eventsQuery = `
-          SELECT e.instance_id, e.machine_name,
-                 (array_agg(e.to_state ORDER BY e.persisted_at DESC))[1] as current_state,
-                 (array_agg(e.event_payload ORDER BY e.persisted_at ASC))[1] as context,
-                 COUNT(*) as event_count,
-                 MIN(e.created_at) as created_at,
-                 MAX(e.created_at) as updated_at
-          FROM fsm_events e
-        `;
-        const evtConditions: string[] = [];
-        const evtParams: any[] = [];
-
-        if (machine) {
-          evtParams.push(machine);
-          evtConditions.push(`e.machine_name = $${evtParams.length}`);
-        }
-        if (q) {
-          evtParams.push(`%${q}%`);
-          evtConditions.push(`(e.event_payload::text ILIKE $${evtParams.length} OR e.instance_id::text ILIKE $${evtParams.length})`);
-        }
-
-        if (evtConditions.length > 0) {
-          eventsQuery += ' WHERE ' + evtConditions.join(' AND ');
-        }
-
-        eventsQuery += ` GROUP BY e.instance_id, e.machine_name`;
-
-        if (state) {
-          eventsQuery = `SELECT * FROM (${eventsQuery}) sub WHERE sub.current_state = $${evtParams.length + 1}`;
-          evtParams.push(state);
-        }
-
-        eventsQuery += ` ORDER BY updated_at DESC LIMIT $${evtParams.length + 1}`;
-        evtParams.push(limit);
-
-        const eventsResult = await this.pgPool.query(eventsQuery, evtParams);
-        res.json({ instances: eventsResult.rows });
-      } catch (error: any) {
-        console.error('[Dashboard] History search error:', error.message);
-        res.status(500).json({ error: error.message });
       }
+
+      // Fallback to Redis
+      if (this.redisClient) {
+        try {
+          const instances = await this.getRedisInstances(machine as string, state as string, q as string, limit);
+          res.json({ instances });
+          return;
+        } catch (error: any) {
+          console.error('[Dashboard] Redis history search error:', error.message);
+          res.status(500).json({ error: error.message });
+          return;
+        }
+      }
+
+      res.json({ instances: [], message: 'No database configured (set DATABASE_URL or use Redis broker)' });
     });
 
     // Get full event history for a specific instance (by instance ID from snapshots)
     this.app.get('/api/history/instances/:instanceId/events', async (req, res) => {
-      if (!this.pgPool) {
-        res.json({ events: [], message: 'No database configured (set DATABASE_URL)' });
-        return;
+      const { instanceId } = req.params;
+
+      // Try PostgreSQL first
+      if (this.pgPool) {
+        try {
+          // Get snapshot (current/final state)
+          const snapshotResult = await this.pgPool.query(
+            `SELECT instance_id, machine_name, current_state, context, event_count,
+                    created_at, updated_at
+             FROM fsm_snapshots WHERE instance_id = $1`,
+            [instanceId]
+          );
+
+          // Get all events
+          const eventsResult = await this.pgPool.query(
+            `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
+                    from_state, to_state, context, public_member_snapshot,
+                    source_component_name,
+                    correlation_id, causation_id, caused, persisted_at, created_at
+             FROM fsm_events WHERE instance_id = $1
+             ORDER BY persisted_at ASC`,
+            [instanceId]
+          );
+
+          // Map to PersistedEvent format
+          const events = eventsResult.rows.map((row: any) => ({
+            id: row.id,
+            instanceId: row.instance_id,
+            machineName: row.machine_name,
+            componentName: row.component_name || '',
+            event: {
+              type: row.event_type,
+              payload: row.event_payload || {},
+              timestamp: parseInt(row.persisted_at, 10)
+            },
+            stateBefore: row.from_state,
+            stateAfter: row.to_state,
+            publicMemberSnapshot: row.public_member_snapshot,
+            sourceComponentName: row.source_component_name || undefined,
+            causedBy: row.correlation_id ? [row.correlation_id] : undefined,
+            caused: row.caused || [],
+            persistedAt: parseInt(row.persisted_at, 10),
+          }));
+
+          res.json({
+            snapshot: snapshotResult.rows[0] || null,
+            events
+          });
+          return;
+        } catch (error: any) {
+          res.status(500).json({ error: error.message });
+          return;
+        }
       }
-      try {
-        const { instanceId } = req.params;
 
-        // Get snapshot (current/final state)
-        const snapshotResult = await this.pgPool.query(
-          `SELECT instance_id, machine_name, current_state, context, event_count,
-                  created_at, updated_at
-           FROM fsm_snapshots WHERE instance_id = $1`,
-          [instanceId]
-        );
-
-        // Get all events
-        const eventsResult = await this.pgPool.query(
-          `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
-                  from_state, to_state, context, public_member_snapshot,
-                  source_component_name,
-                  correlation_id, causation_id, caused, persisted_at, created_at
-           FROM fsm_events WHERE instance_id = $1
-           ORDER BY persisted_at ASC`,
-          [instanceId]
-        );
-
-        // Map to PersistedEvent format
-        const events = eventsResult.rows.map((row: any) => ({
-          id: row.id,
-          instanceId: row.instance_id,
-          machineName: row.machine_name,
-          componentName: row.component_name || '',
-          event: {
-            type: row.event_type,
-            payload: row.event_payload || {},
-            timestamp: parseInt(row.persisted_at, 10)
-          },
-          stateBefore: row.from_state,
-          stateAfter: row.to_state,
-          publicMemberSnapshot: row.public_member_snapshot,
-          sourceComponentName: row.source_component_name || undefined,
-          causedBy: row.correlation_id ? [row.correlation_id] : undefined,
-          caused: row.caused || [],
-          persistedAt: parseInt(row.persisted_at, 10),
-        }));
-
-        res.json({
-          snapshot: snapshotResult.rows[0] || null,
-          events
-        });
-      } catch (error: any) {
-        res.status(500).json({ error: error.message });
+      // Fallback to Redis
+      if (this.redisClient) {
+        try {
+          const { snapshot, events } = await this.getRedisInstanceEventsWithSnapshot(instanceId);
+          res.json({ snapshot, events });
+          return;
+        } catch (error: any) {
+          res.status(500).json({ error: error.message });
+          return;
+        }
       }
+
+      res.json({ events: [], message: 'No database configured (set DATABASE_URL or use Redis broker)' });
     });
 
     // Get correlated events across all instances sharing the same context value
     // Used for cross-component sequence diagram (e.g., all events for orderId=X)
     this.app.get('/api/history/correlated/:instanceId', async (req, res) => {
-      if (!this.pgPool) {
-        res.json({ events: [], correlationKey: null });
-        return;
-      }
-      try {
-        const { instanceId } = req.params;
+      const { instanceId } = req.params;
 
-        // Step 1: Get context of the target instance from fsm_events
-        // Also fetch public_member_snapshot which reliably contains instance context
-        const instanceEventsResult = await this.pgPool.query(
-          `SELECT event_payload, context, public_member_snapshot, machine_name FROM fsm_events
-           WHERE instance_id = $1 ORDER BY persisted_at ASC LIMIT 1`,
-          [instanceId]
-        );
-        if (instanceEventsResult.rows.length === 0) {
-          res.json({ events: [], correlationKey: null });
-          return;
-        }
-
-        // Step 2: Also check snapshots for context
-        const snapshotResult = await this.pgPool.query(
-          `SELECT context FROM fsm_snapshots WHERE instance_id = $1 LIMIT 1`,
-          [instanceId]
-        );
-
-        // Determine correlation key: merge all available context sources
-        const firstPayload = instanceEventsResult.rows[0].event_payload || {};
-        const eventContext = instanceEventsResult.rows[0].context || {};
-        const eventSnapshot = instanceEventsResult.rows[0].public_member_snapshot || {};
-        const snapshotContext = snapshotResult.rows[0]?.context || {};
-        const context = { ...firstPayload, ...eventContext, ...eventSnapshot, ...snapshotContext };
-
-        // Try common correlation fields
-        const correlationFields = ['orderId', 'requestId', 'id', 'transactionId', 'correlationId'];
-        let correlationKey: string | null = null;
-        let correlationValue: any = null;
-
-        for (const field of correlationFields) {
-          if (context[field] !== undefined && context[field] !== null) {
-            correlationKey = field;
-            correlationValue = context[field];
-            break;
+      // Try PostgreSQL first
+      if (this.pgPool) {
+        try {
+          // Step 1: Get context of the target instance from fsm_events
+          // Also fetch public_member_snapshot which reliably contains instance context
+          const instanceEventsResult = await this.pgPool.query(
+            `SELECT event_payload, context, public_member_snapshot, machine_name FROM fsm_events
+             WHERE instance_id = $1 ORDER BY persisted_at ASC LIMIT 1`,
+            [instanceId]
+          );
+          if (instanceEventsResult.rows.length === 0) {
+            res.json({ events: [], correlationKey: null });
+            return;
           }
-        }
 
-        if (!correlationKey) {
-          // No correlation found, return just this instance's events
-          const result = await this.pgPool.query(
+          // Step 2: Also check snapshots for context
+          const snapshotResult = await this.pgPool.query(
+            `SELECT context FROM fsm_snapshots WHERE instance_id = $1 LIMIT 1`,
+            [instanceId]
+          );
+
+          // Determine correlation key: merge all available context sources
+          const firstPayload = instanceEventsResult.rows[0].event_payload || {};
+          const eventContext = instanceEventsResult.rows[0].context || {};
+          const eventSnapshot = instanceEventsResult.rows[0].public_member_snapshot || {};
+          const snapshotContext = snapshotResult.rows[0]?.context || {};
+          const context = { ...firstPayload, ...eventContext, ...eventSnapshot, ...snapshotContext };
+
+          // Try common correlation fields
+          const correlationFields = ['orderId', 'requestId', 'id', 'transactionId', 'correlationId'];
+          let correlationKey: string | null = null;
+          let correlationValue: any = null;
+
+          for (const field of correlationFields) {
+            if (context[field] !== undefined && context[field] !== null) {
+              correlationKey = field;
+              correlationValue = context[field];
+              break;
+            }
+          }
+
+          if (!correlationKey) {
+            // No correlation found, return just this instance's events
+            const result = await this.pgPool.query(
+              `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
+                      from_state, to_state, context, public_member_snapshot,
+                      source_component_name, persisted_at, created_at
+               FROM fsm_events WHERE instance_id = $1
+               ORDER BY persisted_at ASC`,
+              [instanceId]
+            );
+            res.json({
+              events: result.rows.map((row: any) => ({
+                id: row.id,
+                instanceId: row.instance_id,
+                machineName: row.machine_name,
+                componentName: row.component_name || '',
+                eventType: row.event_type,
+                eventPayload: row.event_payload || {},
+                fromState: row.from_state,
+                toState: row.to_state,
+                context: row.context,
+                publicMemberSnapshot: row.public_member_snapshot,
+                sourceComponentName: row.source_component_name || undefined,
+                persistedAt: parseInt(row.persisted_at, 10),
+              })),
+              correlationKey: null,
+            });
+            return;
+          }
+
+          // Step 3: Find ALL events across ALL instances that share this correlation value
+          // Search in event_payload, context, and public_member_snapshot
+          const correlatedResult = await this.pgPool.query(
             `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
                     from_state, to_state, context, public_member_snapshot,
                     source_component_name, persisted_at, created_at
-             FROM fsm_events WHERE instance_id = $1
+             FROM fsm_events
+             WHERE event_payload->>$1 = $2
+                OR context->>$1 = $2
+                OR public_member_snapshot->>$1 = $2
              ORDER BY persisted_at ASC`,
-            [instanceId]
+            [correlationKey, String(correlationValue)]
           );
+
           res.json({
-            events: result.rows.map((row: any) => ({
+            events: correlatedResult.rows.map((row: any) => ({
               id: row.id,
               instanceId: row.instance_id,
               machineName: row.machine_name,
@@ -535,47 +622,31 @@ export class DashboardServer {
               sourceComponentName: row.source_component_name || undefined,
               persistedAt: parseInt(row.persisted_at, 10),
             })),
-            correlationKey: null,
+            correlationKey,
+            correlationValue,
           });
           return;
+        } catch (error: any) {
+          console.error('[Dashboard] Correlated events error:', error.message);
+          res.status(500).json({ error: error.message });
+          return;
         }
-
-        // Step 3: Find ALL events across ALL instances that share this correlation value
-        // Search in event_payload, context, and public_member_snapshot
-        const correlatedResult = await this.pgPool.query(
-          `SELECT id, instance_id, machine_name, component_name, event_type, event_payload,
-                  from_state, to_state, context, public_member_snapshot,
-                  source_component_name, persisted_at, created_at
-           FROM fsm_events
-           WHERE event_payload->>$1 = $2
-              OR context->>$1 = $2
-              OR public_member_snapshot->>$1 = $2
-           ORDER BY persisted_at ASC`,
-          [correlationKey, String(correlationValue)]
-        );
-
-        res.json({
-          events: correlatedResult.rows.map((row: any) => ({
-            id: row.id,
-            instanceId: row.instance_id,
-            machineName: row.machine_name,
-            componentName: row.component_name || '',
-            eventType: row.event_type,
-            eventPayload: row.event_payload || {},
-            fromState: row.from_state,
-            toState: row.to_state,
-            context: row.context,
-            publicMemberSnapshot: row.public_member_snapshot,
-            sourceComponentName: row.source_component_name || undefined,
-            persistedAt: parseInt(row.persisted_at, 10),
-          })),
-          correlationKey,
-          correlationValue,
-        });
-      } catch (error: any) {
-        console.error('[Dashboard] Correlated events error:', error.message);
-        res.status(500).json({ error: error.message });
       }
+
+      // Fallback to Redis
+      if (this.redisClient) {
+        try {
+          const result = await this.getRedisCorrelatedEvents(instanceId);
+          res.json(result);
+          return;
+        } catch (error: any) {
+          console.error('[Dashboard] Redis correlated events error:', error.message);
+          res.status(500).json({ error: error.message });
+          return;
+        }
+      }
+
+      res.json({ events: [], correlationKey: null });
     });
 
     // Trigger event on specific component instance
@@ -738,6 +809,225 @@ export class DashboardServer {
     console.log(`[Dashboard] ${componentName} now has ${instances.length} instances in cache`);
   }
 
+  // ==================== Redis Helper Methods ====================
+
+  /**
+   * Get instance history from Redis
+   */
+  private async getRedisInstanceHistory(instanceId: string): Promise<any[]> {
+    const key = `${this.redisKeyPrefix}:events:${instanceId}`;
+    const results = await this.redisClient.zRangeByScore(key, '-inf', '+inf');
+
+    return results.map((r: string) => {
+      const event: PersistedEvent = JSON.parse(r);
+      return {
+        id: event.id,
+        instanceId: event.instanceId,
+        machineName: event.machineName,
+        componentName: event.componentName || '',
+        event: {
+          type: event.event.type,
+          payload: event.event.payload || {},
+          timestamp: event.persistedAt
+        },
+        stateBefore: event.stateBefore,
+        stateAfter: event.stateAfter,
+        publicMemberSnapshot: event.publicMemberSnapshot,
+        causedBy: event.causedBy,
+        caused: event.caused || [],
+        persistedAt: event.persistedAt,
+        sourceComponentName: event.sourceComponentName,
+      };
+    });
+  }
+
+  /**
+   * Search instances from Redis snapshots
+   */
+  private async getRedisInstances(machine?: string, state?: string, q?: string, limit: number = 100): Promise<any[]> {
+    // Get all snapshot instance IDs
+    const instanceIds = await this.redisClient.sMembers(`${this.redisKeyPrefix}:snapshots:all`);
+    const results: any[] = [];
+
+    for (const id of instanceIds) {
+      if (results.length >= limit) break;
+
+      const snapshotData = await this.redisClient.get(`${this.redisKeyPrefix}:snapshot:${id}`);
+      if (!snapshotData) continue;
+
+      const snapshot: InstanceSnapshot = JSON.parse(snapshotData);
+
+      // Apply filters
+      if (machine && snapshot.instance.machineName !== machine) continue;
+      if (state && snapshot.instance.currentState !== state) continue;
+      if (q) {
+        const searchStr = JSON.stringify(snapshot.instance.context || {}).toLowerCase();
+        if (!searchStr.includes(q.toLowerCase()) && !id.toLowerCase().includes(q.toLowerCase())) {
+          continue;
+        }
+      }
+
+      results.push({
+        instance_id: snapshot.instance.id,
+        machine_name: snapshot.instance.machineName,
+        current_state: snapshot.instance.currentState,
+        context: snapshot.instance.context,
+        event_count: (snapshot as any).eventCount || 0,
+        created_at: snapshot.instance.createdAt ? new Date(snapshot.instance.createdAt).toISOString() : null,
+        updated_at: snapshot.snapshotAt ? new Date(snapshot.snapshotAt).toISOString() : null,
+      });
+    }
+
+    // Sort by updated_at descending
+    results.sort((a, b) => {
+      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    return results;
+  }
+
+  /**
+   * Get instance events with snapshot from Redis
+   */
+  private async getRedisInstanceEventsWithSnapshot(instanceId: string): Promise<{ snapshot: any; events: any[] }> {
+    // Get snapshot
+    const snapshotData = await this.redisClient.get(`${this.redisKeyPrefix}:snapshot:${instanceId}`);
+    let snapshot = null;
+    if (snapshotData) {
+      const s: InstanceSnapshot = JSON.parse(snapshotData);
+      snapshot = {
+        instance_id: s.instance.id,
+        machine_name: s.instance.machineName,
+        current_state: s.instance.currentState,
+        context: s.instance.context,
+        event_count: (s as any).eventCount || 0,
+        created_at: s.instance.createdAt ? new Date(s.instance.createdAt).toISOString() : null,
+        updated_at: s.snapshotAt ? new Date(s.snapshotAt).toISOString() : null,
+      };
+    }
+
+    // Get events
+    const events = await this.getRedisInstanceHistory(instanceId);
+
+    return { snapshot, events };
+  }
+
+  /**
+   * Get correlated events from Redis (cross-component correlation)
+   */
+  private async getRedisCorrelatedEvents(instanceId: string): Promise<{
+    events: any[];
+    correlationKey: string | null;
+    correlationValue?: any;
+  }> {
+    // Get first event for this instance to extract correlation context
+    const instanceEvents = await this.getRedisInstanceHistory(instanceId);
+    if (instanceEvents.length === 0) {
+      return { events: [], correlationKey: null };
+    }
+
+    // Also get snapshot for context
+    const snapshotData = await this.redisClient.get(`${this.redisKeyPrefix}:snapshot:${instanceId}`);
+    let snapshotContext: any = {};
+    if (snapshotData) {
+      const snapshot: InstanceSnapshot = JSON.parse(snapshotData);
+      snapshotContext = snapshot.instance.context || {};
+    }
+
+    // Build context from multiple sources
+    const firstEvent = instanceEvents[0];
+    const eventPayload = firstEvent.event?.payload || {};
+    const publicMemberSnapshot = firstEvent.publicMemberSnapshot || {};
+    const context = { ...eventPayload, ...publicMemberSnapshot, ...snapshotContext };
+
+    // Try common correlation fields
+    const correlationFields = ['orderId', 'requestId', 'id', 'transactionId', 'correlationId'];
+    let correlationKey: string | null = null;
+    let correlationValue: any = null;
+
+    for (const field of correlationFields) {
+      if (context[field] !== undefined && context[field] !== null) {
+        correlationKey = field;
+        correlationValue = context[field];
+        break;
+      }
+    }
+
+    if (!correlationKey) {
+      // No correlation found, return just this instance's events
+      return {
+        events: instanceEvents.map(e => ({
+          id: e.id,
+          instanceId: e.instanceId,
+          machineName: e.machineName,
+          componentName: e.componentName || '',
+          eventType: e.event.type,
+          eventPayload: e.event.payload || {},
+          fromState: e.stateBefore,
+          toState: e.stateAfter,
+          context: e.publicMemberSnapshot,
+          publicMemberSnapshot: e.publicMemberSnapshot,
+          sourceComponentName: e.sourceComponentName || undefined,
+          persistedAt: e.persistedAt,
+        })),
+        correlationKey: null,
+      };
+    }
+
+    // Search all events for matching correlation value
+    // Note: This is less efficient than PostgreSQL JSONB queries, but works
+    const allEventsRaw = await this.redisClient.zRange(
+      `${this.redisKeyPrefix}:events:all`,
+      0,
+      9999
+    );
+
+    const correlatedEvents: any[] = [];
+    const correlationValueStr = String(correlationValue);
+
+    for (const raw of allEventsRaw) {
+      const event: PersistedEvent = JSON.parse(raw);
+
+      // Check if this event matches the correlation
+      const evtPayload = event.event?.payload || {};
+      const evtPublicMember = event.publicMemberSnapshot || {};
+
+      const matches =
+        String(evtPayload[correlationKey]) === correlationValueStr ||
+        String(evtPublicMember[correlationKey]) === correlationValueStr;
+
+      if (matches) {
+        correlatedEvents.push({
+          id: event.id,
+          instanceId: event.instanceId,
+          machineName: event.machineName,
+          componentName: event.componentName || '',
+          eventType: event.event.type,
+          eventPayload: event.event.payload || {},
+          fromState: event.stateBefore,
+          toState: event.stateAfter,
+          context: event.publicMemberSnapshot,
+          publicMemberSnapshot: event.publicMemberSnapshot,
+          sourceComponentName: event.sourceComponentName || undefined,
+          persistedAt: event.persistedAt,
+        });
+      }
+    }
+
+    // Sort by persistedAt
+    correlatedEvents.sort((a, b) => a.persistedAt - b.persistedAt);
+
+    return {
+      events: correlatedEvents,
+      correlationKey,
+      correlationValue,
+    };
+  }
+
+  // ==================== End Redis Helper Methods ====================
+
   private generateMermaidDiagram(machine: any, currentState?: string): string {
     const lines: string[] = ['stateDiagram-v2'];
 
@@ -795,7 +1085,7 @@ export class DashboardServer {
   }
 
   async start(port: number = 3000): Promise<void> {
-    console.log(`[Dashboard] Version: 2024-01-27-v3 - Starting...`);
+    console.log(`[Dashboard] Version: 2024-01-27-v4 - Starting...`);
 
     // Connect to PostgreSQL if DATABASE_URL provided (for history queries)
     if (this.databaseUrl) {
@@ -808,11 +1098,32 @@ export class DashboardServer {
         console.log(`[Dashboard] PostgreSQL connected (history queries enabled)`);
       } catch (error: any) {
         console.warn(`[Dashboard] PostgreSQL connection failed: ${error.message}`);
-        console.warn(`[Dashboard] History queries will be unavailable`);
         this.pgPool = null;
       }
-    } else {
-      console.log(`[Dashboard] No DATABASE_URL - history queries disabled`);
+    }
+
+    // Connect to Redis for history queries if PostgreSQL not available and Redis URL provided
+    if (!this.pgPool && this.redisUrl) {
+      try {
+        const redis = await import('redis' as any);
+        const createClient = redis.createClient || redis.default?.createClient;
+
+        if (createClient) {
+          this.redisClient = createClient({ url: this.redisUrl });
+          await this.redisClient.connect();
+          // Test connection
+          await this.redisClient.ping();
+          console.log(`[Dashboard] Redis connected (history queries enabled)`);
+        }
+      } catch (error: any) {
+        console.warn(`[Dashboard] Redis connection failed: ${error.message}`);
+        this.redisClient = null;
+      }
+    }
+
+    // Log history query status
+    if (!this.pgPool && !this.redisClient) {
+      console.log(`[Dashboard] No DATABASE_URL and no Redis - history queries disabled`);
     }
 
     // Connect to message broker
@@ -841,12 +1152,14 @@ export class DashboardServer {
     // Start HTTP server
     return new Promise((resolve) => {
       this.httpServer.listen(port, () => {
+        const dbType = this.pgPool ? 'PostgreSQL' : (this.redisClient ? 'Redis' : 'none');
         console.log('\n' + '═'.repeat(50));
         console.log('    XCOMPONENT DASHBOARD (Distributed Mode)');
         console.log('═'.repeat(50));
         console.log(`📊 Dashboard:     http://localhost:${port}`);
         console.log(`📡 WebSocket:     ws://localhost:${port}`);
         console.log(`🔗 Broker:        ${this.brokerUrl.replace(/:[^:@]+@/, ':***@')}`);
+        console.log(`💾 History DB:    ${dbType}`);
         console.log('═'.repeat(50));
         console.log('Waiting for runtimes to connect...\n');
         resolve();
@@ -860,6 +1173,9 @@ export class DashboardServer {
     }
     if (this.pgPool) {
       await this.pgPool.end();
+    }
+    if (this.redisClient) {
+      await this.redisClient.disconnect();
     }
     await this.broker.disconnect();
     this.httpServer.close();

@@ -12,6 +12,7 @@ This document is the single reference for all xcomponent-ai deployment modes.
   - [Mode 3: Distributed + RabbitMQ](#mode-3-distributed--rabbitmq)
   - [Mode 4: Distributed + Redis](#mode-4-distributed--redis)
   - [Mode 5: Redis-only (bus + persistence)](#mode-5-redis-only-bus--persistence)
+  - [Mode 6: Distributed + Kafka](#mode-6-distributed--kafka)
 - [Comparison Matrix](#comparison-matrix)
 - [Persistence Backends](#persistence-backends)
   - [In-Memory](#in-memory)
@@ -21,6 +22,7 @@ This document is the single reference for all xcomponent-ai deployment modes.
   - [In-Memory (single-process)](#in-memory-single-process)
   - [RabbitMQ](#rabbitmq)
   - [Redis Pub/Sub](#redis-pubsub)
+  - [Kafka](#kafka)
 - [Dashboard and Audit Trail](#dashboard-and-audit-trail)
 - [Docker Examples](#docker-examples)
 - [Configuration Reference](#configuration-reference)
@@ -39,7 +41,7 @@ xcomponent-ai has three independently configurable layers:
                       │
  ┌────────────────────▼─────────────────────────┐
  │          Message Broker (Bus)                 │
- │   In-memory │ RabbitMQ │ Redis Pub/Sub        │
+ │   In-memory │ RabbitMQ │ Redis │ Kafka        │
  │   Cross-component event routing               │
  └────────────────────┬─────────────────────────┘
                       │
@@ -51,7 +53,7 @@ xcomponent-ai has three independently configurable layers:
 ```
 
 Each layer is **optional and independently configurable**:
-- **Bus**: How components communicate (in-memory for single-process, Redis/RabbitMQ for distributed)
+- **Bus**: How components communicate (in-memory for single-process, Redis/RabbitMQ/Kafka for distributed)
 - **Persistence**: Where events and snapshots are stored (in-memory, PostgreSQL, or Redis)
 - **Dashboard**: Web UI for monitoring (adapts based on database availability)
 
@@ -341,20 +343,100 @@ const broadcaster = await createRuntimeBroadcaster(
 
 ---
 
+### Mode 6: Distributed + Kafka
+
+**High-throughput distributed architecture.** Each component runs in its own process. Apache Kafka handles cross-component messaging with durability and ordering guarantees.
+
+```
+┌────────────┐      ┌────────────┐
+│ Runtime 1  │      │ Runtime 2  │
+│ Component A│      │ Component B│
+└──────┬─────┘      └─────┬──────┘
+       │                   │
+┌──────▼───────────────────▼──────┐
+│            Kafka                │
+│     (cross-component bus)       │
+│  Topics: xcomponent.fsm.*       │
+└──────┬──────────────────────────┘
+       │
+┌──────▼──────────────────────────┐
+│        Dashboard Server         │
+│   (subscribes to Kafka)         │
+└──────┬──────────────────────────┘
+       │
+┌──────▼──────┐
+│ PostgreSQL  │  (optional)
+└─────────────┘
+```
+
+**Characteristics:**
+- High throughput (millions of messages/sec)
+- Message ordering per partition
+- Durable message storage with configurable retention
+- Replay capability (consumers can rewind to previous offsets)
+- Horizontal scaling with partitions
+- Optional PostgreSQL for audit trail
+
+**Usage:**
+```bash
+# Runtime 1 (OrderComponent)
+node runtime.js --component order.yaml --broker kafka://kafka:9092
+
+# Runtime 2 (PaymentComponent)
+node runtime.js --component payment.yaml --broker kafka://kafka:9092
+
+# Dashboard
+node dashboard.js --broker kafka://kafka:9092 --database postgresql://...
+```
+
+**Programmatic:**
+```typescript
+import { createRuntimeBroadcaster, FSMRuntime } from 'xcomponent-ai';
+
+const runtime = new FSMRuntime(component);
+const broadcaster = await createRuntimeBroadcaster(
+  runtime, component, 'kafka://localhost:9092'
+);
+```
+
+**URL formats:**
+```
+kafka://localhost:9092                        # Single broker
+kafka://broker1:9092,broker2:9092             # Multiple brokers
+kafka://user:password@localhost:9092          # SASL/PLAIN auth
+kafkas://localhost:9093                       # SSL/TLS
+kafkas://user:password@localhost:9093         # SSL + SASL
+kafka://localhost:9092?clientId=myapp         # Custom client ID
+kafka://localhost:9092?groupId=mygroup        # Custom consumer group prefix
+```
+
+**Docker:** See `examples/distributed-kafka/`
+```bash
+cd examples/distributed-kafka
+docker compose up
+# Dashboard: http://localhost:3000/dashboard.html
+```
+
+**When to use:** High-volume production workloads, event streaming architectures, when you need message replay, microservices at scale.
+
+---
+
 ## Comparison Matrix
 
-| | Monolith | Monolith+PG | Distributed+RMQ | Distributed+Redis | Redis-only |
-|---|---|---|---|---|---|
-| **External deps** | None | PostgreSQL | RabbitMQ + PG (opt.) | Redis + PG (opt.) | Redis |
-| **Persistence** | In-memory | PostgreSQL | PostgreSQL (opt.) | PostgreSQL (opt.) | Redis |
-| **Bus** | In-memory | In-memory | RabbitMQ | Redis Pub/Sub | Redis Pub/Sub |
-| **Audit trail** | No | Yes | If PG configured | If PG configured | Yes |
-| **Multi-process** | No | No | Yes | Yes | Yes |
-| **Data on restart** | Lost | Persisted | Persisted (if PG) | Persisted (if PG) | Persisted |
-| **Cross-component latency** | <1ms | <1ms | 5-20ms | 2-10ms | 2-10ms |
-| **Message durability** | N/A | N/A | Yes (queues) | No (Pub/Sub) | No (Pub/Sub) |
-| **Complexity** | Low | Low | High | Medium | Medium |
-| **Example** | CLI default | `monolith-postgres/` | `distributed/` | `distributed-redis/` | Programmatic |
+| | Monolith | Monolith+PG | Distributed+RMQ | Distributed+Redis | Redis-only | Distributed+Kafka |
+|---|---|---|---|---|---|---|
+| **External deps** | None | PostgreSQL | RabbitMQ + PG (opt.) | Redis + PG (opt.) | Redis | Kafka + PG (opt.) |
+| **Persistence** | In-memory | PostgreSQL | PostgreSQL (opt.) | PostgreSQL (opt.) | Redis | PostgreSQL (opt.) |
+| **Bus** | In-memory | In-memory | RabbitMQ | Redis Pub/Sub | Redis Pub/Sub | Kafka |
+| **Audit trail** | No | Yes | If PG configured | If PG configured | Yes | If PG configured |
+| **Multi-process** | No | No | Yes | Yes | Yes | Yes |
+| **Data on restart** | Lost | Persisted | Persisted (if PG) | Persisted (if PG) | Persisted | Persisted (if PG) |
+| **Cross-component latency** | <1ms | <1ms | 5-20ms | 2-10ms | 2-10ms | 5-50ms |
+| **Message durability** | N/A | N/A | Yes (queues) | No (Pub/Sub) | No (Pub/Sub) | Yes (topics) |
+| **Throughput** | High | High | Medium | Medium | Medium | Very High |
+| **Message replay** | No | No | No | No | No | Yes |
+| **Complexity** | Low | Low | High | Medium | Medium | High |
+| **Example** | CLI default | `monolith-postgres/` | `distributed/` | `distributed-redis/` | Programmatic | `distributed-kafka/` |
 
 ---
 
@@ -460,6 +542,50 @@ const broadcaster = await createRuntimeBroadcaster(
 - Lower latency than RabbitMQ
 - Simpler infrastructure if Redis already in stack
 
+### Kafka
+
+High-throughput distributed streaming platform.
+
+```typescript
+const broadcaster = await createRuntimeBroadcaster(
+  runtime, component, 'kafka://kafka:9092'
+);
+```
+
+**Features:**
+- Very high throughput (millions of messages/second)
+- Durable message storage with configurable retention
+- Message ordering per partition
+- Replay capability (consumers can rewind)
+- Horizontal scaling with partitions
+- Built-in fault tolerance with replication
+
+**URL formats:**
+| URL | Description |
+|-----|-------------|
+| `kafka://localhost:9092` | Single broker, no auth |
+| `kafka://broker1:9092,broker2:9092` | Multiple brokers |
+| `kafka://user:pass@localhost:9092` | SASL/PLAIN authentication |
+| `kafkas://localhost:9093` | SSL/TLS encrypted |
+| `kafkas://user:pass@localhost:9093` | SSL + SASL |
+| `kafka://localhost:9092?clientId=myapp` | Custom client ID |
+| `kafka://localhost:9092?groupId=mygroup` | Custom consumer group prefix |
+
+**Topic naming:**
+- Channels are converted to Kafka topics with prefix `xcomponent.`
+- Example: `fsm:events:state_change` → `xcomponent.fsm.events.state_change`
+
+**Consumer groups:**
+- Each subscription creates a unique consumer group
+- Ensures all subscribers receive all messages (broadcast semantics)
+- Group ID format: `xcomponent.{topic}.{timestamp}.{random}`
+
+**When to choose Kafka over RabbitMQ:**
+- Need very high throughput (>100k msgs/sec)
+- Want message replay capability
+- Building event streaming architecture
+- Need long-term message retention
+
 ---
 
 ## Dashboard and Audit Trail
@@ -500,6 +626,7 @@ Each deployment mode has a complete Docker example:
 | `examples/monolith-postgres/` | Monolith + PostgreSQL | app, postgres |
 | `examples/distributed/` | Distributed + RabbitMQ | runtime-order, runtime-payment, dashboard, rabbitmq, postgres |
 | `examples/distributed-redis/` | Distributed + Redis | runtime-order, runtime-payment, dashboard, redis, postgres |
+| `examples/distributed-kafka/` | Distributed + Kafka | runtime-order, runtime-payment, dashboard, kafka, zookeeper, postgres |
 
 Run any example:
 ```bash
@@ -525,7 +652,7 @@ docker compose down
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | None (in-memory) |
 | `REDIS_URL` | Redis connection string | None |
-| `BROKER_URL` | Message broker URL (`amqp://...` or `redis://...` or `memory`) | `memory` |
+| `BROKER_URL` | Message broker URL (`amqp://...`, `redis://...`, `kafka://...`, or `memory`) | `memory` |
 | `PORT` | Dashboard/API port | `3000` |
 | `SNAPSHOT_INTERVAL` | Save snapshot every N transitions | `10` |
 
@@ -536,6 +663,8 @@ docker compose down
 | `memory` | In-memory (single-process) |
 | `amqp://host:5672` | RabbitMQ |
 | `redis://host:6379` | Redis Pub/Sub |
+| `kafka://host:9092` | Apache Kafka |
+| `kafkas://host:9093` | Apache Kafka (SSL) |
 
 ### Persistence Configuration
 

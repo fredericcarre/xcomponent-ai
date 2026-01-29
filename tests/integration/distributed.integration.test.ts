@@ -184,6 +184,101 @@ describeIntegration('Redis Integration', () => {
   });
 });
 
+describeIntegration('Kafka Integration', () => {
+  let broker: any;
+
+  beforeAll(async () => {
+    const { KafkaMessageBroker } = await import('../../src/message-broker');
+    broker = new KafkaMessageBroker('kafka://localhost:9093');
+    await broker.connect();
+  }, 60000); // Kafka can take longer to connect
+
+  afterAll(async () => {
+    await broker?.disconnect();
+  });
+
+  test('should connect to Kafka', () => {
+    expect(broker.isConnected()).toBe(true);
+  });
+
+  test('should publish messages', async () => {
+    await expect(
+      broker.publish('xcomponent:test:kafka', {
+        sourceComponent: 'A',
+        targetComponent: 'B',
+        targetMachine: 'M',
+        targetState: 'S',
+        event: { type: 'E', payload: {}, timestamp: Date.now() },
+      })
+    ).resolves.not.toThrow();
+  });
+
+  test('should publish and subscribe to messages', (done) => {
+    const testMessage = {
+      type: 'kafka-test',
+      data: { value: Math.random() },
+    };
+
+    broker.subscribe('test:kafka:channel', (received: any) => {
+      expect(received.type).toBe('kafka-test');
+      expect(received.data.value).toBe(testMessage.data.value);
+      done();
+    });
+
+    // Kafka consumers need more time to be ready
+    setTimeout(() => {
+      broker.publish('test:kafka:channel', testMessage);
+    }, 2000);
+  }, 30000);
+});
+
+describeIntegration('RuntimeBroadcaster with Kafka', () => {
+  let runtime: FSMRuntime;
+  let broadcaster: any;
+
+  beforeAll(async () => {
+    const { RuntimeBroadcaster } = await import('../../src/runtime-broadcaster');
+
+    runtime = new FSMRuntime(testComponent);
+    broadcaster = new RuntimeBroadcaster(runtime, testComponent, {
+      brokerUrl: 'kafka://localhost:9093',
+      host: 'localhost',
+      port: 3003,
+    });
+
+    await broadcaster.connect();
+  }, 60000);
+
+  afterAll(async () => {
+    await broadcaster?.disconnect();
+    runtime?.dispose();
+  });
+
+  test('should broadcast instance creation', async () => {
+    const instanceId = runtime.createInstance('TestMachine', { testValue: 456 });
+    expect(instanceId).toBeDefined();
+
+    // Wait for async broadcast
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
+
+  test('should broadcast state changes', async () => {
+    const instanceId = runtime.createInstance('TestMachine', {});
+
+    await runtime.sendEvent(instanceId, {
+      type: 'START',
+      payload: {},
+      timestamp: Date.now(),
+    });
+
+    const instance = runtime.getInstance(instanceId);
+    expect(instance?.currentState).toBe('Processing');
+
+    // Wait for async broadcast
+    await new Promise(resolve => setTimeout(resolve, 500));
+  });
+});
+
 describeIntegration('RuntimeBroadcaster with RabbitMQ', () => {
   let runtime: FSMRuntime;
   let broadcaster: any;

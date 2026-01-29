@@ -658,6 +658,7 @@ npm run doc
 
 **Guides**:
 - **[Deployment Guide](DEPLOYMENT.md)** - All deployment modes (monolith, distributed, Redis, PostgreSQL)
+- **[Distributed Dashboard Guide](DISTRIBUTED-DASHBOARD.md)** - Monitor external apps (Next.js, Express) with the dashboard
 - **[Quick Start](QUICKSTART.md)** - Getting started in 5 minutes
 - **[LLM Framework Guide](LLM_FRAMEWORK_GUIDE.md)** - Complete usage for LLMs (Claude/GPT)
 - **[Persistence Guide](PERSISTENCE.md)** - Event sourcing and snapshot configuration

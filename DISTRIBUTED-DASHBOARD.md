@@ -601,6 +601,190 @@ async function getOrCreateCart(sessionId: string): Promise<Cart> {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## Entry Machine Modes
+
+By default, xcomponent-ai creates a **singleton** entry point instance. For e-commerce apps with multiple carts, orders, etc., use **multiple** mode:
+
+```yaml
+# component.yaml
+name: MyComponent
+version: 1.0.0
+
+# Entry point configuration
+entryMachine: Cart
+entryMachineMode: multiple      # Allow multiple instances (default: singleton)
+autoCreateEntryPoint: false     # Don't auto-create, we create manually (default: true for singleton)
+
+stateMachines:
+  - name: Cart
+    initialState: Empty
+    # ...
+```
+
+| Mode | `entryMachineMode` | `autoCreateEntryPoint` | Use Case |
+|------|-------------------|------------------------|----------|
+| **Singleton** | `singleton` | `true` | Monitors, orchestrators, single workflow |
+| **Multiple** | `multiple` | `false` | Carts, orders, user sessions, any entity with multiple instances |
+
+## Restoring Instance State After Restart
+
+**Problem**: When your app restarts, the in-memory `instanceMap` is empty, but entities exist in your database with a specific state (e.g., `CheckingOut`). If you create a new xcomponent instance, it starts at the `initialState` (e.g., `Empty`), causing state mismatches.
+
+**Solution**: Pass the current state when creating the instance. You can directly modify the instance state after creation:
+
+```typescript
+export async function createInstance(
+  machineName: string,
+  entityType: string,
+  entityId: string,
+  context: Record<string, unknown>,
+  initialState?: string  // Optional: restore to this state
+): Promise<string | null> {
+  const rt = await getRuntime();
+  const instanceId = rt.createInstance(machineName, context);
+
+  // Map entity to instance
+  instanceMap.set(`${entityType}:${entityId}`, instanceId);
+
+  // Restore state if provided (for existing entities)
+  if (initialState) {
+    const instance = rt.getInstance(instanceId);
+    if (instance && instance.currentState !== initialState) {
+      // Directly update instance state
+      (instance as any).currentState = initialState;
+      console.log(`Restored ${machineName} to state: ${initialState}`);
+    }
+  }
+
+  return instanceId;
+}
+```
+
+**Usage in your service layer:**
+
+```typescript
+async function getOrder(orderId: string): Promise<Order | null> {
+  const order = await db.order.findUnique({ where: { id: orderId } });
+  if (!order) return null;
+
+  // Ensure xcomponent instance exists with correct state
+  if (!getInstanceId('order', order.id)) {
+    await createInstance('Order', 'order', order.id, {
+      orderId: order.id,
+      total: order.total,
+      // ... other context
+    }, order.state);  // Pass current state from DB!
+  }
+
+  return order;
+}
+```
+
+## Redis Persistence (Audit Trail)
+
+For production, enable event sourcing and snapshots with Redis:
+
+```typescript
+import { FSMRuntime, createRuntimeBroadcaster, createRedisStores } from 'xcomponent-ai';
+
+const brokerUrl = 'redis://localhost:6379';
+
+// Create Redis stores for persistence
+const { eventStore, snapshotStore } = await createRedisStores({
+  url: brokerUrl,
+  keyPrefix: 'myapp'  // Keys: myapp:events:*, myapp:snapshots:*
+});
+
+// Create runtime with persistence
+const runtime = new FSMRuntime(component, {
+  eventSourcing: true,      // Store all transitions
+  snapshots: true,          // Store periodic snapshots
+  eventStore,
+  snapshotStore,
+  snapshotInterval: 5       // Snapshot every 5 transitions
+});
+
+// Connect to Redis for dashboard communication (same Redis instance)
+const broadcaster = await createRuntimeBroadcaster(
+  runtime, component, brokerUrl, { host: 'my-app', port: 3000 }
+);
+```
+
+**What gets stored:**
+- **Events**: Every state transition with timestamp, payload, and context
+- **Snapshots**: Full instance state (periodically + on terminal states)
+
+**Redis keys structure:**
+```
+myapp:events:{instanceId}     → Sorted set of events (by timestamp)
+myapp:snapshots:{instanceId}  → Latest snapshot (JSON)
+myapp:snapshots:all           → Set of all instance IDs with snapshots
+```
+
+## Common Pitfalls
+
+### 1. State Name Casing
+
+State names are **case-sensitive**. A common bug:
+
+```typescript
+// WRONG - will always be false!
+if (cart.state === 'checkingOut') { ... }
+
+// CORRECT - match exactly what's in your YAML
+if (cart.state === 'CheckingOut') { ... }
+```
+
+### 2. Event Ignored Errors
+
+If you see `Event IGNORED: CHECKOUT in state Empty`, it means:
+- The instance is in state `Empty`
+- There's no transition for `CHECKOUT` from `Empty`
+
+**Fix**: Check your state machine YAML or ensure the instance is in the correct state.
+
+### 3. Instance Not Found After Restart
+
+```
+Error: No instance found for order:abc123
+```
+
+This happens when your app restarts and the `instanceMap` is empty. **Fix**: Always check and create the instance before sending events (see "Restoring Instance State" above).
+
+### 4. Hot Reload Creates New Runtime
+
+In development with Next.js/Vite hot reload, the runtime may reinitialize, losing the `instanceMap`. **Fix**: Use a singleton pattern with a module-level promise:
+
+```typescript
+let initPromise: Promise<void> | null = null;
+let runtime: FSMRuntime | null = null;
+
+export async function getRuntime() {
+  if (!initPromise) {
+    initPromise = initRuntime();
+  }
+  await initPromise;
+  return runtime;
+}
+```
+
+### 5. Triggered Method Not Updating Context
+
+If `sender.updateContext()` doesn't seem to work, ensure you're extracting `event` from the handler parameters:
+
+```typescript
+// WRONG - event is undefined!
+runtime.on('triggered_method', async ({ method, context, sender }) => {
+  const payload = event.payload;  // ReferenceError!
+});
+
+// CORRECT - destructure event
+runtime.on('triggered_method', async ({ method, event, context, sender }) => {
+  const payload = event?.payload || {};
+  sender.updateContext({ itemCount: payload.newItemCount });
+});
+```
+
 ## Complete Example
 
 See `examples/distributed-redis/` for a complete working example with:
@@ -616,15 +800,44 @@ docker compose up
 # Instances will appear as runtimes create them
 ```
 
-## Persistence (Optional)
+## Persistence Options
 
-For production, add PostgreSQL to persist events:
+### Option 1: Redis-only (Recommended for simplicity)
 
-```javascript
+Use Redis for both messaging AND persistence:
+
+```typescript
+import { createRedisStores } from 'xcomponent-ai';
+
+const { eventStore, snapshotStore } = await createRedisStores({
+  url: 'redis://localhost:6379',
+  keyPrefix: 'myapp'
+});
+
+const runtime = new FSMRuntime(component, {
+  eventSourcing: true,
+  snapshots: true,
+  eventStore,
+  snapshotStore
+});
+```
+
+### Option 2: Redis + PostgreSQL
+
+Use Redis for messaging, PostgreSQL for persistence (better for complex queries):
+
+```typescript
+import { createPostgresStores } from 'xcomponent-ai';
+
+const { eventStore, snapshotStore } = await createPostgresStores({
+  connectionString: 'postgresql://user:pass@localhost:5432/xcomponent'
+});
+
+// Dashboard with PostgreSQL
 const dashboard = new DashboardServer(
-  'redis://redis:6379',
-  'postgresql://user:pass@postgres:5432/xcomponent'  // Enables persistence
+  'redis://redis:6379',                              // Broker
+  'postgresql://user:pass@localhost:5432/xcomponent' // Persistence
 );
 ```
 
-See `PERSISTENCE.md` for schema and setup details.
+See `PERSISTENCE.md` and `DEPLOYMENT.md` for more details.
